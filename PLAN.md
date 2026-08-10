@@ -1,46 +1,103 @@
 # The Grand — implementation plan
 
-Decisions locked: **Postgres 16**, **TypeScript end-to-end**, **cloud VPS + installable PWA**,
-**online-only**, **vertical slice first**. Frontend template pending.
+Pilot: The Grand Gastrobar, Negombo. Inventory only, no POS.
+
+**Locked decisions:** Postgres 16 · TypeScript end-to-end · cloud VPS · online-only ·
+vertical slice first · frontend built on the **beautech-master-web-app** template
+(Angular 19 + PrimeNG).
 
 ---
 
-## 1. Stack
+## 1. What the template actually is
+
+It is not a skin. It is **VendEasy POS** — a working multi-tenant POS app. That is good news
+and bad news, and the plan turns on telling the two apart.
+
+**Genuinely valuable, reuse as-is:**
+
+| Asset | Path | Why it matters |
+|---|---|---|
+| JWT + refresh interceptor | `pos/core/auth.interceptor.ts` | Single-flight refresh on concurrent 401s, retry on transient GET failures. This is the piece people get wrong; it is already right. |
+| Route guards | `pos/core/guards.ts` | `authGuard` + data-driven `roleGuard` reading `allowed` / `routeKey` |
+| Auth store | `pos/stores/auth.store.ts` | Signals-based session state |
+| Layout shell | `layout/` | Sidebar, topbar, breadcrumb, **tab layout**, theme configurator |
+| Design system | `shared/design-system/` | `kpi-card`, `table`, `empty-state`, `error-state`, `status-badge`, `form-header` |
+| Helpers | `pos/core/` | `money.ts`, `uuid.ts`, `notify.service.ts`, `live-query.ts`, `pagination` |
+
+**Dead weight for this project — remove:** the sales half. `register` (cart/checkout),
+`transactions`, `customers`, `discounts`, `gift-cards`, `payment-modal`, `receipt-overlay`,
+`cart.store`, `checkout/payments/discounts/gift-cards/sales` services, the SaaS plan gating
+(`features.ts`, `upgrade.component`) and tenant onboarding (`admin/`).
+
+**Blocked on a refactor, not a delete:** `app.routes.ts` and `app.config.ts` import the guards
+and interceptor from *inside* `pos/core/`. Deleting `src/app/pos/` breaks the build. The
+shared infrastructure gets lifted to `app/core/` first, then the sales pages go.
+
+### The four contract mismatches
+
+These are the whole reason the frontend cannot simply be "pointed at a new API".
+
+1. **Stock is not a number on a product.** `ApiProduct.stockQty` is a scalar the POS mutates.
+   In The Grand, stock is `sum(qty_base)` over `stock_ledger` per **section**, and that is the
+   entire point of the design. `ApiProduct` and `LocalProduct` must not be reused — new types.
+2. **Roles: 3 → 8.** Template has `OWNER | MANAGER | CASHIER`. The schema has eight, including
+   `storekeeper`, `chef`, `bar`, `baker`, `cleaning`, `purchasing`.
+3. **Auth: email + password → PIN.** The schema stores a 4–6 digit bcrypt `pin_hash`. The JWT
+   machinery is kept exactly as-is; only the credential form and the login screen change.
+4. **Tenant → location/section.** The POS is multi-tenant with one branch dimension. The Grand
+   is one business, five **locations**, each with **sections** (store, kitchen, bakery, bar,
+   cleaning). `x-tenant-id` becomes `x-location-id` carrying the *active* location; the JWT
+   carries the set the user is allowed, and the server validates membership on every request.
+
+**IDs stay integers.** The template assumes UUID strings; the schema uses `serial`/`bigserial`
+and the 10,800-row seed depends on them. `bigint` is also materially cheaper on a ledger that
+only grows. The API exposes numbers; client-generated UUIDs remain only for idempotency keys.
+
+**Dexie stays out of v1.** You chose online-only. The offline stack
+(`sync-worker`, `sync.store`, `sync-audit`) is built solely around `payload_type: 'TRANSACTION'`
+and does not transfer to documents. Removed now, and the plan notes where it would slot back in
+if Phase 4 needs it.
+
+---
+
+## 2. Stack
 
 | Layer | Choice | Why |
 |---|---|---|
 | DB | Postgres 16 | Schema already assumes it: rules, enums, `numeric`, `timestamptz` |
-| Query layer | **Kysely** + `kysely-codegen` | Typed SQL you actually control. This system *is* SQL — ledger maths, variance windows, moving average. An ORM would fight every one of those. |
-| API | **Fastify 5** + `fastify-type-provider-zod` | Fast, small, Zod schemas double as runtime validation *and* generated OpenAPI |
-| Contracts | **Zod v4** in `packages/contracts` | One schema imported by both sides. Frontend types can never drift from the API. |
-| Migrations | Numbered plain `.sql` + tiny runner | `schema.sql` becomes `0001_init.sql` unchanged. No migration DSL between you and the ledger rules. |
+| Query layer | **Kysely** + `kysely-codegen` | This system *is* SQL — ledger maths, variance windows, moving average. An ORM fights all three. |
+| API | **Fastify 5** + `fastify-type-provider-zod` | Zod schemas serve as runtime validation *and* generated OpenAPI |
+| Migrations | Numbered plain `.sql` + small runner | `schema.sql` becomes `0001_init.sql` unchanged. No DSL between you and the ledger rules. |
 | Tests | Vitest + Testcontainers | The 5 planted anomalies become the acceptance suite |
-| Web | React 19 + Vite + TanStack Query/Router + react-hook-form | Template drops into the presentation layer only |
-| PWA | `vite-plugin-pwa` | Installable, cached shell, add-to-homescreen. **No offline write queue.** |
-| Deploy | Docker Compose + Caddy on one VPS | Singapore or Mumbai region. Replicable per outlet for Phase 4. |
-| Backup | Nightly `pg_dump` → R2/Backblaze, 30-day retention | Restore drill documented and *tested*, not assumed |
+| Web | The existing Angular 19 + PrimeNG app | Already pruned: 30 → 14 deps, 1.33 MB initial bundle |
+| Deploy | Docker Compose + Caddy, one VPS | Singapore or Mumbai region. Replicable per outlet for Phase 4. |
+| Backup | Nightly `pg_dump` → object storage, 30-day retention | With a restore drill that is actually run |
 
-**Monorepo (pnpm workspaces)**
+**Repo layout.** Two independent apps, no pnpm workspace — Angular CLI does not take kindly to
+being hoisted, and the risk buys nothing:
 
 ```
-apps/api          Fastify service
-apps/web          React PWA
-packages/contracts Zod schemas + inferred types (the API contract)
-packages/db       migrations, generated Kysely types, seed tooling
-db/               schema.sql, reset.sql          (moved from root)
-seed/             items.csv, generate.ts         (moved — matches README paths)
+db/                       schema.sql, migrations/, reset.sql
+seed/                     items.csv, generate.ts
+api/                      Fastify service
+beautech-master-web-app/  the Angular app
 ```
+
+Type sharing runs **API → web, one direction**: the backend emits OpenAPI from its Zod schemas,
+and a script generates `src/app/core/api-types.ts`. Drift becomes impossible without a build
+step failing, and neither app has to know how the other is packaged.
 
 ---
 
-## 2. Phase A — fix the foundation (before one line of app code)
+## 3. Phase A — fix the foundation (before any app code)
 
-These are all defects in the current pack. Each is small; each is unfixable later.
+Ten defects in the build pack. All small, all unfixable later.
 
-**A1. `reset.sql` is a no-op — the highest-severity issue.**
-`create rule ledger_no_delete ... do instead nothing` blocks *every* delete, including the
-cutover script. Go-live would silently leave 10,800 demo rows in the live ledger.
-Replace both rules with a trigger that raises an exception, with one narrow escape:
+**A1. `reset.sql` cannot run — highest severity.**
+[schema.sql:139](db/schema.sql:139) is `create rule ledger_no_delete as on delete to stock_ledger
+do instead nothing`. It blocks *every* delete, including the cutover script itself. Go-live
+would silently leave all 10,800 demo rows in the live ledger. Replace both rules with a trigger
+that raises, plus one narrow escape:
 
 ```sql
 create function ledger_guard() returns trigger language plpgsql as $$
@@ -56,62 +113,60 @@ end $$;
 ```
 
 `reset.sql` opens with `set local grand.allow_demo_reset = 'on';`. Real rows stay immutable
-under every code path — which is the property the README is actually protecting.
+under every code path — the property the README is actually protecting.
 
-**A2. Sequences are never advanced.** `generate.ts:417` calls `setval` for the ledger only.
-Every other table gets explicit IDs while its sequence sits at 1 — the first real GRN after
-seeding collides on the primary key. Emit `setval` for all 20+ serial columns, generated by
-querying `pg_class` rather than hand-listed.
+**A2. Sequences are never advanced.** [generate.ts:417](seed/generate.ts:417) calls `setval` for
+the ledger only. Every other table gets explicit IDs while its sequence sits at 1 — the first
+real GRN after seeding collides on the primary key. Emit `setval` for all serial columns,
+generated by querying `pg_class` rather than hand-listed.
 
-**A3. Weighted-average cost is a fiction.** The generator writes a flat `it.cost`. Real
-`unit_cost` must be recomputed on every receipt:
+**A3. Weighted-average cost is a fiction.** The generator writes a flat `it.cost`; nothing
+recomputes. Add `item_cost_state (item_id, location_id, qty_on_hand, avg_cost)` maintained
+inside the receipt service in the same transaction as the ledger write:
 
 ```
-new_avg = (qty_on_hand * old_avg + qty_received * receipt_cost)
-          / (qty_on_hand + qty_received)
+new_avg = (qty_on_hand * old_avg + qty_received * receipt_cost) / (qty_on_hand + qty_received)
 ```
 
-Add `item_cost_state (item_id, location_id, qty_on_hand, avg_cost)` maintained inside the
-receipt service, in the same transaction as the ledger write. Issues, wastage and count
-adjustments read the current average; they never change it. Without this, every rupee figure
-in every variance report is wrong.
+Issues, wastage and count adjustments *read* the average; they never change it. Without this
+every rupee figure in every variance report is wrong.
 
-**A4. `usage_variance` is half-built.** `schema.sql:302` computes theoretical only and never
-joins actual issues — it is the Phase-2 headline report. Rewrite as theoretical vs actual
-with variance qty, variance value, and variance %.
+**A4. `usage_variance` is half-built.** [schema.sql:302](db/schema.sql:302) computes theoretical
+only and never joins actual issues — and it is the Phase 2 headline report. Rewrite as
+theoretical vs actual with variance qty, value and percentage.
 
-**A5. `supplier_prices` is never seeded.** Anomaly C (oil +32%) is only visible in
-`grn_lines.pack_price`. Backfill `supplier_prices` from GRN lines during seed so the
-price-movement report reads a first-class table instead of reverse-engineering history.
+**A5. `supplier_prices` is never seeded.** Anomaly C (oil +32%) is visible only in
+`grn_lines.pack_price`. Backfill from GRN lines during seed so the price-movement report reads a
+real table instead of reverse-engineering history.
 
-**A6. Demo PINs don't work.** `pin_hash` is the literal `'$demo$'`. Generate real bcrypt
-hashes; document the demo PINs in the README.
+**A6. Demo PINs do not work.** `pin_hash` is the literal `'$demo$'`. Generate real bcrypt
+hashes; document the demo PINs.
 
 **A7. Missing Phase-1 tables.** The cleaning module is in scope with no schema:
 `cleaning_areas`, `cleaning_tasks`, `cleaning_log`. Plus `idempotency_keys` and `settings`
-(issue windows — 06:00/11:00/17:00, warn-not-block per the README).
+(issue windows 06:00/11:00/17:00, warn-not-block).
 
-**A8. `current_stock` has no `location_id`.** Add it via `sections`, plus a
-`current_stock_valued` view carrying value at current average cost.
+**A8. `current_stock` has no `location_id`.** Add it via `sections`, plus `current_stock_valued`
+carrying value at current average cost.
 
-**A9. Indexes.** Every FK is unindexed. Add them, plus a partial index on
+**A9. Indexes.** Every foreign key is unindexed. Add them, plus a partial index on
 `stock_ledger (business_date) where not is_demo` for post-cutover report speed.
 
-**A10. Housekeeping.** Move files to the `db/` and `seed/` paths the README already claims.
+**A10. Housekeeping.** Move files into the `db/` and `seed/` paths the README already claims.
 
-**Exit criterion:** `schema.sql` → `seed.sql` → `reset.sql` → re-seed runs clean twice in a
-row, and `select count(*) from stock_ledger` is 0 after reset.
+**Exit criterion:** `schema → seed → reset → re-seed` runs clean twice in a row, and
+`select count(*) from stock_ledger` is 0 after reset.
 
 ---
 
-## 3. Phase B — the ledger core (the vertical slice)
+## 4. Phase B — the ledger core
 
 > *"Never write to `stock_ledger` from a controller. One service function per document type;
 > the document is the API, the ledger is a consequence."* — README
 
-One module, `services/ledger.ts`, exporting a single private writer. Nothing else in the
-codebase may insert into `stock_ledger`; enforced by an ESLint `no-restricted-imports` rule
-so the constraint survives the second developer.
+One module, `api/src/services/ledger.ts`, exporting a single private writer. Nothing else may
+insert into `stock_ledger`, enforced by an ESLint `no-restricted-imports` rule so the constraint
+survives the second developer rather than living in a code review.
 
 ```ts
 postDocument(tx, {
@@ -122,115 +177,140 @@ postDocument(tx, {
 ```
 
 Responsibilities: derive `business_date` from `locations.day_start` (already correct for the
-04:00 Coffee Lounge in Phase 4), recompute moving-average cost on receipts, write all rows in
+04:00 Coffee Lounge in Phase 4), recompute moving-average cost on receipts, write every row in
 one transaction, write `audit_log`.
 
 `reverseDocument(docType, docId, reason, userId)` emits mirrored rows with `is_reversal = true`
 and `reverses_id` set — never an UPDATE.
 
-**Slice 1 ships:** migrations + seed + auth + `POST /grn` + `GET /stock` + one screen.
-This proves the pattern before it is replicated across six document types.
+**Idempotency.** Every document POST takes a client-generated `Idempotency-Key` (the template's
+`uuid.ts` already produces one). Roughly thirty lines, no sync layer, no client complexity — and
+the difference between a flaky 4G connection at the delivery door creating one GRN or three.
 
 ---
 
-## 4. Phase C — auth and access
+## 5. Phase C — template refactor and auth
 
-PIN login on a shared device, which is what the schema already assumes.
-`POST /auth/login {locationId, userId, pin}` → httpOnly `SameSite=Strict` cookie, 12h JWT,
-rate-limited, 5 failed attempts locks for 15 minutes. User is picked from a visual list —
-nobody types a username on a wet tablet in a store room.
+**C1. Lift shared infrastructure out of `pos/`.** Move `core/` (api, auth.interceptor, guards,
+notify, money, uuid, live-query) and `stores/auth.store.ts` to `app/core/`; move `pagination`
+into the design system. Update the two imports in `app.routes.ts` and `app.config.ts`. Build
+must stay green after this step, before anything is deleted.
 
-RBAC as a table, not scattered `if` statements:
+**C2. Delete the sales half.** Pages, stores and services listed in §1, plus the plan-gating and
+tenant-onboarding machinery. Strip `features.ts` gating to a pass-through — a single restaurant
+group has no upgrade tiers.
+
+**C3. Roles.** Extend `Role` to the schema's eight, update `canAccess`, the `allowed` arrays in
+route data, and the `gate()` calls in `app.menu.ts`.
 
 | Role | Can |
 |---|---|
-| storekeeper | GRN, market, issue, count, transfer |
+| storekeeper | GRN, market purchase, issue, count, transfer |
 | chef / baker / bar | request issue, wastage, production log, own-section count |
 | manager | all above + approve wastage, verify counts, all reports |
 | owner | read-only across all locations + approvals over threshold |
 | purchasing | suppliers, prices, POs (Phase 3) |
 | cleaning | cleaning log only |
 
-Every mutation writes `audit_log` with before/after JSONB.
+**C4. PIN login.** Keep the JWT + refresh mechanism untouched. Replace the credential form:
+pick a location, pick your face from a tile grid, enter a PIN on a numeric keypad. Nobody types
+an email address on a wet tablet in a store room. Rate-limited; five failures locks for fifteen
+minutes.
+
+**C5. Location/section context.** `x-tenant-id` → `x-location-id` in the interceptor, carrying
+the active location. Server validates it against the JWT's allowed set on every request. Every
+list is scoped from the token, never from a query parameter.
 
 ---
 
-## 5. Phase D — reports, tested against the planted faults
+## 6. Phase D — reports, tested against the planted faults
 
-The README is explicit: *"If a report can't find its fault, the report is wrong."*
-So each report ships with a Vitest test asserting detection against `seed.sql`.
+The README is explicit: *"If a report can't find its fault, the report is wrong."* So each
+report ships with a Vitest test asserting detection against `seed.sql`.
 
-| Report | Must detect | Test assertion |
+| Report | Must detect | Assertion |
 |---|---|---|
 | Theoretical vs actual usage | **A** — chicken breast over-issued ~18% from day 20 | Flags `MEA-001` from day 20±2; issued/day steps 4,389 g → 5,152 g with flat production |
-| Count variance / shrinkage | **B** — 2 gin bottles gone, days 28 & 44 | Bar weekly count shows two 750 ml gaps, ~Rs 5,216 each, **no matching wastage doc** |
-| Supplier price movement | **C** — sunflower oil +32% on day 35 | Flags `DRY-022` at >10% threshold on day 35 |
+| Count variance / shrinkage | **B** — 2 gin bottles gone, days 28 & 44 | Bar weekly count shows two 750 ml gaps, ~Rs 5,216 each, **no matching wastage document** |
+| Supplier price movement | **C** — sunflower oil +32% on day 35 | Flags `DRY-022` above the 10% threshold on day 35 |
 | Wastage by reason | **D** — lettuce spoilage days 38–44 | Appears under **spoilage**, and **must not** appear in the shrinkage report |
-| Stock-out / below reorder | **E** — prawns hit zero day 41 | `SEA-001` on-hand = 0 on day 41; also fires below-reorder ahead of it |
+| Stock-out / below reorder | **E** — prawns hit zero on day 41 | `SEA-001` on-hand = 0 on day 41; below-reorder fires ahead of it |
 
-**D is the acceptance gate.** A variance report that screams about honest lettuce waste is a
-report the owner stops opening by week three. The test asserts the *absence* of a theft flag,
-because that failure mode is what kills adoption — and it is the one no one writes a test for.
+**D is the acceptance gate.** The test asserts the *absence* of a theft flag. A variance report
+that screams about honest lettuce waste is a report the owner stops opening by week three — and
+that failure mode is the one nobody writes a test for.
 
 ---
 
-## 6. Phase E — frontend (starts when the template lands)
+## 7. Phase E — screens
 
-Built around what a person is holding. Storekeeper on a phone at a delivery door; manager on a
-tablet; owner on a laptop.
+Built around what the person is holding: storekeeper on a phone at the delivery door, manager on
+a tablet, owner on a laptop. All reuse the template's layout, tab system and design system.
 
-**Screens:** login (user tiles + PIN pad) · today dashboard (low stock, pending issues, open
-counts) · GRN entry (supplier → items → packs, price change warned inline) · market purchase
-(**photo mandatory** — the only evidence a cash buy ever has) · issue request & fulfil (issue
-windows warn, never block) · wastage (reason + photo) · daily critical count (large touch
-targets, one item per screen) · weekly/monthly full count · transfers · cleaning log · the five
-reports · item master + CSV import for Phase 0 cutover.
+| Route | Screen | Roles |
+|---|---|---|
+| `/login` | Location → user tiles → PIN pad | all |
+| `/today` | Low stock, pending issues, open counts (`kpi-card`) | all |
+| `/grn` | Supplier → items → **packs**, price change warned inline | storekeeper, manager |
+| `/market` | Cash purchase — **photo mandatory** | storekeeper, manager |
+| `/issues` | Request and fulfil; issue windows warn, never block | all sections |
+| `/wastage` | Reason code + photo | sections, manager approves |
+| `/count/daily` | Critical items, one per screen, large touch targets | storekeeper, sections |
+| `/count/full` | Weekly/monthly full count | storekeeper, manager |
+| `/transfers` | Between sections and outlets | storekeeper |
+| `/cleaning` | Cleaning log | cleaning |
+| `/reports/*` | The five reports (chart patterns from `reports.component`) | manager, owner |
+| `/items` | Item master + CSV import for Phase 0 cutover | manager |
 
 **Non-negotiable UI rules from the README:**
-- Users enter **packs**; grams never appear in a field a human types into.
-- Cash market purchase cannot submit without a photo.
+- Users enter **packs**. If grams reach a field a human types into, something is wrong.
+- Cash market purchase cannot submit without a photo — it is the only evidence that exists.
 - Issue outside a window warns and asks for a note. It does not block.
-- Every list is location- and section-scoped from the JWT, never from a query param.
-
-Template integration: design tokens and primitives in one layer, screens compose from them.
-Reskinning is a token swap, not a rewrite.
 
 ---
 
-## 7. Phase F — deploy and Phase 0 handover
+## 8. Phase F — deploy and cutover
 
-Docker Compose (postgres, api, caddy) on the VPS. GitHub Actions → build, test against a real
-Postgres, push image, deploy over SSH. Nightly `pg_dump` to object storage **with a documented
-restore drill that is actually run once**. Uptime ping + error alerting to the owner's phone.
+Docker Compose (postgres, api, caddy) on the VPS. Replace the template's GitLab CI, k8s manifests
+and `vercel.json` — all of which target Beautech's pipeline. GitHub Actions builds, tests against
+a real Postgres, pushes, deploys over SSH. Nightly `pg_dump` to object storage **with a restore
+drill that is actually run once**, plus uptime and error alerting to the owner's phone.
 
-**Cutover runbook:** freeze demo → `reset.sql` → verify ledger is empty → import the real item
-master from the same `items.csv` shape → opening count in every section → first real GRN.
-After that first real GRN, the ledger is immutable for real. That is the point.
+**Cutover runbook:** freeze demo → `reset.sql` → verify the ledger is empty → import the real
+item master from the same `items.csv` shape → opening count in every section → first real GRN.
+After that first real GRN the ledger is immutable for real. That is the point.
 
 ---
 
-## 8. Sequencing
+## 9. Sequencing
 
 | Slice | Work | Est. |
 |---|---|---|
-| 0 | Phase A schema fixes, monorepo scaffold, CI, seeded local DB | 3–4 days |
-| 1 | **Vertical slice:** auth + ledger core + GRN + stock view + first tests | 4–5 days |
+| 0 | Phase A schema fixes, `api/` scaffold, CI, seeded local DB | 3–4 days |
+| 1 | **Vertical slice:** template refactor (C1–C2) + PIN auth + ledger core + GRN + stock view + first tests | 1 week |
 | 2 | Issue, wastage, transfer, count + approvals | 1 week |
 | 3 | Market purchase + photo upload + cleaning module | 3–4 days |
 | 4 | Reports A–E + the anomaly acceptance suite | 1 week |
-| 5 | PWA polish, RBAC hardening, deploy, backup/restore drill | 4–5 days |
+| 5 | Roles/RBAC hardening, deploy, backup and restore drill | 4–5 days |
 | — | **Phase 1 complete** | **~5 weeks** — matches the README estimate |
 | 6 | Phase 2: products, recipes, production log, theoretical vs actual | ~4 weeks |
 
-Phase 0 (two weeks walking the store with the storekeeper, confirming every unit and pack
+Slice 1 proves the ledger service pattern once, on one document type, before it is replicated
+across six. The ledger is append-only by design — a flaw there cannot be edited out later.
+
+Phase 0 (two weeks walking the store with the storekeeper, confirming every item, unit and pack
 conversion) runs in parallel and is not engineering work. The README is right that it decides
-whether the system is trusted — no amount of code recovers from a wrong pack conversion.
+whether the system is trusted: no amount of code recovers from a wrong pack conversion.
 
 ---
 
-## 9. Scope fences
+## 10. Scope fences
 
 Held to the README's "Not in scope", because each of these gets requested and each kills
 adoption: real-time depletion per plate · barcode scanning on vegetables · supplier portals ·
-demand forecasting. À-la-carte kitchen items stay on issue-vs-count control — a chef will not
-log every plate, and pretending otherwise makes the whole variance report untrustworthy.
+demand forecasting.
+
+À-la-carte kitchen items stay on issue-vs-count control. A chef will not log every plate, and
+pretending otherwise makes the whole variance report untrustworthy. Bar is the strongest case —
+spirits are countable by bottle and millilitre, which is exactly why anomaly B is detectable at
+all.
