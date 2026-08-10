@@ -6,19 +6,35 @@ Pilot site: The Grand Gastrobar, Negombo. Inventory only, no POS.
 
 | File | What it is |
 |---|---|
-| `schema.sql` | Postgres schema. Append-only `stock_ledger` with update/delete rules. |
+| `db/migrations/0001_init.sql` | Postgres schema. Append-only `stock_ledger` with update/delete/truncate triggers. |
+| `db/reset.sql` | Deletes every `is_demo` row before go-live. |
 | `seed/items.csv` | 100-item master. Also the Phase 0 template for real data. |
 | `seed/generate.ts` | Deterministic generator → `seed.sql`. |
-| `seed.sql` | 60 days of demo movements, ~10,800 ledger rows. |
-| `reset.sql` | Deletes every `is_demo` row before go-live. |
+| `seed.sql` | Generated: 60 days of demo movements, ~10,800 ledger rows. Not in git. |
+| `docker-compose.yml` | Local Postgres 16 on port **5433**. |
 
 ```bash
-psql $DB -f schema.sql
-node --experimental-strip-types seed/generate.ts > seed.sql
-psql $DB -f seed.sql
+docker compose up -d
+npm install
+npm run db:reset-all
+```
+
+`db:reset-all` drops the schema, migrates, regenerates `seed.sql` and loads it.
+To check the whole cycle including cutover:
+
+```bash
+npm run db:verify
 ```
 
 Same PRNG seed every run, so screenshots and test assertions stay stable.
+
+The generator is TypeScript run through `tsx`. The bare
+`node --experimental-strip-types` form needs Node 22+; this repo targets the
+Node 20 LTS that is actually installed.
+
+**Demo login:** every seeded user has PIN `1234`, bcrypt-hashed with a fixed
+salt so `seed.sql` stays byte-identical between runs. Demo data only — real PINs
+are set through the API with a random salt.
 
 ## The demo-data contract
 
@@ -41,11 +57,17 @@ report is wrong.
 
 | # | Fault | Where it hides | Report that must catch it |
 |---|---|---|---|
-| A | Chicken breast over-issued ~18% from day 20 | Issues look normal individually | Theoretical vs actual usage — issued/day jumps 4,389 g → 5,152 g with no rise in production |
-| B | Two gin bottles vanish, days 28 and 44 | No document at all | Bar weekly count — 750 ml gap, Rs 5,216 each time |
-| C | Sunflower oil price +32% on day 35 | Buried in a routine GRN | Supplier price movement |
+| A | Chicken breast over-issued from day 20 | Issues look normal individually | Theoretical vs actual usage — issued/day steps 4,403 g → 5,116 g (**+16.2%**) with no rise in production |
+| B | Two gin bottles vanish, days 28 and 44 | No document at all | Bar weekly count — 750 ml gap, surfacing at the counts on **2026-07-12** and **2026-07-26** |
+| C | Sunflower oil +32% at the supplier on day 35 | Buried in a routine GRN | Supplier price movement — 45,880 → 60,561.60 on the next delivery, **2026-07-30** |
 | D | Lettuce spoilage spike, days 38–44 | Genuine waste, correctly logged | Wastage by reason — must read as spoilage, **not** flag as theft |
-| E | Prawns hit zero on day 41 | Store empties mid-service | Stock-out / below-reorder alert |
+| E | Prawns hit zero on day 41 | Store empties mid-service | Stock-out / below-reorder alert — balance reaches exactly 0 on **2026-07-21** |
+
+B and C both surface later than they occur, and that is the point. The gin
+leaves on days 28 and 44 but nothing reveals it until the next Sunday bar count.
+The supplier raises the oil price on day 35, but you only find out at the next
+delivery. A report that insists on flagging things the day they happen would
+miss both.
 
 D is the important one. A variance report that screams about lettuce is a report
 the owner will stop opening by week three.

@@ -5,5 +5,5 @@ dist/
 .vscode/
 *.log
 
-# Generated seed output — regenerate with: node --experimental-strip-types seed/generate.ts > seed.sql
-# (kept tracked for now so the demo DB is reproducible without running the generator)
+# Generated output — rebuild with: npm run db:generate
+seed.sql

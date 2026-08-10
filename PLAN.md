@@ -91,7 +91,11 @@ step failing, and neither app has to know how the other is packaged.
 
 ## 3. Phase A — fix the foundation (before any app code)
 
-Ten defects in the build pack. All small, all unfixable later.
+**Status: complete and verified.** `npm run db:verify` proves the whole cycle —
+schema → seed → immutability probes → cutover → re-seed — in one command, 12 checks.
+
+Ten defects in the build pack, plus an eleventh found while verifying. All small, all
+unfixable later.
 
 **A1. `reset.sql` cannot run — highest severity.**
 [schema.sql:139](db/schema.sql:139) is `create rule ledger_no_delete as on delete to stock_ledger
@@ -154,7 +158,26 @@ carrying value at current average cost.
 
 **A10. Housekeeping.** Move files into the `db/` and `seed/` paths the README already claims.
 
-**Exit criterion:** `schema → seed → reset → re-seed` runs clean twice in a row, and
+**A11. Anomaly C was never actually planted** — found while verifying, not by reading.
+Sunflower oil (`DRY-022`) appears in no recipe, so it is never issued, never falls below its
+reorder point, and is therefore never purchased: **zero** GRN lines against it across all 60
+days. The generator's `cost *= 1.32` on day 35 mutated a variable that no later document read.
+The README described the fault as "buried in a routine GRN" when no such GRN existed, so the
+Phase D test for C would have failed against any report, however correct.
+
+Fixed at the source rather than by forcing a purchase: sunflower oil is the kitchen's bulk
+frying oil and now appears in the fried-rice and chicken-curry recipes, so it depletes,
+restocks, and carries the price rise into a real delivery. The seed now shows
+45,880 → 60,561.60 — exactly +32% — on 2026-07-30.
+
+Two further consequences worth knowing. Adding a recipe line shifts the PRNG call sequence, so
+every figure in the dataset moved slightly; the README's anomaly table has been updated to the
+values the data now actually contains. And the price rise is *detected* on day 50, not day 35 —
+the supplier raises the price on 35, you find out at the next delivery. Same for anomaly B,
+which happens on days 28 and 44 but only surfaces at the following Sunday bar count. **A report
+that insists on flagging faults on the day they occur would miss both.**
+
+**Exit criterion (met):** `schema → seed → reset → re-seed` runs clean twice in a row, and
 `select count(*) from stock_ledger` is 0 after reset.
 
 ---

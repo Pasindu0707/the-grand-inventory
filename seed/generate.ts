@@ -14,9 +14,17 @@
 import { readFileSync } from "node:fs";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
+import bcrypt from "bcryptjs";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const DAYS = 60;
+
+// Every demo user's PIN is 1234. A fixed salt keeps the generator deterministic
+// -- bcrypt salts randomly by default, which would change seed.sql on every run
+// and break the stable-screenshot guarantee. Demo data only; real PINs are set
+// through the API with a random salt.
+const DEMO_PIN = "1234";
+const DEMO_PIN_HASH = bcrypt.hashSync(DEMO_PIN, "$2a$10$TheGrandDemoSalt123456");
 
 // deterministic PRNG so every run produces identical data
 let seed = 20260810;
@@ -114,12 +122,16 @@ const PRODUCTS = [
   { id: 6, code: "PASTA-VEG", name: "Vegetable pasta", sec: 2, yield: 1,
     recipe: [["DRY-009", 120], ["DAI-002", 80], ["VEG-005", 100], ["VEG-007", 60],
              ["DAI-004", 40], ["DRY-023", 20]] },
+  // DRY-022 (sunflower oil) is the kitchen's bulk frying oil. It must appear in
+  // a recipe or it is never issued, never falls below its reorder point, and is
+  // therefore never purchased -- which would leave anomaly C (the day-35 price
+  // rise) with no GRN to hide in and nothing for the report to detect.
   { id: 7, code: "RICE-SEAF", name: "Seafood fried rice", sec: 2, yield: 1,
     recipe: [["DRY-001", 200], ["SEA-001", 90], ["SEA-002", 60], ["DAI-008", 1],
-             ["VEG-006", 50], ["DRY-021", 30]] },
+             ["VEG-006", 50], ["DRY-021", 30], ["DRY-022", 30]] },
   { id: 8, code: "CURRY-CHIC", name: "Chicken curry", sec: 2, yield: 1,
     recipe: [["MEA-003", 250], ["VEG-001", 80], ["DRY-017", 15], ["DRY-021", 25],
-             ["VEG-012", 5]] },
+             ["VEG-012", 5], ["DRY-022", 25]] },
 ];
 
 // ---------------------------------------------------------------------------
@@ -141,15 +153,20 @@ w("insert into sections (id,location_id,code,name,is_store,is_demo) values");
 w(SECTIONS.map((s) => `  (${s.id},1,${q(s.code)},${q(s.name)},${s.store},true)`).join(",\n") + ";");
 
 w("insert into users (id,location_id,name,role,pin_hash,is_demo) values");
-w(USERS.map((u) => `  (${u.id},${u.loc},${q(u.name)},'${u.role}','$demo$',true)`).join(",\n") + ";");
+w(USERS.map((u) => `  (${u.id},${u.loc},${q(u.name)},'${u.role}',${q(DEMO_PIN_HASH)},true)`).join(",\n") + ";");
 
 w("insert into suppliers (id,name,is_cash_market,is_demo) values");
 w(SUPPLIERS.map((s) => `  (${s.id},${q(s.name)},${s.cash},true)`).join(",\n") + ";");
 
+// item_categories and reason_codes are reference data, not demo data: they have
+// no is_demo column and reset.sql rightly leaves them alone. The seed therefore
+// has to tolerate finding them already there, or a reset -> re-seed cycle dies
+// on a duplicate key.
 const cats = [...new Set(items.map((i) => i.category))];
 w("insert into item_categories (id,name,storage) values");
 w(cats.map((c, i) =>
-  `  (${i + 1},${q(c)},'${items.find((x) => x.category === c)!.storage}')`).join(",\n") + ";");
+  `  (${i + 1},${q(c)},'${items.find((x) => x.category === c)!.storage}')`).join(",\n") +
+  "\non conflict (id) do nothing;");
 
 w("insert into items (id,code,name,category_id,stock_unit,par_level,reorder_point,shelf_life_days,is_critical,is_demo) values");
 w(items.map((i) =>
@@ -203,6 +220,20 @@ const iss: string[] = [], issL: string[] = [], wst: string[] = [];
 const cnt: string[] = [], cntL: string[] = [], prod: string[] = [];
 let grnId = 0, mktId = 0, issId = 0, wstId = 0, cntId = 0, prodId = 0, lineId = 0;
 
+// A5: supplier price history. Without this table populated, the price-movement
+// report has to reverse-engineer history out of grn_lines. A row is written the
+// first time a supplier quotes a pack and every time that price then changes --
+// which is exactly what makes anomaly C (oil +32% on day 35) a first-class row.
+const supPrice: string[] = [];
+const lastPrice = new Map<string, number>();
+let supPriceId = 0;
+const recordPrice = (sup: number, packId: number, price: number, date: string) => {
+  const k = `${sup}:${packId}`;
+  if (lastPrice.get(k) === price) return;
+  lastPrice.set(k, price);
+  supPrice.push(`  (${++supPriceId},${sup},${packId},${price.toFixed(2)},'${date}',true)`);
+};
+
 // ---- planted anomalies -----------------------------------------------------
 // A. chicken breast over-issued by ~18% from day 20  -> negative count variance
 // B. two gin bottles vanish (day 28, day 44)         -> shrinkage, no wastage doc
@@ -245,7 +276,9 @@ for (let d = 0; d < DAYS; d++) {
       grn.push(`  (${grnId},1,${sup},'INV-${1000 + grnId}','${date}','${date} 08:00+05:30',3,true)`);
       for (const it of list) {
         const packs = Math.ceil((it.par - get(1, it.id)) / it.pack_qty);
-        grnL.push(`  (${++lineId},${grnId},${it.id},${packs},${(it.pack_qty * it.cost).toFixed(2)},true)`);
+        const packPrice = it.pack_qty * it.cost;
+        grnL.push(`  (${++lineId},${grnId},${it.id},${packs},${packPrice.toFixed(2)},true)`);
+        recordPrice(sup, it.id, packPrice, date);
         move(date, 1, it, packs * it.pack_qty, "grn", grnId, 3);
       }
     }
@@ -396,7 +429,8 @@ w(`insert into reason_codes (code,doc,label) values
   ('DROP','wastage','Dropped or damaged'),
   ('BREAK','wastage','Breakage'),
   ('RETURN','wastage','Customer returned'),
-  ('COUNTADJ','count','Count adjustment');`);
+  ('COUNTADJ','count','Count adjustment')
+on conflict (code) do nothing;`);
 
 block("insert into grn (id,location_id,supplier_id,invoice_no,invoice_date,received_at,received_by,is_demo) values", grn);
 block("insert into grn_lines (id,grn_id,item_pack_id,qty_packs,pack_price,is_demo) values", grnL);
@@ -408,17 +442,51 @@ block("insert into wastage (id,location_id,section_id,item_id,qty_base,reason_co
 block("insert into stock_counts (id,location_id,section_id,count_type,business_date,counted_by,verified_by,closed_at,is_demo) values", cnt);
 block("insert into stock_count_lines (id,count_id,item_id,qty_expected,qty_counted,variance_value,is_demo) values", cntL);
 block("insert into production_log (id,location_id,section_id,business_date,product_id,qty_made,logged_by,is_demo) values", prod);
+block("insert into supplier_prices (id,supplier_id,item_pack_id,price,effective_from,is_demo) values", supPrice);
 
 w("insert into stock_ledger (business_date,location_id,section_id,item_id,qty_base,unit_cost,doc,doc_id,reason_code,created_by,is_demo) values");
 w(ledger.map((l) =>
   `  ('${l.date}',1,${l.sec},${l.item},${l.qty.toFixed(3)},${l.cost},'${l.doc}',${l.docId},${l.reason ? q(l.reason) : "null"},${l.by},true)`
 ).join(",\n") + ";");
 
-w("select setval('stock_ledger_id_seq',(select max(id) from stock_ledger));");
+// A3: seed the weighted-average cost state so valuation is not zero on day one.
+// The demo generator uses a flat per-item cost, so the average is that cost;
+// the real receipt service recomputes it properly on every GRN.
+w(`insert into item_cost_state (item_id,location_id,qty_on_hand,avg_cost)
+select l.item_id, l.location_id, sum(l.qty_base), max(l.unit_cost)
+from stock_ledger l
+group by l.item_id, l.location_id
+on conflict (item_id,location_id) do update
+  set qty_on_hand = excluded.qty_on_hand, avg_cost = excluded.avg_cost;`);
+
+// A2: every table above was inserted with explicit ids while its sequence sat
+// at 1, so the first real insert after seeding would collide on the primary
+// key. Advancing them is derived from the catalog rather than hand-listed, so
+// a new table cannot be forgotten.
+w(`do $$
+declare r record;
+begin
+  for r in
+    select seq.relname as seqname, tab.relname as tabname, col.attname as colname
+    from pg_class seq
+    join pg_depend d on d.objid = seq.oid
+      and d.classid = 'pg_class'::regclass and d.deptype = 'a'
+    join pg_class tab on tab.oid = d.refobjid
+    join pg_attribute col on col.attrelid = tab.oid and col.attnum = d.refobjsubid
+    join pg_namespace n on n.oid = seq.relnamespace
+    where seq.relkind = 'S' and n.nspname = current_schema()
+  loop
+    execute format(
+      'select setval(%L, coalesce((select max(%I) from %I), 0) + 1, false)',
+      r.seqname, r.colname, r.tabname);
+  end loop;
+end $$;`);
+
 w("commit;");
 
 process.stdout.write(out.join("\n") + "\n");
 process.stderr.write(
   `-- generated: ${items.length} items, ${ledger.length} ledger rows, ` +
-  `${grnId} GRNs, ${mktId} market buys, ${issId} issues, ${wstId} wastage, ${cntId} counts\n`
+  `${grnId} GRNs, ${mktId} market buys, ${issId} issues, ${wstId} wastage, ` +
+  `${cntId} counts, ${supPriceId} price points\n`
 );
