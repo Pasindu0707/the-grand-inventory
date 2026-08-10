@@ -1,12 +1,10 @@
 /* You can add global styles to this file, and also import other style files */
-@use 'angular-calendar/css/angular-calendar.css';
 @use './tailwind.css';
 @use './assets/layout/layout.scss';
 @use 'primeicons/primeicons.css';
 @use './assets/demo/demo.scss';
 @use './assets/layout/status-styles.scss';
 @use './assets/primeng-custom-css/primeng-custom.scss';
-@use "@ctrl/ngx-emoji-mart/picker";
 :root {
     /* Primary Color Shades - Neutral (Zinc) */
     --crm-primary-100: #fafafa; /* zinc-50 */
