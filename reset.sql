@@ -1,0 +1,24 @@
+-- Wipe all demo data before go-live. Order matters (FK dependencies).
+begin;
+delete from stock_ledger        where is_demo;
+delete from stock_count_lines   where is_demo;
+delete from stock_counts        where is_demo;
+delete from production_log      where is_demo;
+delete from wastage             where is_demo;
+delete from issue_lines         where is_demo;
+delete from issues              where is_demo;
+delete from market_purchase_lines where is_demo;
+delete from market_purchase     where is_demo;
+delete from grn_lines           where is_demo;
+delete from grn                 where is_demo;
+delete from transfers           where is_demo;
+delete from recipe_lines        where is_demo;
+delete from products            where is_demo;
+delete from supplier_prices     where is_demo;
+delete from item_packs          where is_demo;
+delete from items               where is_demo;
+delete from suppliers           where is_demo;
+delete from users               where is_demo;
+delete from sections            where is_demo;
+delete from locations           where is_demo;
+commit;

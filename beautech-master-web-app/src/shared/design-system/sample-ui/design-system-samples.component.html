@@ -1,0 +1,304 @@
+<div class="min-h-full bg-gradient-to-b from-slate-100 to-slate-50/90">
+  <div class="mx-auto max-w-6xl px-4 py-8 pb-16 sm:px-6 lg:px-8">
+    <header class="mb-10 border-b border-slate-200/80 pb-8">
+      <p class="mb-2 text-[0.6875rem] font-semibold uppercase tracking-widest text-slate-500">{{ page.eyebrow }}</p>
+      <h1 class="mb-2 text-2xl font-bold tracking-tight text-slate-950 sm:text-3xl">{{ page.title }}</h1>
+      <p class="m-0 max-w-3xl text-[0.9375rem] leading-relaxed text-slate-600">
+        {{ page.descriptionLead }}<code
+          class="rounded-md border border-slate-200 bg-white px-1.5 py-0.5 font-mono text-[0.8125rem] text-slate-800"
+          >{{ page.pathCodeLabel }}</code
+        >{{ page.descriptionTrail }}
+      </p>
+      <p *ngIf="demoToast" class="mt-4 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-900">
+        {{ demoToast }}
+      </p>
+    </header>
+
+    <!-- In-page nav -->
+    <nav
+      class="mb-10 flex flex-wrap gap-2 rounded-xl border border-slate-200/90 bg-white p-3 text-sm shadow-sm"
+      aria-label="On this page"
+    >
+      <a
+        *ngFor="let item of nav"
+        [href]="item.href"
+        class="rounded-lg px-3 py-1.5 text-slate-700 hover:bg-slate-100"
+        >{{ item.label }}</a
+      >
+    </nav>
+
+    <!-- Table -->
+    <article
+      id="ds-table"
+      class="mb-10 scroll-mt-6 overflow-hidden rounded-2xl border border-slate-200/90 bg-white shadow-[0_1px_3px_rgba(15,23,42,0.06),0_8px_24px_-4px_rgba(15,23,42,0.08)]"
+    >
+      <div class="border-b border-slate-100 bg-slate-50/60 px-5 py-4 sm:px-6">
+        <div class="flex flex-wrap items-start gap-3">
+          <ng-icon name="heroBars3Solid" class="mt-0.5 h-5 w-5 shrink-0 text-slate-500" aria-hidden="true"></ng-icon>
+          <div class="min-w-0">
+            <h2 class="text-lg font-semibold tracking-tight text-slate-950">{{ sections.table.title }}</h2>
+            <p class="mt-1 text-sm leading-relaxed text-slate-600">
+              {{ sections.table.description }}
+            </p>
+          </div>
+        </div>
+      </div>
+      <div class="overflow-x-auto p-4 sm:p-6">
+        <app-design-system-table></app-design-system-table>
+      </div>
+      <div class="border-t border-slate-100 px-5 pb-6 sm:px-6">
+        <div class="overflow-hidden rounded-xl border border-slate-200 bg-slate-950 shadow-inner">
+          <div class="flex items-center justify-between gap-3 border-b border-white/10 bg-slate-900/80 px-3 py-2 sm:px-4">
+            <span class="font-mono text-[0.6875rem] font-medium text-slate-400">Sample markup (embed or p-table)</span>
+            <button
+              type="button"
+              class="inline-flex shrink-0 items-center gap-1.5 rounded-lg border border-white/15 bg-white/10 px-2.5 py-1.5 text-xs font-medium text-white transition hover:bg-white/15"
+              [cdkCopyToClipboard]="snippetTable"
+              (cdkCopyToClipboardCopied)="onSnippetCopied('table', $event)"
+              [attr.aria-label]="'Copy table sample code'"
+            >
+              <i class="pi pi-copy text-[0.65rem] opacity-90" aria-hidden="true"></i>
+              {{ copyLabel('table') }}
+            </button>
+          </div>
+          <pre
+            class="m-0 max-h-[min(28rem,70vh)] overflow-auto p-4 text-left font-mono text-[0.75rem] leading-relaxed text-emerald-100/95 [tab-size:2]"
+            >{{ snippetTable }}</pre
+          >
+        </div>
+      </div>
+    </article>
+
+    <!-- Status badge -->
+    <article
+      id="ds-status"
+      class="mb-10 scroll-mt-6 overflow-hidden rounded-2xl border border-slate-200/90 bg-white shadow-[0_1px_3px_rgba(15,23,42,0.06),0_8px_24px_-4px_rgba(15,23,42,0.08)]"
+    >
+      <div class="border-b border-slate-100 bg-slate-50/60 px-5 py-4 sm:px-6">
+        <div class="flex flex-wrap items-start gap-3">
+          <ng-icon name="heroSwatchSolid" class="mt-0.5 h-5 w-5 shrink-0 text-slate-500" aria-hidden="true"></ng-icon>
+          <div class="min-w-0">
+            <h2 class="text-lg font-semibold tracking-tight text-slate-950">{{ sections.status.title }}</h2>
+            <p class="mt-1 text-sm text-slate-600">
+              {{ sections.status.description }}
+            </p>
+          </div>
+        </div>
+      </div>
+      <div class="px-5 py-6 sm:px-6">
+        <div class="mb-8 grid gap-4 sm:grid-cols-2">
+          <div
+            class="flex flex-col rounded-xl border border-dashed border-slate-200 bg-slate-50/80 p-5 ring-1 ring-slate-950/[0.03]"
+          >
+            <span
+              class="mb-3 inline-flex w-fit items-center rounded-md bg-white px-2 py-0.5 text-[0.6875rem] font-semibold uppercase tracking-wide text-slate-600 ring-1 ring-slate-200/80"
+            >
+              status
+            </span>
+            <div class="flex flex-1 items-center justify-center py-2">
+              <app-status-badge [status]="statusDemo.workflowStatus" variant="status"></app-status-badge>
+            </div>
+          </div>
+          <div
+            class="flex flex-col rounded-xl border border-dashed border-slate-200 bg-slate-50/80 p-5 ring-1 ring-slate-950/[0.03]"
+          >
+            <span
+              class="mb-3 inline-flex w-fit items-center rounded-md bg-white px-2 py-0.5 text-[0.6875rem] font-semibold uppercase tracking-wide text-slate-600 ring-1 ring-slate-200/80"
+            >
+              meta
+            </span>
+            <div class="flex flex-1 items-center justify-center py-2">
+              <app-status-badge [status]="statusDemo.metaLabel" variant="meta"></app-status-badge>
+            </div>
+          </div>
+        </div>
+        <div class="space-y-4">
+          <div class="overflow-hidden rounded-xl border border-slate-200 bg-slate-950 shadow-inner">
+            <div class="flex items-center justify-between gap-3 border-b border-white/10 bg-slate-900/80 px-3 py-2 sm:px-4">
+              <span class="font-mono text-[0.6875rem] font-medium text-slate-400">variant=&quot;status&quot;</span>
+              <button
+                type="button"
+                class="inline-flex shrink-0 items-center gap-1.5 rounded-lg border border-white/15 bg-white/10 px-2.5 py-1.5 text-xs font-medium text-white transition hover:bg-white/15"
+                [cdkCopyToClipboard]="statusTagSnippetStatus"
+                (cdkCopyToClipboardCopied)="onSnippetCopied('status', $event)"
+                [attr.aria-label]="'Copy status variant markup'"
+              >
+                <i class="pi pi-copy text-[0.65rem] opacity-90" aria-hidden="true"></i>
+                {{ copyLabel('status') }}
+              </button>
+            </div>
+            <pre class="m-0 overflow-x-auto p-4 text-left font-mono text-[0.75rem] leading-relaxed text-emerald-100/95 [tab-size:2]">{{
+              statusTagSnippetStatus
+            }}</pre>
+          </div>
+          <div class="overflow-hidden rounded-xl border border-slate-200 bg-slate-950 shadow-inner">
+            <div class="flex items-center justify-between gap-3 border-b border-white/10 bg-slate-900/80 px-3 py-2 sm:px-4">
+              <span class="font-mono text-[0.6875rem] font-medium text-slate-400">variant=&quot;meta&quot;</span>
+              <button
+                type="button"
+                class="inline-flex shrink-0 items-center gap-1.5 rounded-lg border border-white/15 bg-white/10 px-2.5 py-1.5 text-xs font-medium text-white transition hover:bg-white/15"
+                [cdkCopyToClipboard]="statusTagSnippetMeta"
+                (cdkCopyToClipboardCopied)="onSnippetCopied('meta', $event)"
+                [attr.aria-label]="'Copy meta variant markup'"
+              >
+                <i class="pi pi-copy text-[0.65rem] opacity-90" aria-hidden="true"></i>
+                {{ copyLabel('meta') }}
+              </button>
+            </div>
+            <pre class="m-0 overflow-x-auto p-4 text-left font-mono text-[0.75rem] leading-relaxed text-emerald-100/95 [tab-size:2]">{{
+              statusTagSnippetMeta
+            }}</pre>
+          </div>
+        </div>
+      </div>
+    </article>
+
+    <!-- KPI -->
+    <article
+      id="ds-kpi"
+      class="mb-10 scroll-mt-6 overflow-hidden rounded-2xl border border-slate-200/90 bg-white shadow-[0_1px_3px_rgba(15,23,42,0.06),0_8px_24px_-4px_rgba(15,23,42,0.08)]"
+    >
+      <div class="border-b border-slate-100 bg-slate-50/60 px-5 py-4 sm:px-6">
+        <h2 class="text-lg font-semibold tracking-tight text-slate-950">{{ sections.kpi.title }}</h2>
+        <p class="mt-1 text-sm text-slate-600">{{ sections.kpi.description }}</p>
+      </div>
+      <div class="grid gap-4 p-5 sm:grid-cols-2 lg:grid-cols-4 sm:p-6">
+        <app-kpi-card
+          *ngFor="let row of kpiGallery"
+          [label]="row.label"
+          [value]="row.value"
+          [severity]="row.severity"
+          [icon]="row.icon"
+          [infoSummary]="row.infoSummary"
+          [showInfoIcon]="row.showInfoIcon !== false"
+        ></app-kpi-card>
+      </div>
+      <div class="border-t border-slate-100 px-5 pb-6 sm:px-6">
+        <div class="overflow-hidden rounded-xl border border-slate-200 bg-slate-950 shadow-inner">
+          <div class="flex items-center justify-between gap-3 border-b border-white/10 bg-slate-900/80 px-3 py-2 sm:px-4">
+            <span class="font-mono text-[0.6875rem] font-medium text-slate-400">Markup</span>
+            <button
+              type="button"
+              class="inline-flex shrink-0 items-center gap-1.5 rounded-lg border border-white/15 bg-white/10 px-2.5 py-1.5 text-xs font-medium text-white transition hover:bg-white/15"
+              [cdkCopyToClipboard]="snippetKpi"
+              (cdkCopyToClipboardCopied)="onSnippetCopied('kpi', $event)"
+              [attr.aria-label]="'Copy KPI markup'"
+            >
+              <i class="pi pi-copy text-[0.65rem] opacity-90" aria-hidden="true"></i>
+              {{ copyLabel('kpi') }}
+            </button>
+          </div>
+          <pre class="m-0 overflow-x-auto p-4 text-left font-mono text-[0.75rem] leading-relaxed text-emerald-100/95 [tab-size:2]">{{ snippetKpi }}</pre>
+        </div>
+      </div>
+    </article>
+
+    <!-- Form header -->
+    <article
+      id="ds-form-header"
+      class="mb-10 scroll-mt-6 overflow-hidden rounded-2xl border border-slate-200/90 bg-white shadow-[0_1px_3px_rgba(15,23,42,0.06),0_8px_24px_-4px_rgba(15,23,42,0.08)]"
+    >
+      <div class="border-b border-slate-100 bg-slate-50/60 px-5 py-4 sm:px-6">
+        <h2 class="text-lg font-semibold tracking-tight text-slate-950">{{ sections.formHeader.title }}</h2>
+        <p class="mt-1 text-sm text-slate-600">{{ sections.formHeader.description }}</p>
+      </div>
+      <div class="overflow-hidden rounded-b-2xl border border-slate-100">
+        <app-form-header
+          [icon]="formHeaderDemo.icon"
+          [title]="formHeaderDemo.title"
+          [subtitle]="formHeaderDemo.subtitle"
+          [iconBgClass]="formHeaderDemo.iconBgClass"
+          [iconColorClass]="formHeaderDemo.iconColorClass"
+        >
+          <button type="button" pButton [label]="formHeaderDemo.primaryActionLabel" class="p-button-outlined p-button-sm"></button>
+        </app-form-header>
+      </div>
+      <div class="px-5 py-6 sm:px-6">
+        <div class="overflow-hidden rounded-xl border border-slate-200 bg-slate-950 shadow-inner">
+          <div class="flex items-center justify-between gap-3 border-b border-white/10 bg-slate-900/80 px-3 py-2 sm:px-4">
+            <span class="font-mono text-[0.6875rem] font-medium text-slate-400">Markup</span>
+            <button
+              type="button"
+              class="inline-flex shrink-0 items-center gap-1.5 rounded-lg border border-white/15 bg-white/10 px-2.5 py-1.5 text-xs font-medium text-white transition hover:bg-white/15"
+              [cdkCopyToClipboard]="snippetFormHeader"
+              (cdkCopyToClipboardCopied)="onSnippetCopied('form', $event)"
+              [attr.aria-label]="'Copy form header markup'"
+            >
+              <i class="pi pi-copy text-[0.65rem] opacity-90" aria-hidden="true"></i>
+              {{ copyLabel('form') }}
+            </button>
+          </div>
+          <pre class="m-0 overflow-x-auto p-4 text-left font-mono text-[0.75rem] leading-relaxed text-emerald-100/95 [tab-size:2]">{{ snippetFormHeader }}</pre>
+        </div>
+      </div>
+    </article>
+
+    <!-- Empty + Error -->
+    <article
+      id="ds-empty-error"
+      class="scroll-mt-6 overflow-hidden rounded-2xl border border-slate-200/90 bg-white shadow-[0_1px_3px_rgba(15,23,42,0.06),0_8px_24px_-4px_rgba(15,23,42,0.08)]"
+    >
+      <div class="border-b border-slate-100 bg-slate-50/60 px-5 py-4 sm:px-6">
+        <div class="flex flex-wrap items-start gap-3">
+          <ng-icon name="heroExclamationTriangleSolid" class="mt-0.5 h-5 w-5 shrink-0 text-amber-600" aria-hidden="true"></ng-icon>
+          <div class="min-w-0">
+            <h2 class="text-lg font-semibold tracking-tight text-slate-950">{{ sections.emptyError.title }}</h2>
+            <p class="mt-1 text-sm text-slate-600">{{ sections.emptyError.description }}</p>
+          </div>
+        </div>
+      </div>
+      <div class="grid gap-6 p-5 lg:grid-cols-2 sm:p-6">
+        <div class="min-w-0 rounded-xl border border-slate-200/90 bg-slate-50/50 p-4">
+          <h3 class="mb-3 text-xs font-semibold uppercase tracking-wide text-slate-500">{{ sections.emptyError.emptyPanelLabel }}</h3>
+          <app-empty-state
+            [title]="emptyDemo.title"
+            [subtitle]="emptyDemo.subtitle"
+            [primaryActionLabel]="emptyDemo.primaryActionLabel"
+            [variant]="emptyDemo.variant"
+            (onPrimaryAction)="onEmptyPrimary()"
+          ></app-empty-state>
+          <div class="mt-4 overflow-hidden rounded-lg border border-slate-200 bg-slate-950 shadow-inner">
+            <div class="flex items-center justify-between gap-2 border-b border-white/10 bg-slate-900/80 px-2 py-1.5">
+              <span class="font-mono text-[0.65rem] text-slate-400">Copy</span>
+              <button
+                type="button"
+                class="rounded border border-white/15 bg-white/10 px-2 py-1 text-[0.65rem] text-white"
+                [cdkCopyToClipboard]="snippetEmpty"
+                (cdkCopyToClipboardCopied)="onSnippetCopied('empty', $event)"
+              >
+                {{ copyLabel('empty') }}
+              </button>
+            </div>
+            <pre class="m-0 max-h-40 overflow-auto p-3 text-left font-mono text-[0.7rem] text-emerald-100/95">{{ snippetEmpty }}</pre>
+          </div>
+        </div>
+        <div class="min-w-0 rounded-xl border border-slate-200/90 bg-slate-50/50 p-4">
+          <h3 class="mb-3 text-xs font-semibold uppercase tracking-wide text-slate-500">{{ sections.emptyError.errorPanelLabel }}</h3>
+          <app-error-state
+            [title]="errorDemo.title"
+            [message]="errorDemo.message"
+            [errorCode]="errorDemo.errorCode"
+            [showDetails]="true"
+            [details]="errorDemo.details"
+            [secondaryActionLabel]="errorDemo.secondaryActionLabel"
+            (onRetry)="onErrorRetry()"
+          ></app-error-state>
+          <div class="mt-4 overflow-hidden rounded-lg border border-slate-200 bg-slate-950 shadow-inner">
+            <div class="flex items-center justify-between gap-2 border-b border-white/10 bg-slate-900/80 px-2 py-1.5">
+              <span class="font-mono text-[0.65rem] text-slate-400">Copy</span>
+              <button
+                type="button"
+                class="rounded border border-white/15 bg-white/10 px-2 py-1 text-[0.65rem] text-white"
+                [cdkCopyToClipboard]="snippetError"
+                (cdkCopyToClipboardCopied)="onSnippetCopied('error', $event)"
+              >
+                {{ copyLabel('error') }}
+              </button>
+            </div>
+            <pre class="m-0 max-h-40 overflow-auto p-3 text-left font-mono text-[0.7rem] text-emerald-100/95">{{ snippetError }}</pre>
+          </div>
+        </div>
+      </div>
+    </article>
+  </div>
+</div>

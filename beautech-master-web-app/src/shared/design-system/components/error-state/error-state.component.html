@@ -1,0 +1,61 @@
+<div class="error-state-container">
+  <!-- Icon -->
+  <div class="error-state-icon">
+    <i class="pi pi-exclamation-circle"></i>
+  </div>
+
+  <!-- Title -->
+  <h3 class="error-state-title">{{ title }}</h3>
+
+  <!-- Message -->
+  <p *ngIf="message" class="error-state-message">{{ message }}</p>
+
+  <!-- Error Code (if provided) -->
+  <div *ngIf="errorCode" class="error-state-code">
+    <span class="error-code-label">Error code:</span>
+    <span class="error-code-value">{{ errorCode }}</span>
+  </div>
+
+  <!-- Action Buttons -->
+  <div class="error-state-actions">
+    <button
+      *ngIf="primaryActionLabel"
+      type="button"
+      class="error-state-button error-state-button-primary"
+      (click)="handleRetry()"
+    >
+      {{ primaryActionLabel }}
+    </button>
+    <button
+      *ngIf="secondaryActionLabel"
+      type="button"
+      class="error-state-button error-state-button-secondary"
+      (click)="handleSecondary()"
+    >
+      {{ secondaryActionLabel }}
+    </button>
+  </div>
+
+  <!-- Technical Details (Expandable) -->
+  <div *ngIf="showDetails && details" class="error-state-details">
+    <button
+      type="button"
+      class="error-state-details-toggle"
+      (click)="toggleDetails()"
+      [attr.aria-expanded]="detailsExpanded"
+    >
+      <span class="error-state-details-label">Technical details</span>
+      <i
+        class="pi"
+        [ngClass]="detailsExpanded ? 'pi-chevron-up' : 'pi-chevron-down'"
+      ></i>
+    </button>
+
+    <div
+      *ngIf="detailsExpanded"
+      class="error-state-details-content"
+    >
+      <pre class="error-state-details-text">{{ details }}</pre>
+    </div>
+  </div>
+</div>

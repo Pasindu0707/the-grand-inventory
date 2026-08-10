@@ -1,0 +1,1046 @@
+/* You can add global styles to this file, and also import other style files */
+@use 'angular-calendar/css/angular-calendar.css';
+@use './tailwind.css';
+@use './assets/layout/layout.scss';
+@use 'primeicons/primeicons.css';
+@use './assets/demo/demo.scss';
+@use './assets/layout/status-styles.scss';
+@use './assets/primeng-custom-css/primeng-custom.scss';
+@use "@ctrl/ngx-emoji-mart/picker";
+:root {
+    /* Primary Color Shades - Neutral (Zinc) */
+    --crm-primary-100: #fafafa; /* zinc-50 */
+    --crm-primary-200: #e4e4e7; /* zinc-200 */
+    --crm-primary-300: #d4d4d8; /* zinc-300 */
+    --crm-primary-400: #a1a1aa; /* zinc-400 */
+    --crm-primary-500: #71717a; /* zinc-500 */
+    --crm-primary-600: #52525b; /* zinc-600 */
+    --crm-primary-700: #3f3f46; /* zinc-700 */
+    --crm-primary-800: #27272a; /* zinc-800 */
+    --crm-primary-900: #18181b; /* zinc-900 */
+
+    /* Base Colors - Neutral First */
+    --crm-primary-bg: #fafafa; /* zinc-50 - Backgrounds */
+    --crm-surface-bg: #ffffff; /* white - Surfaces (cards) */
+    --crm-surface-hover: #f4f4f5; /* zinc-100 - For hover effects */
+
+    /* Text Colors - Neutral */
+    --crm-primary-text: #18181b; /* zinc-900 - Primary text */
+    --crm-secondary-text: #52525b; /* zinc-600 - Secondary text */
+    --crm-muted-text: #71717a; /* zinc-500 - Muted text */
+
+    /* Accent / Action Colors - Indigo */
+    --crm-accent: #000000; /* indigo-600 - Primary action */
+    --crm-accent-hover: #4338ca; /* indigo-700 - Hover */
+    --crm-accent-light: #818cf8; /* indigo-400 - Light variant */
+
+    /* Border / Outline - Neutral */
+    --crm-border: #e4e4e7; /* zinc-200 - Borders & dividers */
+    --crm-divider: #e4e4e7; /* zinc-200 - Dividers */
+
+    /* Icon Background Colors */
+    --icon-bg-default: rgba(244, 244, 245, 0.5); /* zinc-100 with opacity */
+    --icon-bg-hover: rgba(228, 228, 231, 0.8); /* zinc-200 with opacity */
+    --icon-bg-active: var(--crm-accent);
+    --icon-border: rgba(228, 228, 231, 0.5); /* zinc-200 with opacity */
+
+    /* Sidebar & docked nav — fixed px scale (aligns rail, pane rows, flyouts) */
+    --sidebar-radius-sm: 12px;
+    --sidebar-radius-md: 14px;
+    --sidebar-radius-lg: 16px;
+
+    /* Status Colors - Muted */
+    --crm-success: #059669; /* emerald-600 */
+    --crm-error: #e11d48; /* rose-600 */
+    --crm-warning: #d97706; /* amber-600 */
+    --crm-info: #2563eb; /* blue-600 */
+}
+
+/* ── Dark theme overrides for the shared CRM tokens ──────────────────────────
+   These semantic tokens were only defined with light values, so panels, drawer
+   and dialog headers, table headers, borders and body text all stayed light in
+   dark mode (e.g. the white "Settings" drawer header). We flip the *semantic*
+   tokens here; the numbered --crm-primary-N ramp is intentionally left fixed
+   because a few elements (e.g. the always-dark topbar breadcrumb) rely on it. */
+:root.app-dark {
+    --crm-primary-bg: var(--p-surface-900);
+    --crm-surface-bg: var(--p-surface-900);
+    --crm-surface-hover: var(--p-surface-800);
+
+    --crm-primary-text: rgba(255, 255, 255, 0.92);
+    --crm-secondary-text: var(--p-surface-300);
+    --crm-muted-text: var(--p-surface-400);
+
+    --crm-border: var(--p-surface-700);
+    --crm-divider: var(--p-surface-700);
+
+    --icon-bg-default: rgba(255, 255, 255, 0.06);
+    --icon-bg-hover: rgba(255, 255, 255, 0.12);
+    --icon-border: rgba(255, 255, 255, 0.12);
+
+    /* Table/panel headers that hardcode a light fill must follow the surface. */
+    .tms-data-table .p-datatable-header {
+        background: var(--p-surface-900);
+    }
+    .tms-data-table .p-datatable-thead > tr > th,
+    .custom-table-header th {
+        background-color: var(--p-surface-800) !important;
+    }
+    .crm-footer-cancel {
+        background-color: var(--p-surface-800) !important;
+    }
+}
+
+//.p-drawer-right .p-drawer {
+//    width: 52rem!important;
+//}
+
+//.custom-sidebar.p-drawer-right .p-drawer {
+//    width: 50rem!important;
+//}
+
+//.p-drawer-header {
+//    background: #6ec9f2 !important;
+//    margin-bottom: 20px !important;
+//}
+
+.p-select-overlay {
+    position: unset !important;
+}
+
+:root {
+    --status-new: #2563eb; /* blue-600 - Info */
+    --status-contacted: #d97706; /* amber-600 - Warning */
+    --status-qualified: #059669; /* emerald-600 - Success */
+    --status-unqualified: #e11d48; /* rose-600 - Error */
+    --status-converted: #059669; /* emerald-600 - Success */
+    --status-lost: #71717a; /* zinc-500 - Neutral */
+}
+
+.p-button.custom-status {
+    font-weight: 500;
+    border-radius: 6px;
+    border: none;
+}
+
+/* Button color mappings (same as tags) */
+.p-button-new {
+    background-color: var(--status-new) !important;
+    color: #fff !important;
+}
+
+.p-button-contacted {
+    background-color: var(--status-contacted) !important;
+    color: #fff !important;
+}
+
+.p-button-qualified {
+    background-color: var(--status-qualified) !important;
+    color: #fff !important;
+}
+
+.p-button-unqualified {
+    background-color: var(--status-unqualified) !important;
+    color: #fff !important;
+}
+
+.p-button-converted {
+    background-color: var(--status-converted) !important;
+    color: #fff !important;
+}
+
+.p-button-lost {
+    background-color: var(--status-lost) !important;
+    color: #fff !important;
+}
+
+::ng-deep .p-button.p-button-unqualified {
+    background-color: var(--status-unqualified) !important;
+    border-color: #be185d !important; /* rose-700 */
+}
+
+::ng-deep .p-button.p-button-unqualified:hover {
+    background-color: var(--status-unqualified) !important;
+    border-color: #9f1239 !important; /* rose-800 */
+}
+
+.p-datatable-loading-overlay {
+    position: absolute !important;
+    top: 0 !important;
+    left: 0 !important;
+    right: 0 !important;
+    bottom: 0 !important;
+    display: flex !important;
+    justify-content: center !important;
+    align-items: center !important;
+    background: rgba(255, 255, 255, 0.6) !important; /* same as p-table loader */
+    z-index: 10 !important;
+}
+
+.app-tabs {
+    .p-tablist {
+        flex-wrap: nowrap !important;
+        overflow-x: auto;
+        overflow-y: hidden;
+        scrollbar-width: thin;
+        -webkit-overflow-scrolling: touch;
+    }
+
+    .p-tablist::-webkit-scrollbar {
+        height: 6px;
+    }
+
+    .p-tablist::-webkit-scrollbar-thumb {
+        background: var(--crm-primary-300);
+        border-radius: 999px;
+    }
+
+    .p-tab {
+        flex: 0 0 auto;
+    }
+}
+
+.app-detail-tabs.p-tabview {
+    --app-detail-tab-accent: oklch(62.3% 0.214 259.815);
+    --app-detail-tab-muted: oklch(55.4% 0.046 257.417);
+    --app-detail-tab-muted-hover: oklch(37.2% 0.044 257.287);
+    --app-detail-tab-rail: #e5e7eb;
+    --app-detail-tab-bar-bg: #ffffff;
+    width: 100%;
+}
+
+.app-detail-tabs .p-tabview-nav {
+    background: var(--app-detail-tab-bar-bg) !important;
+    border: 0 !important;
+    border-bottom: 1px solid var(--app-detail-tab-rail) !important;
+    box-shadow: none !important;
+    margin: 0 !important;
+    gap: 0.25rem !important;
+}
+
+.app-detail-tabs .p-tabview-nav li {
+    margin: 0 !important;
+}
+
+.app-detail-tabs .p-tabview-nav li .p-tabview-nav-link {
+    border: 0 !important;
+    border-bottom: 2px solid transparent !important;
+    border-radius: 0 !important;
+    margin-bottom: -1px !important;
+    background: transparent !important;
+    color: var(--app-detail-tab-muted) !important;
+    font-size: 0.875rem !important;
+    font-weight: 500 !important;
+    line-height: 1.4 !important;
+    letter-spacing: 0.01em !important;
+    box-shadow: none !important;
+    transition: color 0.15s ease, border-color 0.15s ease !important;
+}
+
+.app-detail-tabs .p-tabview-nav li:not(.p-highlight):not(.p-disabled) .p-tabview-nav-link:hover {
+    color: var(--app-detail-tab-muted-hover) !important;
+}
+
+.app-detail-tabs .p-tabview-nav li.p-highlight .p-tabview-nav-link {
+    color: var(--app-detail-tab-accent) !important;
+    font-weight: 600 !important;
+    border-bottom-color: var(--app-detail-tab-accent) !important;
+}
+
+.app-detail-tabs .p-tabview-panels {
+    background: #ffffff !important;
+    border: none !important;
+    box-shadow: none !important;
+    padding: 0 !important;
+}
+
+@media (max-width: 768px) {
+    .layout-content-wrapper {
+        padding-left: 0.75rem;
+        padding-right: 0.75rem;
+    }
+
+    .p-dialog {
+        width: 95vw !important;
+        max-width: 95vw !important;
+        margin: 0 auto;
+    }
+
+    .p-dialog .p-dialog-content {
+        max-height: calc(100vh - 10rem);
+        overflow: auto;
+    }
+
+    .p-drawer {
+        width: 100vw !important;
+        max-width: 100vw !important;
+    }
+
+    .p-datatable-wrapper,
+    .p-table-wrapper {
+        overflow-x: auto;
+    }
+
+    .p-datatable-table,
+    .p-table {
+        min-width: 680px;
+    }
+}
+
+.gray-spinner {
+    width: 30px !important;
+    height: 30px !important;
+
+    .p-progress-spinner-circle {
+        stroke: #71717a !important; /* zinc-500 */
+    }
+}
+
+/* TMS shared UI system */
+.tms-page {
+    min-height: 100vh;
+    background: #f8fafc;
+    padding: 1.25rem 1rem;
+}
+
+/*
+ * While a page-level modal is open, the sidebar (z-index: 999) otherwise sits above
+ * the modal backdrop and keeps its bold active-item highlight. Dim it so only the
+ * open modal stands out.
+ */
+.layout-container.layout-modal-open .layout-sidebar {
+    opacity: 0.25;
+    pointer-events: none;
+    transition: opacity 0.2s ease;
+}
+
+.tms-page__inner {
+    width: 100%;
+    max-width: 1650px;
+    margin: 0 auto;
+    display: flex;
+    flex-direction: column;
+    gap: 1.5rem;
+}
+
+.tms-page-header {
+    display: flex;
+    flex-direction: column;
+    gap: 1rem;
+    background: #ffffff;
+    border: 1px solid var(--crm-border, #e4e4e7);
+    border-radius: 12px;
+    padding: 1.5rem;
+}
+
+.tms-page-header h1 {
+    margin: 0;
+    color: #020617;
+    font-size: 1.875rem;
+    font-weight: 600;
+    line-height: 2.25rem;
+    letter-spacing: 0;
+}
+
+.tms-page-header p {
+    margin-top: 0.5rem;
+    max-width: 48rem;
+    color: #64748b;
+    font-size: 0.875rem;
+    line-height: 1.5rem;
+}
+
+.tms-page-header__content {
+    min-width: 0;
+}
+
+.tms-page-header__actions,
+.tms-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+}
+
+.tms-section {
+    background: #ffffff;
+    border: 1px solid var(--crm-border, #e4e4e7);
+    border-radius: 12px;
+    overflow: hidden;
+}
+
+.tms-card {
+    height: 100%;
+    border: 1px solid var(--crm-border, #e4e4e7) !important;
+    border-radius: 12px !important;
+    box-shadow: none !important;
+    overflow: hidden;
+}
+
+.tms-kpi-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+    gap: 1rem;
+}
+
+.tms-kpi-card {
+    background: #ffffff;
+    border: 1px solid var(--crm-border, #e4e4e7);
+    border-radius: 12px;
+    padding: 1rem;
+    box-shadow: none;
+}
+
+.tms-grid-2 {
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: 1.5rem;
+}
+
+.tms-grid-12 {
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: 1.5rem;
+}
+
+.tms-chart-surface {
+    background: #ffffff;
+    border: 1px solid #f1f5f9;
+    border-radius: 10px;
+    padding: 0.5rem;
+}
+
+.tms-table-shell {
+    background: #ffffff;
+    border: 1px solid var(--crm-border, #e4e4e7);
+    border-radius: 12px;
+    overflow: hidden;
+}
+
+.tms-table-caption {
+    display: flex;
+    flex-direction: column;
+    gap: 1rem;
+    width: 100%;
+}
+
+.tms-table-caption__left {
+    display: flex;
+    flex-direction: column;
+    gap: 1rem;
+    width: 100%;
+}
+
+.tms-table-title {
+    color: #18181b;
+    font-size: 1.5rem;
+    font-weight: 600;
+    white-space: nowrap;
+}
+
+.tms-data-table {
+    .p-datatable-header {
+        background: #ffffff;
+        border-color: var(--crm-border, #e4e4e7);
+        padding: 1rem;
+    }
+
+    .p-datatable-thead > tr > th {
+        background-color: var(--crm-primary-100, #fafafa) !important;
+        border-color: var(--crm-border, #e4e4e7) !important;
+        color: var(--crm-secondary-text, #52525b) !important;
+        font-size: 0.9rem;
+        font-weight: 500;
+        letter-spacing: 0.5px;
+        padding: 1rem 0.75rem;
+        text-transform: uppercase;
+        white-space: nowrap;
+    }
+
+    .p-datatable-tbody > tr > td {
+        color: #292d34 !important;
+        font-size: 14px;
+        font-weight: 400;
+        line-height: 16px;
+        padding: 8px 10px !important;
+        text-overflow: ellipsis;
+        vertical-align: middle;
+        white-space: nowrap;
+    }
+
+    .p-datatable-tbody > tr:hover > td {
+        background: #f8fafc;
+    }
+
+    .p-datatable-wrapper {
+        border-radius: 0;
+    }
+}
+
+.tms-page .p-button {
+    border-radius: 8px;
+}
+
+.tms-page input[pInputText],
+.tms-page .p-inputtext,
+.tms-page .p-dropdown,
+.tms-page .p-calendar {
+    border-radius: 8px;
+}
+
+@media (min-width: 640px) {
+    .tms-page {
+        padding: 1.25rem 1.5rem;
+    }
+
+    .tms-table-caption,
+    .tms-table-caption__left {
+        flex-direction: row;
+        align-items: center;
+        justify-content: space-between;
+    }
+}
+
+@media (min-width: 1024px) {
+    .tms-page {
+        padding: 1.25rem 2rem;
+    }
+
+    .tms-page-header {
+        flex-direction: row;
+        align-items: flex-end;
+        justify-content: space-between;
+    }
+
+    .tms-grid-2 {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+
+    .tms-grid-12 {
+        grid-template-columns: repeat(12, minmax(0, 1fr));
+    }
+}
+
+//add custom css for components
+.p-drawer {
+    border-radius: 16px 0 0 0 !important;
+    overflow: hidden !important;
+    border: none !important;
+}
+.p-drawer .p-drawer-header {
+    border-radius: 16px 0 0 0 !important;
+    background-color: var(--crm-primary-bg, #fafafa);
+    margin-bottom: 10px;
+    padding: 1rem;
+    border-bottom: 1px solid var(--crm-border, #e4e4e7);
+}
+.p-dialog {
+    border: none !important;
+}
+
+.p-dialog-header {
+    background: var(--crm-primary-bg, #fafafa);
+    border-radius: 12px 12px 0 0;
+    margin-bottom: 0;
+    padding: 0.5rem !important;
+    color: var(--crm-primary-text, #18181b);
+}
+.p-dialog-footer {
+    padding: 0.75rem 1rem !important;
+}
+/* CRM Sidebar Header - Reusable Component */
+.crm-sidebar-header {
+    display: flex;
+    align-items: center;
+}
+
+.crm-dialog-footer {
+    display: flex;
+    justify-content: flex-end;
+    gap: 1rem;
+padding: 10px 10px;
+width: 100%;
+    border-top: 1px solid var(--crm-border-color, #e9ecef);
+}
+
+.crm-sidebar-header__icon {
+    margin-right: 1rem;
+    color: var(--crm-primary-text, #18181b);
+    padding: 1rem;
+    background-color: var(--icon-bg-default, rgba(244, 244, 245, 0.5));
+    border-radius: 10px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.crm-sidebar-header__icon i {
+    font-size: 1.3rem;
+}
+
+.crm-sidebar-header__content {
+    display: flex;
+    flex-direction: column;
+}
+
+.crm-sidebar-header__title {
+    margin: 0;
+    font-size: 1.25rem;
+    font-weight: 600;
+    color: var(--crm-primary-text, #18181b);
+}
+
+.crm-sidebar-header__subtitle {
+    margin: 0;
+    font-size: 0.875rem;
+    color: var(--crm-secondary-text, #52525b);
+}
+
+.p-drawer-footer {
+    padding: 0 !important;
+}
+
+/* Footer Styling */
+.crm-sidebar-footer {
+    display: flex;
+    justify-content: flex-end;
+    gap: 1rem;
+    padding: 0.5rem;
+    width: 100%;
+    border-top: 0.2px solid var(--crm-border, #e4e4e7);
+}
+
+.crm-sidebar-footer-v1 {
+    padding: 0.5rem;
+    width: 100%;
+    border-top: 0.2px solid var(--crm-border, #e4e4e7);
+}
+
+.crm-footer-cancel {
+    color: var(--crm-primary-text, #18181b) !important;
+    background-color: var(--crm-primary-100, #fafafa) !important;
+    border: 1px solid var(--crm-border, #e4e4e7) !important;
+}
+
+.crm-footer-save {
+    background-color: var(--crm-accent, #4f46e5) !important;
+    color: #ffffff !important;
+    border: none !important;
+}
+
+
+label {
+    display: block;
+    font-size: 14px;
+    font-weight: 400;
+    color: var(--crm-primary-text, #18181b);
+    margin-bottom: 0.25rem;
+    letter-spacing: 0.025em;
+    transition: color 0.2s ease-in-out;
+}
+
+.p-button {
+    padding: 10px;
+    //height: 40px;
+    border-radius: 8px;
+}
+
+.p-divider-vertical:before {
+    position: absolute;
+    display: block;
+    inset-block-start: 0;
+    inset-inline-start: 50%;
+    height: 100%;
+    content: '';
+    border-inline-start: 1px solid var(--crm-border, #e4e4e7) !important;
+}
+
+/* Add this to your component's CSS file */
+.custom-table-header th {
+    background-color: var(--crm-primary-100, #fafafa) !important;
+    color: var(--crm-secondary-text, #52525b) !important;
+
+    font-weight: 500;
+    font-size: 0.9rem;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    padding: 1rem 0.75rem;
+    border: none;
+    border-color: var(--crm-border, #e4e4e7) !important;
+}
+
+.custom-table-header {
+    border-radius: 12px 12px 0 0 !important;
+}
+
+.custom-table-data td {
+    padding: 10px 10px !important;
+}
+
+/* Total / Line Total columns — matches Tailwind font-semibold tabular-nums font-mono */
+/* Total / Line Total columns */
+th.table-col-total,
+td.table-col-total,
+.qc-col-total,
+.table-col-total div {
+    font-weight: 600 !important;
+    font-variant-numeric: tabular-nums !important;
+    font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace !important;
+}
+
+.custom-table-data td {
+    padding: 8px 10px !important;
+    color: #292d34!important;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    word-wrap: break-word;
+    hyphens: auto;
+    font-size: 14px;
+    font-weight: 400;
+    line-height: 16px;
+}
+
+/* Global table alignment baseline */
+.p-datatable .p-datatable-table thead > tr > th,
+.p-datatable .p-datatable-table tbody > tr > td,
+.p-datatable .p-datatable-thead > tr > th,
+.p-datatable .p-datatable-tbody > tr > td,
+table thead > tr > th,
+table tbody > tr > td {
+    text-align: center !important;
+    vertical-align: middle !important;
+}
+
+.p-datatable .p-datatable-table th.left-align-col,
+.p-datatable .p-datatable-table td.left-align-col,
+table th.left-align-col,
+table td.left-align-col {
+    text-align: left !important;
+}
+
+/* Center common in-cell editors for PrimeNG tables */
+.p-datatable .p-datatable-table .p-dropdown .p-dropdown-label,
+.p-datatable .p-datatable-table .p-select .p-select-label,
+.p-datatable .p-datatable-table .p-dropdown .p-placeholder,
+.p-datatable .p-datatable-table .p-select .p-placeholder,
+.p-datatable .p-datatable-table .p-inputtext,
+.p-datatable .p-datatable-table .p-inputnumber-input,
+.p-datatable .p-datatable-table textarea,
+.p-datatable .p-datatable-tbody .p-dropdown .p-dropdown-label,
+.p-datatable .p-datatable-tbody .p-select .p-select-label,
+.p-datatable .p-datatable-tbody .p-inputtext,
+.p-datatable .p-datatable-tbody .p-inputnumber-input,
+.p-datatable .p-datatable-tbody textarea {
+    text-align: center !important;
+}
+
+/* Keep dropdown selected text visually centered */
+.p-datatable .p-datatable-table .p-dropdown .p-dropdown-label,
+.p-datatable .p-datatable-table .p-select .p-select-label {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+/* Opt-out utility: apply on container when a table must stay left aligned */
+.table-left-align .p-datatable .p-datatable-table thead > tr > th,
+.table-left-align .p-datatable .p-datatable-table tbody > tr > td,
+.table-left-align .p-datatable .p-datatable-thead > tr > th,
+.table-left-align .p-datatable .p-datatable-tbody > tr > td,
+.table-left-align table thead > tr > th,
+.table-left-align table tbody > tr > td {
+    text-align: left !important;
+}
+
+.table-left-align .p-datatable .p-datatable-table .p-dropdown .p-dropdown-label,
+.table-left-align .p-datatable .p-datatable-table .p-select .p-select-label,
+.table-left-align .p-datatable .p-datatable-table .p-dropdown .p-placeholder,
+.table-left-align .p-datatable .p-datatable-table .p-select .p-placeholder,
+.table-left-align .p-datatable .p-datatable-table .p-inputtext,
+.table-left-align .p-datatable .p-datatable-table .p-inputnumber-input,
+.table-left-align .p-datatable .p-datatable-table textarea,
+.table-left-align .p-datatable .p-datatable-tbody .p-dropdown .p-dropdown-label,
+.table-left-align .p-datatable .p-datatable-tbody .p-select .p-select-label,
+.table-left-align .p-datatable .p-datatable-tbody .p-inputtext,
+.table-left-align .p-datatable .p-datatable-tbody .p-inputnumber-input,
+.table-left-align .p-datatable .p-datatable-tbody textarea {
+    text-align: left !important;
+}
+
+.table-left-align .p-datatable .p-datatable-table .p-dropdown .p-dropdown-label,
+.table-left-align .p-datatable .p-datatable-table .p-select .p-select-label {
+    justify-content: flex-start;
+}
+
+.custom-chip {
+    padding: 10px 10px !important;
+    font-size: 0.95rem !important; /* Smaller text */
+    line-height: 1rem !important;
+    border-radius: 9999rem !important; /* Rounded corners */
+    gap: 0.4rem !important;
+}
+
+.custom-chip .p-chip-icon {
+    font-size: 0.9rem !important;
+}
+
+.p-stepper-separator {
+    margin-bottom: 20px;
+}
+
+.p-datepicker {
+    position: relative;
+    display: inline-flex;
+    max-width: 100%;
+    width: -webkit-fill-available;
+}
+
+/* In your component's CSS file or global styles */
+.action-btn {
+    color: var(--crm-secondary-text, #52525b) !important; /* zinc-600 */
+    background-color: #ffffff !important;
+    border: 1px solid var(--crm-border, #e4e4e7) !important;
+    border-radius: 8px !important;
+    width: 2.5rem !important;
+    height: 2.5rem !important;
+    display: flex !important;
+    align-items: center !important;
+    justify-content: center !important;
+    transition: all 0.2s ease !important;
+}
+
+.action-btn:hover {
+    background-color: var(--crm-primary-600, #52525b) !important; /* zinc-600 */
+    color: white !important;
+}
+
+/* Specific colors for different actions (optional) */
+.action-btn.view:hover {
+    background-color: #d97706 !important; /* amber-600 */
+}
+
+.action-btn.edit:hover {
+    background-color: var(--crm-accent, #4f46e5) !important; /* indigo-600 */
+}
+
+.action-btn.delete:hover {
+    background-color: #e11d48 !important; /* rose-600 */
+}
+
+.action-btn.convert:hover {
+    background-color: var(--crm-accent, #4f46e5) !important; /* indigo-600 */
+}
+.action-btn.print:hover {
+    background-color: #059669 !important; /* emerald-600 */
+}
+
+.action-common-btn {
+    // Default neutral style for all
+    color: var(--crm-secondary-text, #52525b) !important; // zinc-600
+    background-color: #ffffff !important; // white
+    border-color: var(--crm-border, #e4e4e7) !important; // zinc-200
+    transition: all 0.2s ease-in-out;
+
+    &.delete {
+        &:hover {
+            background-color: #e11d48 !important; // rose-600
+            color: #ffffff !important;
+            border-color: #e11d48 !important;
+        }
+    }
+
+    &.edit {
+        &:hover {
+            background-color: var(--crm-accent, #4f46e5) !important; // indigo-600
+            color: #ffffff !important;
+            border-color: var(--crm-accent, #4f46e5) !important;
+        }
+    }
+
+    &.print {
+        &:hover {
+            background-color: #059669 !important; // emerald-600
+            color: #ffffff !important;
+            border-color: #059669 !important;
+        }
+    }
+
+    &.complete {
+        &:hover {
+            background-color: #059669 !important; // emerald-600
+            color: #ffffff !important;
+            border-color: #059669 !important;
+        }
+    }
+
+    &.start:hover {
+        background-color: var(--crm-accent, #4f46e5) !important; // indigo-600
+        color: #ffffff !important;
+        border-color: var(--crm-accent, #4f46e5) !important;
+    }
+
+    &.cancel:hover {
+        background-color: #e11d48 !important; // rose-600
+        color: #ffffff !important;
+        border-color: #e11d48 !important;
+    }
+}
+
+.p-tag:not(.status-badge-modern) {
+    padding: 0.35rem 1rem 0.35rem 2rem !important;
+    border-radius: 8px !important;
+    position: relative;
+    font-size: 0.85rem !important;
+    font-weight: 600 !important;
+    letter-spacing: 0.3px !important;
+    border: 1px solid transparent !important;
+    transition: all 0.2s ease !important;
+}
+
+/* Modern dot indicator */
+.p-tag:not(.status-badge-modern)::before {
+    content: '';
+    position: absolute;
+    left: 1rem;
+    top: 50%;
+    transform: translateY(-50%);
+    width: 5px;
+    height: 5px;
+    border-radius: 50%;
+    background-color: currentColor; /* Takes tag's text color */
+    opacity: 0.8;
+}
+
+ 
+
+/* Center the header text */
+.text-center-col {
+    text-align: center !important;
+}
+@keyframes fadeIn {
+    from {
+        opacity: 0;
+        transform: translateX(-5px);
+    }
+    to {
+        opacity: 1;
+        transform: translateX(0);
+    }
+}
+
+.animate-fadeIn {
+    animation: fadeIn 0.15s ease-out;
+}
+:host ::ng-deep .p-tabpanels {
+    padding: 0 !important;
+}
+
+/* Sometimes you also need to target the individual panel */
+:host ::ng-deep  .p-tabpanel {
+    padding: 0 !important;
+}
+:host ::ng-deep .custom-tabview .p-tabpanels {
+    --p-tabs-tabpanel-padding: 0;
+}
+
+
+/* product.component.css */
+/* Global chip styles in styles.scss */
+
+/* Item Type */
+.chip-product .p-chip {
+    background-color: #eff6ff !important;
+    color: #1e3a8a !important;
+}
+
+.chip-service .p-chip {
+    background-color: #f5f3ff !important;
+    color: #5b21b6 !important;
+}
+
+/* Authenticity */
+.chip-oem .p-chip {
+    background-color: #dcfce7 !important;
+    color: #166534 !important;
+}
+
+.chip-genuine .p-chip {
+    background-color: #ccfbf1 !important;
+    color: #134e4a !important;
+}
+
+.chip-aftermarket .p-chip {
+    background-color: #fef9c3 !important;
+    color: #78350f !important;
+}
+
+/* Condition */
+.chip-brand-new .p-chip {
+    background-color: #e0e7ff !important;
+    color: #3730a3 !important;
+}
+
+.chip-used .p-chip {
+    background-color: #f3f4f6 !important;
+    color: #374151 !important;
+}
+
+.chip-refurbished .p-chip {
+    background-color: #fce7f3 !important;
+    color: #9d174d !important;
+}
+
+.chip-open-box .p-chip {
+    background-color: #fff7ed !important;
+    color: #c2410c !important;
+}
+
+.chip-damaged .p-chip {
+    background-color: #fee2e2 !important;
+    color: #b91c1c !important;
+}
+
+.chip-for-parts .p-chip {
+    background-color: #fee2e2 !important;
+    color: #7f1d1d !important;
+}
+
+.chip-unknown .p-chip {
+    background-color: #e5e7eb !important;
+    color: #1f2937 !important;
+}
+
+/* ==== CUSTOM PRIME NG INPUT SWITCH FIX FOR TAILWIND ==== */
+
+.custom-switch.p-inputswitch {
+    @apply inline-flex items-center relative;
+    width: 3rem !important;
+    height: 1.5rem !important;
+}
+
+.custom-switch.p-inputswitch .p-inputswitch-slider {
+    position: relative !important;
+    border-radius: 9999px !important; /* full rounded */
+    background-color: #d1d5db; /* Tailwind gray-300 */
+    transition: background-color 0.3s;
+}
+
+.custom-switch.p-inputswitch.p-inputswitch-checked .p-inputswitch-slider {
+    background-color: #10b981 !important; /* Tailwind green-500 */
+}
+
+.custom-switch.p-inputswitch .p-inputswitch-slider:before {
+    content: "" !important;
+    position: absolute !important;
+    width: 1.2rem !important;
+    height: 1.2rem !important;
+    left: 0.15rem !important;
+    bottom: 0.15rem !important;
+    background-color: white;
+    border-radius: 50% !important;
+    transition: transform 0.3s;
+}
+
+.custom-switch.p-inputswitch.p-inputswitch-checked .p-inputswitch-slider:before {
+    transform: translateX(1.5rem) !important;
+}

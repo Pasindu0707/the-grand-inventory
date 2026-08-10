@@ -1,0 +1,9 @@
+node_modules/
+dist/
+.angular/
+.idea/
+.vscode/
+*.log
+
+# Generated seed output — regenerate with: node --experimental-strip-types seed/generate.ts > seed.sql
+# (kept tracked for now so the demo DB is reproducible without running the generator)

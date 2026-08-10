@@ -1,0 +1,170 @@
+:host {
+    display: inline-flex;
+}
+
+/* =========================
+     Design tokens (strong / foreground)
+     ========================= */
+
+$status-neutral: #475569;
+$status-info: #4f46e5;
+$status-draft: #7c3aed;
+$status-pending: #d97706;
+$status-processing: #2563eb;
+$status-approved: #059669;
+$status-completed: #16a34a;
+$status-cancelled: #dc2626;
+$status-rejected: #e11d48;
+$status-inactive: #6b7280;
+$status-contrast: #0f172a;
+
+$status-meta-neutral: #475569;
+$status-meta-info: #4f46e5;
+$status-meta-draft: #7c3aed;
+$status-meta-pending: #d97706;
+$status-meta-processing: #2563eb;
+$status-meta-approved: #059669;
+$status-meta-completed: #16a34a;
+$status-meta-cancelled: #dc2626;
+$status-meta-rejected: #e11d48;
+
+/* Soft wash + outline — same hue family as text */
+
+@mixin status-surface($tone) {
+    background: color-mix(in srgb, $tone 12%, #ffffff) !important;
+    color: $tone !important;
+    border-color: color-mix(in srgb, $tone 38%, #ffffff) !important;
+}
+
+/* =========================
+     Badge — soft tint, strong label, tone outline
+     ========================= */
+
+.status-badge-modern {
+    &.p-tag {
+        border-radius: 9999px !important;
+        border-width: 1px !important;
+        border-style: solid !important;
+        padding: 4px 10px 4px 8px !important;
+        min-height: 24px !important;
+        height: auto !important;
+        display: inline-flex !important;
+        align-items: center !important;
+        gap: 0.4rem !important;
+        white-space: nowrap !important;
+        overflow: hidden !important;
+        text-overflow: ellipsis !important;
+        font-size: 12px !important;
+        font-weight: 600 !important;
+        line-height: 1.2 !important;
+        letter-spacing: 0.01em !important;
+        text-transform: uppercase !important;
+        cursor: default !important;
+        font-variant-numeric: tabular-nums font-mono !important;
+        -webkit-font-smoothing: antialiased !important;
+    }
+
+    &.status-tone-neutral {
+        @include status-surface($status-neutral);
+    }
+
+    &.status-tone-info {
+        @include status-surface($status-info);
+    }
+
+    &.status-tone-draft {
+        @include status-surface($status-draft);
+    }
+
+    &.status-tone-pending {
+        @include status-surface($status-pending);
+    }
+
+    &.status-tone-processing {
+        @include status-surface($status-processing);
+    }
+
+    &.status-tone-approved {
+        @include status-surface($status-approved);
+    }
+
+    &.status-tone-completed {
+        @include status-surface($status-completed);
+    }
+
+    &.status-tone-cancelled {
+        @include status-surface($status-cancelled);
+    }
+
+    &.status-tone-rejected {
+        @include status-surface($status-rejected);
+    }
+
+    &.status-tone-inactive {
+        @include status-surface($status-inactive);
+    }
+
+    &.status-tone-contrast {
+        @include status-surface($status-contrast);
+    }
+
+    /* Plain text / meta row — no chip chrome */
+    &.is-meta {
+        background: transparent !important;
+        border: none !important;
+        padding: 0 !important;
+        min-height: 0 !important;
+        font-weight: 600 !important;
+        letter-spacing: normal !important;
+        border-radius: 0 !important;
+
+        &.status-tone-neutral,
+        &.status-tone-inactive,
+        &.status-tone-contrast {
+            color: $status-meta-neutral !important;
+        }
+
+        &.status-tone-info {
+            color: $status-meta-info !important;
+        }
+
+        &.status-tone-draft {
+            color: $status-meta-draft !important;
+        }
+
+        &.status-tone-pending {
+            color: $status-meta-pending !important;
+        }
+
+        &.status-tone-processing {
+            color: $status-meta-processing !important;
+        }
+
+        &.status-tone-approved {
+            color: $status-meta-approved !important;
+        }
+
+        &.status-tone-completed {
+            color: $status-meta-completed !important;
+        }
+
+        &.status-tone-cancelled {
+            color: $status-meta-cancelled !important;
+        }
+
+        &.status-tone-rejected {
+            color: $status-meta-rejected !important;
+        }
+    }
+}
+
+/* Dot: strong fill + soft ring (stays inside chip; no outer glow — parent uses overflow: hidden) */
+.status-dot {
+    width: 0.5rem;
+    height: 0.5rem;
+    border-radius: 9999px;
+    flex: 0 0 auto;
+    box-sizing: border-box;
+    background-color: currentColor;
+    border: 1px solid color-mix(in srgb, currentColor 40%, #ffffff);
+}

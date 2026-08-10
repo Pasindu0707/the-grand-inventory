@@ -1,0 +1,144 @@
+/* You can add global styles to this file, and also import other style files */
+@use '@/assets/layout/layout.scss';
+@use 'primeicons/primeicons.css';
+@use '@/assets/demo/demo.scss';
+
+
+
+p-drawer-right .p-drawer {
+    width: 40rem !important;
+}
+
+
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Professional ledger UI — modern color, deliberate spacing */
+@layer base {
+  html {
+    @apply antialiased scroll-smooth;
+  }
+  body {
+    @apply bg-canvas font-sans text-[13px] leading-relaxed text-slate-900 selection:bg-indigo-100 selection:text-indigo-900;
+  }
+}
+
+@layer components {
+  /* Page rhythm: 40px section gaps, comfortable horizontal gutters */
+  .tsm-page-shell {
+    @apply   p-8 ;
+  }
+
+  .tsm-section-title {
+    @apply mb-3 block text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-500;
+  }
+
+  .tsm-page-heading {
+    @apply text-3xl font-bold tracking-tight text-slate-900;
+  }
+
+  .tsm-page-sub {
+    @apply mt-2 max-w-2xl text-sm font-medium leading-relaxed text-slate-600;
+  }
+
+  /* Cards: soft elevation + crisp border */
+  .tsm-card {
+    @apply rounded-xl border border-slate-200/90 bg-white   transition-shadow duration-200;
+    width: -webkit-fill-available!important;
+box-shadow: none!important;
+  }
+
+  .tsm-card-hover {
+    @apply hover:border-slate-300/90  ;
+  }
+
+  /* Section label with accent (ledger “tab” feel) */
+  .tsm-eyebrow {
+    @apply inline-flex items-center rounded-full border border-indigo-200/80 bg-indigo-50 px-3 py-1 text-[10px] font-bold uppercase tracking-widest text-indigo-800;
+  }
+
+  .tsm-btn-pro {
+    @apply inline-flex items-center justify-center gap-2 rounded-lg px-4 py-2 text-xs font-semibold uppercase tracking-wider transition-colors active:bg-slate-100;
+  }
+}
+
+/* PrimeNG DataTable — airy rows, clear grid */
+.p-datatable.tsm-data-table {
+  @apply border-none;
+
+  .p-datatable-header {
+    @apply border-b border-slate-200 bg-white px-6 py-4;
+  }
+
+  .p-datatable-thead > tr > th {
+    @apply border-b border-slate-200 bg-slate-50/90 px-5 py-3.5 text-left text-[11px] font-semibold uppercase tracking-wider text-slate-600;
+  }
+
+  .p-datatable-tbody > tr > td {
+    @apply border-b border-slate-100 px-5 py-3.5 text-[13px] font-medium text-slate-700;
+  }
+
+  .p-datatable-tbody > tr {
+    @apply transition-colors duration-150;
+  }
+
+  .p-datatable-tbody > tr:hover > td {
+    @apply bg-indigo-50/40;
+  }
+
+  .p-paginator {
+    @apply border-t border-slate-100 bg-white px-6 py-3 text-xs font-medium text-slate-500;
+
+    .p-paginator-page,
+    .p-paginator-next,
+    .p-paginator-last,
+    .p-paginator-first,
+    .p-paginator-prev {
+      @apply h-8 w-8 min-w-[32px] rounded-lg border border-transparent transition-colors;
+      &.p-highlight {
+        @apply bg-indigo-600 text-white  ;
+      }
+      &:not(.p-highlight):hover {
+        @apply border-slate-200 bg-slate-50;
+      }
+    }
+  }
+}
+
+@keyframes fade-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+.animate-fade-in {
+  animation: fade-in 0.35s ease-out forwards;
+}
+
+.p-button {
+  @apply outline-none transition-colors duration-200;
+  &.p-button-sm {
+    @apply h-9 rounded-lg px-4 text-[11px] font-semibold uppercase tracking-wider;
+  }
+}
+
+.p-inputtext {
+  @apply rounded-lg border border-slate-200 px-3 py-2 text-sm font-medium shadow-none transition-colors focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/20;
+}
+
+.p-dropdown {
+  @apply overflow-hidden rounded-lg border border-slate-200 shadow-none transition-colors;
+  box-shadow: none !important;
+  &.p-focus {
+    @apply border-indigo-500 ring-2 ring-indigo-500/20;
+    box-shadow: none !important;
+  }
+  .p-dropdown-label {
+    @apply py-2 px-3 text-sm font-medium text-slate-700;
+  }
+}

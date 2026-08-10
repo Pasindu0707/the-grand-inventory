@@ -1,0 +1,215 @@
+/* Vertical sidebar — aligned with vexo-web-app (layout + menu rows) */
+.layout-sidebar {
+    position: fixed;
+    height: calc(100% - 60px);
+    top: 60px;
+    left: 0;
+    width: 18rem;
+    background: var(--menu-bg);
+    border-right: 1px solid var(--crm-primary-200);
+    display: flex;
+    flex-direction: column;
+
+    .sidebar-header {
+        padding: 1rem;
+        display: flex;
+        justify-content: center;
+        align-items: center;
+
+        .app-logo {
+            text-decoration: none;
+
+            .app-logo-normal {
+                display: inline-flex;
+                align-items: center;
+                justify-content: center;
+            }
+
+            .app-logo-mobile,
+            .app-logo-desktop {
+                display: none;
+            }
+        }
+    }
+
+    @media (min-width: 1024px) {
+        .sidebar-header {
+            display: none !important;
+        }
+    }
+
+    .layout-menu-container {
+        overflow: auto;
+        flex: 1;
+        padding-bottom: 2rem;
+        padding-top: 1rem;
+    }
+
+    .layout-menu {
+        margin: 0;
+        padding: 0;
+        list-style-type: none;
+
+        .layout-root-menuitem {
+            > .layout-menuitem-root-text {
+                font-size: 0.857rem;
+                text-transform: uppercase;
+                font-weight: 700;
+                color: var(--root-menuitem-text-color);
+                padding: 1rem 2rem;
+                border-radius: 0 var(--sidebar-radius-sm, 12px) var(--sidebar-radius-sm, 12px) 0;
+                transition: background-color var(--transition-duration);
+            }
+
+            /* Parent row anchor hidden in vertical; leaf tabs use .root-leaf */
+            > a {
+                display: none;
+            }
+
+            > a.root-leaf {
+                display: flex;
+                align-items: center;
+                padding: 0.65rem 1.5rem;
+            }
+        }
+
+        a {
+            user-select: none;
+
+            &.active-menuitem {
+                > .layout-submenu-toggler {
+                    transform: rotate(-180deg);
+                }
+            }
+        }
+
+        li.active-menuitem {
+            > a {
+                .layout-submenu-toggler {
+                    transform: rotate(-180deg);
+                }
+            }
+        }
+
+        /* Nested submenu rows (vexo-style) — ul li avoids overriding hidden root parent anchors */
+        ul li > a {
+            display: flex;
+            align-items: center;
+            position: relative;
+            outline: 0 none;
+            color: var(--submenu-item-label-color);
+            cursor: pointer;
+            padding: 0.55rem 1.5rem;
+            margin-bottom: 5px;
+            transition: background-color var(--transition-duration), box-shadow var(--transition-duration);
+
+            .layout-menuitem-icon {
+                // margin-right: 0.75rem;
+                padding: 8px;
+                border-radius: var(--sidebar-radius-sm, 12px);
+                width: 32px;
+                height: 32px;
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                flex-shrink: 0;
+                transition: filter 0.15s ease;
+            }
+
+            .layout-submenu-toggler {
+                font-size: 75%;
+                margin-left: auto;
+                transition: transform var(--transition-duration);
+            }
+
+            &:hover .layout-menuitem-icon {
+                filter: brightness(0.94);
+            }
+
+            &:hover {
+                background-color: var(--menuitem-hover-bg-color);
+            }
+        }
+
+        /* Root-level tab leaf (same look as nested rows) */
+        .layout-root-menuitem > a.root-leaf {
+            color: var(--submenu-item-label-color);
+
+            .layout-menuitem-icon {
+                // margin-right: 0.75rem;
+                padding: 8px;
+                border-radius: var(--sidebar-radius-sm, 12px);
+                width: 32px;
+                height: 32px;
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                flex-shrink: 0;
+                transition: filter 0.15s ease;
+            }
+
+            &:hover .layout-menuitem-icon {
+                filter: brightness(0.94);
+            }
+
+            &:hover {
+                background-color: var(--menuitem-hover-bg-color);
+            }
+        }
+
+        ul li.route-active > a,
+        ul li.active-menuitem > a,
+        ul li > a.active-route,
+        .layout-root-menuitem > a.root-leaf.active-route {
+            font-weight: 600;
+            border-radius: var(--sidebar-radius-sm, 12px);
+            background-color: var(--submenu-row-active-bg) !important;
+            color: var(--submenu-item-label-color-active);
+        }
+
+        ul {
+            margin: 0;
+            padding: 0;
+            list-style-type: none;
+            overflow: hidden;
+            border-radius: var(--sidebar-radius-md, 14px);
+
+            li {
+                a {
+                    padding-left: 2.5rem;
+                }
+
+                li {
+                    a {
+                        padding-left: 3rem;
+                    }
+
+                    li {
+                        a {
+                            padding-left: 3.5rem;
+                        }
+
+                        li {
+                            a {
+                                padding-left: 4rem;
+                            }
+
+                            li {
+                                a {
+                                    padding-left: 5.5rem;
+                                }
+
+                                li {
+                                    a {
+                                        padding-left: 5rem;
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+

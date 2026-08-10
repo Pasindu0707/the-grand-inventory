@@ -1,0 +1,591 @@
+@use './_sass_variables' as *;
+
+/* Slim: mini rail + docked pane — minimal flat list (reference: DASHBOARDS + icon rows) */
+.layout-container.layout-slim {
+    --slim-rail-width: 5rem;
+    --slim-nav-pane-width: 20rem;
+    --slim-rail-bg: #f8f9fa;
+    --slim-rail-icon: #64748b;
+    --slim-rail-accent: var(--crm-primary-900);
+    --slim-rail-accent-text: #ffffff;
+    --slim-pane-bg: #ffffff;
+    --slim-pane-border: #f3f4f6;
+    --slim-pane-edge: #e5e7eb;
+    --slim-pane-eyebrow: #29343d;
+    --slim-pane-label: #29343d;
+    --slim-pane-muted: #6b7280;
+    --slim-pane-row-hover: rgba(15, 23, 42, 0.04);
+    --slim-pane-active-bar: #6366f1;
+    /* Pane rhythm — shared across headers, sections, rows, accordions */
+    --slim-pane-px: 0.75rem;
+    --slim-pane-row-py: 0.5rem;
+    --slim-pane-icon-gap: 0.625rem;
+    --slim-pane-row-min-h: 2.5rem;
+    --slim-pane-section-eyebrow-pb: 0.45rem;
+    --slim-pane-section-stack-gap: 0.875rem;
+    --slim-pane-active-pill: #f3f4f6;
+    --slim-pane-list-gap: 0.125rem;
+    --slim-pane-section-title-fs: 12px;
+    app-menu.layout-app-menu {
+        display: flex;
+        flex-direction: column;
+        flex: 1 1 auto;
+        min-height: 0;
+        margin: 0;
+        padding: 0;
+        /* visible so the hover flyout pane can escape the narrow icon rail */
+        overflow: visible;
+    }
+
+    .layout-sidebar {
+        padding: 0 !important;
+        margin: 0 !important;
+        gap: 0 !important;
+    }
+
+    .layout-sidebar .layout-menu-container {
+        padding-top: 0 !important;
+        padding-bottom: 0 !important;
+        margin: 0 !important;
+        flex: 1 1 auto;
+        min-height: 0;
+        display: flex;
+        flex-direction: column;
+        overflow: visible;
+    }
+
+    .layout-nav-dual {
+        position: relative;
+        display: flex;
+        flex-direction: row;
+        flex: 1 1 auto;
+        min-height: 0;
+        margin: 0;
+        padding: 0;
+        align-items: stretch;
+    }
+
+    .layout-rail-nav {
+        width: var(--slim-rail-width);
+        flex-shrink: 0;
+        display: flex;
+        flex-direction: column;
+        min-height: 0;
+        margin: 0;
+        padding: 0;
+        background: var(--slim-rail-bg);
+        border-right: 1px solid var(--slim-pane-border);
+    }
+
+    .layout-rail-list {
+        list-style: none;
+        margin: 0;
+        padding: 0.35rem 0 0.85rem;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 0.35rem;
+        overflow-y: auto;
+        flex: 1 1 auto;
+        min-height: 0;
+        scrollbar-width: thin;
+
+        &::-webkit-scrollbar {
+            width: 4px;
+        }
+
+        &::-webkit-scrollbar-thumb {
+            border-radius: 99px;
+            background: rgba(100, 116, 139, 0.35);
+        }
+    }
+
+    .layout-rail-item {
+        width: 100%;
+        display: flex;
+        justify-content: center;
+    }
+
+    .layout-rail-item--home {
+        padding-top: 0.15rem;
+    }
+
+    .layout-rail-home {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        width: 2.75rem;
+        height: 2.75rem;
+        border-radius: var(--sidebar-radius-md, 14px);
+        text-decoration: none;
+        color: var(--slim-rail-icon);
+        background: transparent;
+        transition:
+            background-color 0.18s ease,
+            color 0.18s ease,
+            transform 0.12s ease;
+
+        i {
+            font-size: 1.2rem;
+        }
+
+        &:hover {
+            background: rgba(99, 102, 241, 0.1);
+            color: var(--slim-rail-accent);
+        }
+
+        &:focus-visible {
+            outline: 2px solid var(--slim-rail-accent);
+            outline-offset: 2px;
+        }
+
+        &--active {
+            background: var(--slim-rail-accent);
+            color: var(--slim-rail-accent-text);
+
+            &:hover {
+                background: #5558e8;
+                color: var(--slim-rail-accent-text);
+            }
+        }
+    }
+
+    .layout-rail-divider {
+        list-style: none;
+        width: 2.25rem;
+        height: 1px;
+        margin: 0.2rem auto;
+        padding: 0;
+        flex-shrink: 0;
+        background: var(--slim-pane-border);
+        border: none;
+        border-radius: 1px;
+    }
+
+    .layout-rail-button {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        width: 2.75rem;
+        height: 2.75rem;
+        padding: 0;
+        border: none;
+        border-radius: var(--sidebar-radius-md, 14px);
+        cursor: pointer;
+        background: transparent;
+        color: var(--slim-rail-icon);
+        transition:
+            background-color 0.18s ease,
+            color 0.18s ease,
+            transform 0.12s ease;
+
+        .layout-rail-button-icon {
+            font-size: 1.4rem;
+        }
+
+        &:hover {
+            background: rgba(15, 23, 42, 0.06);
+            color: #334155;
+        }
+
+        &:active {
+            transform: scale(0.96);
+        }
+
+        &:focus-visible {
+            outline: 2px solid var(--slim-rail-accent);
+            outline-offset: 2px;
+        }
+
+        &--active {
+            background: var(--slim-rail-accent);
+            color: var(--slim-rail-accent-text);
+
+            .layout-rail-button-icon {
+                color: var(--slim-rail-accent-text);
+            }
+        }
+
+        &--route:not(.layout-rail-button--active) {
+            background: var(--slim-rail-accent);
+            color: var(--slim-rail-accent-text);
+
+            .layout-rail-button-icon {
+                color: var(--slim-rail-accent-text);
+            }
+        }
+    }
+
+    /* Hover flyout: floats over the page content instead of pushing it. */
+    .layout-nav-pane {
+        position: absolute;
+        top: 0;
+        bottom: 0;
+        left: var(--slim-rail-width);
+        width: var(--slim-nav-pane-width);
+        z-index: 1050;
+        min-width: 0;
+        min-height: 0;
+        margin: 0;
+        padding: 0;
+        background: var(--slim-pane-bg);
+        display: flex;
+        flex-direction: column;
+        border-left: 1px solid var(--slim-pane-edge);
+        border-right: 1px solid var(--slim-pane-border);
+        border-radius: 0 16px 16px 0;
+        box-shadow: 8px 0 28px rgba(15, 23, 42, 0.16);
+    }
+
+    .layout-nav-pane-scroll {
+        flex: 1 1 auto;
+        min-height: 0;
+        overflow: auto;
+        -webkit-overflow-scrolling: touch;
+        margin: 0;
+        padding: 0.5rem var(--slim-pane-px) 1.25rem;
+        scrollbar-width: thin;
+        background: var(--slim-pane-bg);
+    }
+
+    .layout-menu-pane {
+        margin: 0;
+        padding: 0;
+        list-style: none;
+        display: flex;
+        flex-direction: column;
+        gap: var(--slim-pane-list-gap);
+
+        li {
+            list-style: none;
+            margin: 0;
+            padding: 0;
+        }
+
+        a {
+            display: flex;
+            align-items: center;
+            gap: var(--slim-pane-icon-gap);
+            min-height: var(--slim-pane-row-min-h);
+            margin: 0;
+            padding: 8px 10px;
+            border-radius: var(--sidebar-radius-sm, 12px);
+            color: var(--slim-pane-label);
+            text-decoration: none;
+            font-size: 0.9375rem;
+            white-space: nowrap;
+            font-weight: 400;
+            line-height: 1.45;
+            letter-spacing: 0;
+            background: transparent;
+            border: none;
+            box-shadow: none;
+            transition:
+                color 0.12s ease,
+                background-color 0.12s ease;
+
+            .layout-menuitem-text {
+                color: var(--slim-pane-label);
+                font-weight: 400;
+            }
+
+            .layout-menuitem-icon {
+                flex-shrink: 0;
+                width: 1.25rem;
+                height: 1.25rem;
+                min-width: 1.25rem;
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                font-size: 1rem;
+                border-radius: 0;
+                background: transparent;
+                color: var(--slim-pane-label);
+                opacity: 0.9;
+            }
+
+            /* Saturated squircle + white glyph (Tailwind `menuNavAccentClasses` on `<i>`) */
+            .layout-menuitem-icon.layout-menuitem-icon--chroma {
+                box-sizing: border-box;
+                width: 2.25rem;
+                height: 2.25rem;
+                min-width: 2.25rem;
+                border-radius: var(--sidebar-radius-sm, 16px);
+                font-size: 1.05rem;
+            }
+
+            .layout-submenu-toggler {
+                display: none;
+            }
+
+            &:hover {
+                background-color: var(--slim-pane-row-hover);
+                .layout-menuitem-text {
+                    color: var(--slim-pane-label);
+                }
+            }
+
+            &.active-route {
+                background: var(--slim-pane-active-pill);
+                font-weight: 500;
+                 
+
+                .layout-menuitem-text {
+                    color: var(--slim-pane-label);
+                }
+
+                .layout-menuitem-icon:not(.layout-menuitem-icon--chroma) {
+                    color: var(--slim-rail-accent);
+                    opacity: 1;
+                }
+
+                
+            }
+        }
+
+        ul {
+            list-style: none;
+            margin: 0;
+            padding: 0;
+        }
+    }
+
+    /* Flat list groups: “RENTAL”, “FULFILLMENT”, … */
+    .layout-pane-group {
+        margin: 0;
+        padding: 0;
+        display: flex;
+        flex-direction: column;
+        gap: var(--slim-pane-list-gap);
+    }
+
+    .layout-pane-group + .layout-pane-group {
+        margin-top: var(--slim-pane-section-stack-gap);
+    }
+
+    .layout-pane-section-title {
+        margin: 0;
+        padding: 7px 0;
+        font-size: var(--slim-pane-section-title-fs);
+        font-weight: 600;
+        letter-spacing: 1.5px;
+        text-transform: uppercase;
+        line-height: 26px;
+        color: var(--slim-pane-eyebrow);
+        border-bottom: 1px solid var(--slim-pane-border);
+    }
+
+    .layout-pane-section-title--active {
+        color: var(--slim-pane-muted);
+    }
+
+    .layout-pane-group-list {
+        list-style: none;
+        margin: 0;
+        padding: 0.25rem 0 0;
+        display: flex;
+        flex-direction: column;
+        gap: var(--slim-pane-list-gap);
+    }
+
+    .layout-pane-group-list > li {
+        margin: 0;
+        padding: 0;
+    }
+
+    .layout-pane-group .layout-pane-group {
+        margin-left: 0;
+        padding-left: 0.5rem;
+        border-left: 1px solid var(--slim-pane-border);
+    }
+
+    /* Depth ≥1 parents: accordion (dropdown) for sub-menus */
+    .layout-pane-accordion {
+        margin: 0;
+    }
+
+    .layout-pane-accordion-trigger {
+        display: flex;
+        width: 100%;
+        align-items: center;
+        gap: var(--slim-pane-icon-gap);
+        min-height: var(--slim-pane-row-min-h);
+        padding: var(--slim-pane-row-py) var(--slim-pane-px);
+        margin: 0;
+        border: none;
+        border-radius: var(--sidebar-radius-sm, 12px);
+        background: transparent;
+        cursor: pointer;
+        font-family: inherit;
+        font-size: 0.9375rem;
+        font-weight: 500;
+        text-align: left;
+        color: var(--slim-pane-label);
+        line-height: 1.45;
+        transition: background-color 0.12s ease;
+
+        &:hover {
+            background-color: var(--slim-pane-row-hover);
+        }
+
+        &:focus-visible {
+            outline: 2px solid var(--slim-rail-accent);
+            outline-offset: 1px;
+        }
+
+        &--open {
+            background-color: var(--nav-accent-muted-bg, rgba(79, 70, 229, 0.08));
+        }
+
+        &--route-active .layout-pane-accordion-icon.layout-pane-accordion-icon--chroma {
+            opacity: 1;
+            
+        }
+
+        &--route-active .layout-pane-accordion-icon:not(.layout-pane-accordion-icon--chroma) {
+            color: var(--slim-rail-accent);
+            opacity: 1;
+        }
+    }
+
+    .layout-pane-accordion-icon {
+        flex-shrink: 0;
+        width: 1.25rem;
+        height: 1.25rem;
+        min-width: 1.25rem;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 1rem;
+        color: var(--slim-pane-label);
+        opacity: 0.9;
+    }
+
+    .layout-pane-accordion-icon.layout-pane-accordion-icon--chroma {
+        box-sizing: border-box;
+        width: 2.25rem;
+        height: 2.25rem;
+        min-width: 2.25rem;
+        border-radius: var(--sidebar-radius-sm, 16px);
+        font-size: 1.05rem;
+    }
+
+    .layout-pane-accordion-chevron {
+        margin-left: auto;
+        font-size: 0.65rem;
+        color: #9ca3af;
+        transition: transform 0.2s ease;
+    }
+
+    .layout-pane-accordion-chevron--open {
+        transform: rotate(-180deg);
+    }
+
+    .layout-pane-accordion-panel {
+        margin: 0;
+        padding: var(--slim-pane-list-gap) 0 0;
+        list-style: none;
+        overflow: hidden;
+        display: flex;
+        flex-direction: column;
+        gap: var(--slim-pane-list-gap);
+    }
+
+    .layout-pane-accordion-panel > li {
+        margin: 0;
+        padding: 0;
+    }
+
+    .layout-pane-accordion .layout-pane-accordion {
+        margin-left: 0.5rem;
+        padding-left: 0.5rem;
+        border-left: 1px solid var(--slim-pane-border);
+    }
+
+    /* Nested rows: one extra step so icons stay visually aligned */
+    .layout-pane-accordion-panel a {
+        padding-left: calc(var(--slim-pane-px) + 0.5rem);
+    }
+
+    .layout-pane-accordion .layout-pane-accordion .layout-pane-accordion-panel a {
+        padding-left: calc(var(--slim-pane-px) + 1rem);
+    }
+}
+
+/* Dark theme: the slim rail + flyout follow the surface palette instead of the
+   hardcoded light greys above (which made the sidebar stay white in dark mode). */
+.layout-container.layout-slim.layout-dark {
+    --slim-rail-bg: var(--p-surface-900);
+    --slim-rail-icon: var(--p-surface-400);
+    --slim-rail-accent: var(--primary-color);
+    --slim-rail-accent-text: var(--primary-color-text);
+    --slim-pane-bg: var(--p-surface-950);
+    --slim-pane-border: var(--p-surface-800);
+    --slim-pane-edge: var(--p-surface-800);
+    --slim-pane-eyebrow: var(--p-surface-300);
+    --slim-pane-label: var(--p-surface-100);
+    --slim-pane-muted: var(--p-surface-400);
+    --slim-pane-row-hover: rgba(255, 255, 255, 0.06);
+    --slim-pane-active-bar: var(--primary-color);
+    --slim-pane-active-pill: var(--p-surface-800);
+
+    .layout-nav-pane {
+        box-shadow: 8px 0 28px rgba(0, 0, 0, 0.45);
+    }
+
+    .layout-rail-home:hover {
+        background: color-mix(in srgb, var(--primary-color) 22%, transparent);
+        color: var(--primary-color);
+    }
+
+    .layout-rail-button:hover {
+        background: rgba(255, 255, 255, 0.08);
+        color: var(--p-surface-100);
+    }
+
+    .layout-pane-accordion-chevron {
+        color: var(--p-surface-500);
+    }
+}
+
+@media screen and (min-width: $breakpoint) {
+    .layout-container.layout-slim {
+        .layout-topbar {
+            .topbar-menubutton {
+                display: none;
+            }
+        }
+
+        .layout-sidebar {
+            width: var(--slim-rail-width);
+            /* visible so the hover flyout can overlay the page content */
+            overflow: visible;
+            z-index: 999;
+            display: flex;
+            flex-direction: column;
+        }
+
+        .layout-content-wrapper {
+            /* Content never shifts — the flyout floats above it. */
+            margin-left: var(--slim-rail-width);
+            padding-top: 60px;
+            background-color: var(--surface-ground);
+        }
+    }
+}
+
+@media screen and (max-width: ($breakpoint - 1)) {
+    .layout-container.layout-slim.layout-mobile-active {
+        .layout-sidebar {
+            width: min(100vw, calc(var(--slim-rail-width) + var(--slim-nav-pane-width)));
+            max-width: 100%;
+            display: flex;
+            flex-direction: column;
+        }
+
+        .layout-sidebar .layout-menu-container {
+            flex: 1 1 auto;
+            min-height: 0;
+        }
+    }
+}

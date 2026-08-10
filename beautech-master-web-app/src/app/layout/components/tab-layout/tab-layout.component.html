@@ -1,0 +1,22 @@
+<!-- Tabs header -->
+<div class="tab-bar">
+    <div
+        *ngFor="let tab of tabs"
+        class="tab-item"
+        [class.active]="tab.id === activeTabId"
+        (click)="activateTab(tab.id)"
+    >
+        <i *ngIf="tab.icon" [class]="tab.icon"></i>
+        <span>{{ tab.title }}</span>
+
+        <i
+            class="pi pi-times close"
+            (click)="closeTab(tab.id, $event)"
+        ></i>
+    </div>
+</div>
+
+<!-- Dynamic content -->
+<div class="tab-content">
+    <ng-template #tabContent></ng-template>
+</div>

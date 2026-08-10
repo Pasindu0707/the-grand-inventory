@@ -1,0 +1,346 @@
+/* Theme-aware tab bar. Colors come from layout CSS variables (see assets/layout/variables)
+   so the component flips correctly between light and dark color schemes. */
+
+.pill-tabs-container {
+    position: relative;
+    user-select: none;
+    background-color: var(--surface-ground);
+
+    /* The scroll lives in `.pill-tabs-strip` so actions can be sticky and never cover the last tab. */
+}
+
+.pill-tabs-shell {
+    display: flex;
+    align-items: center;
+    position: relative;
+    gap: 8px;
+}
+
+.pill-tabs-measure {
+    position: absolute;
+    left: -99999px;
+    top: 0;
+    height: 0;
+    overflow: hidden;
+    visibility: hidden;
+    pointer-events: none;
+}
+
+.pill-tab--measure {
+    pointer-events: none;
+}
+
+.pill-tabs-strip {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    align-items: center;
+    overflow-x: hidden; /* no scroll; overflow goes into "More" */
+    overflow-y: hidden;
+    white-space: nowrap;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: none; /* Firefox */
+    -ms-overflow-style: none; /* IE and Edge */
+
+    &::-webkit-scrollbar {
+        display: none;
+    }
+}
+
+.pill-tabs-actions {
+    display: inline-flex;
+    align-items: center;
+    flex-shrink: 0;
+    padding-right: 8px;
+    gap: 8px;
+}
+
+.pill-tabs-more {
+    position: relative;
+    display: inline-flex;
+}
+
+.pill-tabs-more__panel {
+    position: absolute;
+    right: 0;
+    top: calc(100% + 8px);
+    width: 320px;
+    max-width: 80vw;
+    background: var(--surface-overlay);
+    border: 1px solid var(--surface-border);
+    border-radius: 10px;
+    box-shadow: 0 16px 40px rgba(0, 0, 0, 0.12);
+    overflow: hidden;
+    z-index: 50;
+}
+
+.pill-tabs-more__header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 10px 12px;
+    border-bottom: 1px solid var(--surface-border);
+}
+
+.pill-tabs-more__title {
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--text-color);
+}
+
+.pill-tabs-more__close {
+    width: 28px;
+    height: 28px;
+    border-radius: 8px;
+    border: 1px solid transparent;
+    background: transparent;
+    cursor: pointer;
+    color: var(--text-color-secondary);
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+
+    &:hover {
+        background: var(--surface-hover);
+    }
+}
+
+.pill-tabs-more__search {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 10px 12px;
+    border-bottom: 1px solid var(--surface-border);
+    background: var(--surface-overlay);
+}
+
+.pill-tabs-more__searchInput {
+    min-width: 0;
+    border: 1px solid var(--surface-border);
+    border-radius: 8px;
+    height: 32px;
+    padding: 0 10px;
+    font-size: 12px;
+    outline: none;
+    background: var(--surface-ground);
+    color: var(--text-color);
+
+    &:focus {
+        border-color: var(--primary-color);
+    }
+}
+
+.pill-tabs-more__list {
+    max-height: 320px;
+    overflow: auto;
+}
+
+.pill-tabs-more__item {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    padding: 10px 12px;
+    cursor: pointer;
+    border-bottom: 1px solid var(--surface-border);
+
+    &:hover {
+        background: var(--surface-hover);
+    }
+
+    &.active {
+        background: var(--surface-hover);
+    }
+}
+
+.pill-tabs-more__meta {
+    min-width: 0;
+    flex: 1;
+}
+
+.pill-tabs-more__name {
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--text-color);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.pill-tabs-more__sub {
+    font-size: 11px;
+    color: var(--text-color-secondary);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    margin-top: 2px;
+}
+
+.pill-tabs-more__x {
+    width: 28px;
+    height: 28px;
+    border-radius: 8px;
+    border: 1px solid transparent;
+    background: transparent;
+    cursor: pointer;
+    color: var(--text-color-secondary);
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+
+    &:hover {
+        background: var(--surface-hover);
+        color: var(--text-color);
+    }
+}
+
+.pill-tabs-action {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    height: 32px;
+    padding: 0 10px;
+    border: 1px solid var(--surface-border);
+    border-radius: 9999px;
+    background: var(--surface-card);
+    color: var(--text-color-secondary);
+    cursor: pointer;
+    transition: background 0.15s ease, color 0.15s ease, border-color 0.15s ease;
+
+    &:hover {
+        background: var(--surface-hover);
+        color: var(--text-color);
+        border-color: var(--primary-color);
+    }
+
+    i {
+        font-size: 12px;
+    }
+}
+
+.pill-tabs-action__label {
+    font-size: 12px;
+    font-weight: 500;
+    white-space: nowrap;
+}
+
+.pill-tab {
+    position: relative;
+    display: inline-flex;
+    align-items: center;
+    min-width: 120px;
+    max-width: 240px;
+    padding: 10px 12px;
+    background: var(--surface-ground);
+    cursor: pointer;
+    transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+    flex-shrink: 0;
+    border-right: 1px solid var(--surface-border);
+    border-bottom: 1px solid var(--surface-border);
+
+    &:hover:not(.active) {
+        background: var(--surface-hover);
+    }
+
+    &.active {
+        background: var(--surface-card);
+        border-bottom: 1px solid var(--surface-card);
+    }
+}
+
+.pill-tab-content {
+    position: relative;
+    z-index: 1;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    width: 100%;
+    height: 100%;
+    overflow: hidden;
+}
+
+.pill-tab-title {
+    font-size: 13px;
+    font-weight: 400;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    flex: 1;
+    min-width: 0;
+    line-height: 1.4;
+    transition: color 0.2s ease;
+
+    .pill-tab.active & {
+        color: var(--text-color);
+        font-weight: 500;
+    }
+
+    .pill-tab:not(.active) & {
+        color: var(--text-color-secondary);
+        font-weight: 400;
+    }
+}
+
+.pill-tab-close {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 20px;
+    height: 20px;
+    margin-left: 6px;
+    padding: 0;
+    border: none;
+    background: transparent;
+    border-radius: 50%;
+    cursor: pointer;
+    transition: all 0.15s cubic-bezier(0.4, 0, 0.2, 1);
+    flex-shrink: 0;
+    opacity: 0; /* Hidden by default */
+    pointer-events: none; /* Disable pointer events when hidden */
+    position: relative;
+
+    // Show close button on tab hover
+    .pill-tab:hover & {
+        opacity: 1;
+        pointer-events: auto;
+    }
+
+    // Icon styling
+    i {
+        font-size: 10px;
+        line-height: 1;
+        display: inline-block;
+        width: 10px;
+        height: 10px;
+        position: relative;
+    }
+
+    color: var(--text-color-secondary);
+
+    &:hover {
+        background: var(--surface-hover);
+        color: var(--text-color);
+    }
+}
+
+.tab-content-container {
+    flex: 1;
+    overflow: auto;
+    background: var(--surface-ground);
+}
+
+@media (max-width: 768px) {
+    .pill-tab {
+        min-width: 120px;
+        max-width: 180px;
+    }
+
+    .pill-tab-title {
+        font-size: 11px;
+    }
+
+    .pill-tabs-action__label {
+        display: none;
+    }
+}
