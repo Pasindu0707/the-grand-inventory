@@ -4,7 +4,7 @@
         {
             "name": "grand-web",
             "runtimeExecutable": "npm",
-            "runtimeArgs": ["start"],
+            "runtimeArgs": ["start", "--prefix", "beautech-master-web-app"],
             "port": 4200
         }
     ]

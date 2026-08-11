@@ -1,4 +1,4 @@
-import { Component, OnDestroy, OnInit } from '@angular/core';
+﻿import { Component, OnDestroy, OnInit } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { NavigationEnd, Router, RouterModule } from '@angular/router';
 import { applyLeafNavAccentCycle } from '@/shared/navigation';
@@ -8,8 +8,8 @@ import { LayoutService } from '@/layout/service/layout.service';
 import { TabService } from '@/layout/components/tab-service';
 import { TooltipModule } from 'primeng/tooltip';
 import { RippleModule } from 'primeng/ripple';
-import { AuthStore } from '@/pos/stores/auth.store';
-import type { RouteKey } from '@/pos/core/types';
+import { AuthStore } from '@/core/auth.store';
+import type { RouteKey } from '@/core/types';
 
 @Component({
     selector: 'app-menu',
@@ -25,15 +25,15 @@ import type { RouteKey } from '@/pos/core/types';
                     <ul class="layout-rail-list">
                         <li class="layout-rail-item layout-rail-item--home">
                             <a
-                                routerLink="/register"
+                                routerLink="/today"
                                 class="layout-rail-home"
                                 [class.layout-rail-home--active]="isSlimRailHomeActive()"
                                 (click)="onSlimRailHomeClick($event)"
                                 pRipple
-                                pTooltip="Register"
+                                pTooltip="Today"
                                 tooltipPosition="right"
-                                aria-label="Register">
-                                <i class="pi pi-calculator" aria-hidden="true"></i>
+                                aria-label="Today">
+                                <i class="pi pi-home" aria-hidden="true"></i>
                             </a>
                         </li>
                         <li class="layout-rail-divider" role="separator" aria-hidden="true"></li>
@@ -126,49 +126,23 @@ export class AppMenu implements OnInit, OnDestroy {
     private rebuildMenuModel(): void {
         const gate = (key: RouteKey) => this.auth.canUseRoute(key);
 
+        // Grouped by what someone is doing, not by which table it touches.
+        // Issues, wastage, counts, cleaning and the five reports arrive with
+        // their slices; the groups appear when they have something in them.
         const baseModel = [
             {
-                label: 'Sell',
-                icon: 'pi pi-fw pi-shopping-cart',
+                label: 'Store',
+                icon: 'pi pi-fw pi-home',
                 items: [
-                    { label: 'Transactions', icon: 'pi pi-fw pi-list', routerLink: ['/transactions'], visible: gate('transactions') }
+                    { label: 'Today', icon: 'pi pi-fw pi-home', routerLink: ['/today'], visible: gate('today') },
+                    { label: 'Stock', icon: 'pi pi-fw pi-box', routerLink: ['/stock'], visible: gate('stock') }
                 ]
             },
             {
-                label: 'Catalog',
-                icon: 'pi pi-fw pi-box',
+                label: 'Goods in',
+                icon: 'pi pi-fw pi-truck',
                 items: [
-                    { label: 'Inventory', icon: 'pi pi-fw pi-box', routerLink: ['/inventory'], visible: gate('inventory') },
-                    { label: 'Discounts', icon: 'pi pi-fw pi-tag', routerLink: ['/discounts'], visible: gate('discounts') }
-                ]
-            },
-            {
-                label: 'People',
-                icon: 'pi pi-fw pi-users',
-                items: [
-                    { label: 'Customers', icon: 'pi pi-fw pi-users', routerLink: ['/customers'], visible: gate('customers') },
-                    { label: 'Employees', icon: 'pi pi-fw pi-id-card', routerLink: ['/employees'], visible: gate('employees') }
-                ]
-            },
-            {
-                label: 'Organization',
-                icon: 'pi pi-fw pi-building',
-                items: [
-                    { label: 'Branches', icon: 'pi pi-fw pi-building', routerLink: ['/branches'], visible: gate('branches') },
-                    { label: 'Stock', icon: 'pi pi-fw pi-truck', routerLink: ['/stock'], visible: gate('stock') },
-                    { label: 'Gift Cards', icon: 'pi pi-fw pi-gift', routerLink: ['/gift-cards'], visible: gate('gift-cards') }
-                ]
-            },
-            {
-                label: 'Insights',
-                icon: 'pi pi-fw pi-chart-bar',
-                items: [{ label: 'Reports', icon: 'pi pi-fw pi-chart-bar', routerLink: ['/reports'], visible: gate('reports') }]
-            },
-            {
-                label: 'System',
-                icon: 'pi pi-fw pi-cog',
-                items: [
-                    { label: 'Sync Audit', icon: 'pi pi-fw pi-sync', routerLink: ['/sync-audit'], visible: gate('sync-audit') }
+                    { label: 'Receive delivery', icon: 'pi pi-fw pi-truck', routerLink: ['/grn'], visible: gate('grn') }
                 ]
             }
         ];
@@ -262,16 +236,16 @@ export class AppMenu implements OnInit, OnDestroy {
     }
 
     /**
-     * Top rail "home / app" control (Register). Opens like any other nav leaf so the
+     * Top rail "home / app" control (Today). Opens like any other nav leaf so the
      * currently open section pane is preserved instead of being force-closed.
      */
     onSlimRailHomeClick(event: Event): void {
-        this.openRootLeafInTab(event, { label: 'Register', routerLink: ['/register'] });
+        this.openRootLeafInTab(event, { label: 'Today', routerLink: ['/today'] });
     }
 
     isSlimRailHomeActive(): boolean {
         const onHome =
-            this.router.isActive('/register', {
+            this.router.isActive('/today', {
                 paths: 'exact',
                 queryParams: 'ignored',
                 matrixParams: 'ignored',
@@ -324,7 +298,7 @@ export class AppMenu implements OnInit, OnDestroy {
         if (!this.layoutService.isSlim()) {
             return;
         }
-        // On desktop the secondary pane is a hover-only flyout — it must never stay
+        // On desktop the secondary pane is a hover-only flyout - it must never stay
         // docked open after navigating. We only track which rail icon is "current"
         // (for the highlight); the pane itself opens on mouse-enter (onRailEnter).
         if (this.layoutService.isDesktop()) {
@@ -388,3 +362,5 @@ export class AppMenu implements OnInit, OnDestroy {
         return normalized || null;
     }
 }
+
+

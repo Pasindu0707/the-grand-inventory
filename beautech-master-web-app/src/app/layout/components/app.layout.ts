@@ -8,11 +8,6 @@ import { LayoutService } from '@/layout/service/layout.service';
 import { AppConfigurator } from './app.configurator';
 import { AppProfileSidebar } from './app.profilesidebar';
 import {TabLayoutComponent} from "@/layout/components/tab-layout/tab-layout.component";
-import { effect, inject } from '@angular/core';
-import { AuthStore } from '@/pos/stores/auth.store';
-import { NetworkStore } from '@/pos/stores/network.store';
-import { SyncWorker } from '@/pos/services/sync-worker';
-import { CatalogService } from '@/pos/services/catalog.service';
 
 @Component({
     selector: 'app-layout',
@@ -50,35 +45,15 @@ export class AppLayout {
 
     @ViewChild(AppTopbar) appTopBar!: AppTopbar;
 
-    private auth = inject(AuthStore);
-    private network = inject(NetworkStore);
-    private syncWorker = inject(SyncWorker);
-    private catalog = inject(CatalogService);
-    private catalogPulled = false;
+    // The POS template started a background sync worker and hydrated an offline
+    // catalog here. Both are gone: this build is online-only, and the sync stack
+    // was built entirely around sales transactions, which do not exist here.
 
     constructor(
         public layoutService: LayoutService,
         public renderer: Renderer2,
         public router: Router
     ) {
-        // Start/stop the background sync worker with the session.
-        effect(() => {
-            if (this.auth.accessToken()) {
-                this.syncWorker.start();
-            } else {
-                this.syncWorker.stop();
-            }
-        });
-
-        // Hydrate the offline catalog on mount and whenever connectivity returns.
-        effect(() => {
-            const online = this.network.online();
-            if (online && this.auth.accessToken() && !this.catalogPulled) {
-                this.catalogPulled = true;
-                this.catalog.pullCatalog().catch(() => (this.catalogPulled = false));
-            }
-        });
-
         this.overlayMenuOpenSubscription = this.layoutService.overlayOpen$.subscribe(() => {
             if (!this.menuOutsideClickListener) {
                 this.menuOutsideClickListener = this.renderer.listen('document', 'click', (event) => {
