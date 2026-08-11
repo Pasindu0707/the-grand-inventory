@@ -226,84 +226,124 @@ never testing against a structure you will not ship.
 
 ## 5. Who can do what
 
-**The API is the real gate.** The menu hides what a role cannot use, but the
-server is what enforces it. This table is taken from the route definitions.
+**Five roles.** The API is the real gate — the menu hides what a role cannot
+use, but the server is what enforces it. This table comes from the route
+definitions, not from memory.
 
-### Roles
+### The roles
 
-| Role | Who this is |
-|---|---|
-| `owner` | The proprietor. Group-wide — not tied to one outlet. |
-| `manager` | Runs the site. Approves, verifies, reads everything. |
-| `storekeeper` | Holds the store. Receives, issues, counts. |
-| `chef` / `bar` / `baker` | Section heads. Request stock, log waste, count their own section. |
-| `cleaning` | Cleaning staff. |
-| `purchasing` | Buying. Reserved for Phase 3 (purchase orders). |
+| Role | Who this is | What they see |
+|---|---|---|
+| **Admin** | Whoever hands out logins | One screen: Logins. Cannot touch stock at all. |
+| **Management** | Owner, manager | Everything, including the five reports |
+| **Storekeeper** | Holds the store | Requests to release, stock everywhere, deliveries |
+| **Kitchen** | Cooks, bakers, bar | Ask for stock, what we have, confirm arrivals |
+| **Cleaning** | Cleaning staff | The same, plus the cleaning checklist |
 
-### Write permissions
+A branch can have **as many logins per role as it needs** — two kitchen logins,
+three, whatever matches how the shifts work.
 
-| Action | owner | manager | storekeeper | chef / bar / baker | cleaning | purchasing |
-|---|:--:|:--:|:--:|:--:|:--:|:--:|
-| Receive delivery (GRN) | ● | ● | ● | | | ● |
-| Market purchase (cash) | ● | ● | ● | | | ● |
-| Request an issue | ● | ● | ● | ● | ● | |
-| Fulfil an issue | ● | ● | ● | | | |
-| Cancel an issue | ● | ● | ● | | | |
-| Log wastage | ● | ● | ● | ● | | |
-| **Approve wastage** | ● | ● | | | | |
-| Transfer stock | ● | ● | ● | | | |
-| Open / close a count | ● | ● | ● | ● | | |
-| Enter count lines | ● | ● | ● | ● | ● | ● |
-| **Verify a count** | ● | ● | | | | |
-| Log cleaning | ● | ● | ● | ● | ● | |
-| **Verify cleaning** | ● | ● | | | | |
-| **Reverse a document** | ● | ● | | | | |
-| Upload a photo | ● | ● | ● | ● | ● | ● |
+### The everyday flow
 
-### Read permissions
+```
+Kitchen or Cleaning          Management OR Storekeeper        Back to the asker
+─────────────────────        ─────────────────────────        ─────────────────
+1. Ask for stock       →     2. Approve and release      →    3. "It came"
+   (say when you need it)       (stock moves here)               (confirm arrival)
+```
 
-| View | Who |
-|---|---|
-| Stock, items, suppliers, issues, counts, wastage, deliveries, cleaning | **Any signed-in user** |
-| **Reports** (all five) | **owner and manager only** |
+If the store cannot cover it, the shortfall is offered as a **purchase order**
+in the same action, and every purchase order goes to **Management**, who are the
+only people who can approve it.
 
-### Two things to know about this
+### Who can do what
 
-**Reads are not restricted by role.** Any signed-in person can call the API and
-see stock levels or the wastage list. The menu hides screens they have no use
-for, but that is presentation, not security. On a shared store-room tablet this
-is a reasonable trade; if it ever needs tightening, it is a change to the route
-guards, not the UI.
+| Action | Admin | Management | Storekeeper | Kitchen | Cleaning |
+|---|:--:|:--:|:--:|:--:|:--:|
+| Ask for stock | | ● | ● | ● | ● |
+| **Approve and release stock** | | ● | ● | | |
+| Confirm it arrived | | ● | ● | ● | ● |
+| Raise a purchase request | | ● | ● | ● | ● |
+| **Approve a purchase** | | ● | | | |
+| Receive a delivery (GRN) | | ● | ● | | |
+| Market purchase (cash) | | ● | ● | | |
+| Log wastage | | ● | ● | ● | |
+| **Approve wastage** | | ● | | | |
+| Stock count | | ● | ● | ● | |
+| **Verify a count** | | ● | | | |
+| Log cleaning | | ● | ● | ● | ● |
+| **Verify cleaning** | | ● | | | |
+| **Reverse a document** | | ● | | | |
+| **See the five reports** | | ● | | | |
+| **Create and remove logins** | ● | | | | |
 
-**The owner currently has full write access.** The plan describes the owner as
-read-only plus approvals. In the code the owner is on every write route. That
-is deliberate for now — the owner is the person who fixes things at 11pm — but
-it is a decision worth making consciously rather than inheriting.
+Two deliberate gaps in that table. **Admin cannot touch stock** — someone has to
+hand out logins without that also granting them the run of the inventory. And
+**the storekeeper cannot approve purchases** — they handle stock, not money.
 
 ### Separation of duties
 
-Three rules the system enforces regardless of role:
+Enforced regardless of role, because a second check is only worth anything if it
+is a second person:
 
+- You cannot **release your own request**.
+- You cannot **confirm a delivery you released**.
 - You cannot **verify a count you performed**.
 - You cannot **verify cleaning you did**.
-- You cannot **approve your own wastage** unless you are a manager or owner.
+- You cannot **switch off the last admin** — otherwise nobody can ever add a
+  login again, and the failure is silent until someone needs one.
 
-The value of a second check is entirely that it is a second person.
+### One thing to know
+
+**Reads are not restricted by role.** Any signed-in person can call the API
+directly and see stock levels. The menu hides screens they have no use for, but
+that is presentation, not security. On a shared store-room tablet this is a
+reasonable trade; tightening it is a change to the route guards, not the UI.
 
 ---
 
 ## 6. Adding people
 
-### Right now
+### In the app — the normal way
 
-There is no user-management screen — see Known gaps. Use the script:
+Sign in as **System Admin** and open **Logins**.
+
+**To add someone**, tap *Add someone* and fill in four things:
+
+1. **Their name** — this is the tile they tap on the sign-in screen
+2. **What they do** — pick one of the five roles; each says what it means
+3. **Which branch** — or "All branches" for management and admin
+4. **A 4-digit PIN** — tap *Suggest one* if you like
+
+The PIN is then shown once, large, in plain text. **Read it to them there and
+then** — it is not shown again. That is deliberate: hiding it just produces a
+sticky note stuck to the tablet.
+
+They appear on the sign-in screen immediately. No restart, no waiting.
+
+**Other things on that screen:**
+
+| Situation | What to do |
+|---|---|
+| Someone forgot their PIN | *New PIN* — generates one and shows it once |
+| Locked out after 5 wrong tries | *Unlock* — clears it without changing the PIN |
+| Someone leaves | *Switch off* — they can no longer sign in |
+| They come back | *Turn back on* |
+| They change job | Not in the UI yet; use the script below |
+
+Nobody is ever deleted, only switched off. Their name is on every document they
+ever created, and the ledger does not forget.
+
+### From the terminal — when the app cannot help
+
+If nobody can sign in as admin, or you need to change someone's role:
 
 ```bash
 node scripts/add-user.mjs --list
 ```
 
 ```bash
-node scripts/add-user.mjs --name "Kamal Perera" --role chef --pin 4821
+node scripts/add-user.mjs --name "Kamal Perera" --role kitchen --pin 4821
 ```
 
 They appear on the login screen immediately. No restart.
@@ -313,10 +353,10 @@ They appear on the login screen immediately. No restart.
 | Flag | Meaning |
 |---|---|
 | `--name` | Full name, as it should appear on the login tile |
-| `--role` | One of: `owner manager storekeeper chef bar baker cleaning purchasing` |
+| `--role` | One of: `admin management storekeeper kitchen cleaning` |
 | `--pin` | 4–6 digits |
-| `--outlet` | Outlet code, default `GB`. Options: `GB ESP TCL KAT BANQ` |
-| `--group` | Group-wide instead of one outlet. Use for the owner. |
+| `--outlet` | Branch code, default `GB`. Options: `GB ESP TCL KAT BANQ` |
+| `--group` | All branches instead of one. Use for management and admin. |
 | `--phone` | Optional |
 | `--deactivate` | Removes them from the login screen |
 | `--list` | Show everyone |
@@ -365,7 +405,7 @@ between you and go-live.** There is no screen for any of it.
 
 | Thing | How, today |
 |---|---|
-| People | `scripts/add-user.mjs` ✅ |
+| People | **In the app** — Admin → Logins ✅ |
 | Items, packs, par levels | Edit `seed/items.csv`, re-seed. **No live editing.** |
 | Suppliers | SQL only |
 | Outlets and sections | SQL only |
@@ -384,7 +424,6 @@ Honest list of what is not built.
 
 | Gap | Impact |
 |---|---|
-| **No user-management screen** | Adding staff needs terminal access. Script exists; UI does not. |
 | **No item / supplier management screen** | Master data changes need a developer. Blocks day-to-day autonomy. |
 | **No CSV import for cutover** | Phase 0 real-data import is manual. Needed before go-live. |
 | **No transfers screen** | API works and is tested; no UI. |
