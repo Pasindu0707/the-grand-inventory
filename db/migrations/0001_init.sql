@@ -126,7 +126,11 @@ create table stock_ledger (
   section_id    int not null references sections(id),
   item_id       int not null references items(id),
   qty_base      numeric(14,3) not null,        -- SIGNED, in item.stock_unit
-  unit_cost     numeric(14,4) not null,        -- weighted average at time of move
+  -- Receipts (grn/market/opening) record the price actually paid: it appears
+  -- nowhere else and it is what the price-movement report reads. Every other
+  -- movement records the weighted average at the time it happened, i.e. the
+  -- cost of what left. The running average itself lives in item_cost_state.
+  unit_cost     numeric(14,4) not null,
   doc           doc_type not null,
   doc_id        bigint not null,
   doc_line      int,
