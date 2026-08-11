@@ -52,6 +52,10 @@ export const ROUTE_PERMISSIONS: Record<RouteKey, Role[]> = {
     today: ['owner', 'manager', 'storekeeper', 'chef', 'bar', 'baker', 'cleaning', 'purchasing'],
     grn: ['owner', 'manager', 'storekeeper', 'purchasing'],
     stock: ['owner', 'manager', 'storekeeper', 'chef', 'bar', 'baker'],
+    // Sections request, the storekeeper fulfils — both live on the same screen.
+    issues: ['owner', 'manager', 'storekeeper', 'chef', 'bar', 'baker', 'cleaning'],
+    wastage: ['owner', 'manager', 'storekeeper', 'chef', 'bar', 'baker'],
+    counts: ['owner', 'manager', 'storekeeper', 'chef', 'bar', 'baker'],
     items: ['owner', 'manager', 'purchasing'],
     reports: ['owner', 'manager']
 };

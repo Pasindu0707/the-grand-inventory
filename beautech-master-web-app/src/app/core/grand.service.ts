@@ -9,13 +9,24 @@ import { firstValueFrom } from 'rxjs';
 import { API_BASE } from './api';
 import type {
     BootstrapResponse,
+    CloseCountResult,
+    CountDetail,
+    CountLine,
+    CountListRow,
+    CountType,
+    FulfilResult,
     GrnInput,
     GrnListRow,
     GrnResult,
+    IssueDetail,
+    IssueListRow,
+    IssueWindow,
     Item,
+    ReasonCode,
     SessionResponse,
     StockResponse,
-    Supplier
+    Supplier,
+    WastageRow
 } from './types';
 
 @Injectable({ providedIn: 'root' })
@@ -74,6 +85,121 @@ export class GrandService {
         return firstValueFrom(
             this.http.get<{ rows: GrnListRow[]; total: number }>(`${API_BASE}/grn`, {
                 params: { limit: String(limit) }
+            })
+        );
+    }
+
+    // ── Issues ──────────────────────────────────────────────────────────────
+
+    listIssues(status?: string): Promise<IssueListRow[]> {
+        const params: Record<string, string> = status ? { status } : {};
+        return firstValueFrom(this.http.get<IssueListRow[]>(`${API_BASE}/issues`, { params }));
+    }
+
+    getIssue(id: string): Promise<IssueDetail> {
+        return firstValueFrom(this.http.get<IssueDetail>(`${API_BASE}/issues/${id}`));
+    }
+
+    requestIssue(toSectionId: number, lines: { itemId: number; qtyRequested: number }[]): Promise<{ id: string }> {
+        return firstValueFrom(
+            this.http.post<{ id: string }>(`${API_BASE}/issues`, { toSectionId, lines })
+        );
+    }
+
+    fulfilIssue(
+        id: string,
+        lines: { lineId: string; qtyIssued: number }[],
+        idempotencyKey: string,
+        note?: string
+    ): Promise<FulfilResult> {
+        return firstValueFrom(
+            this.http.post<FulfilResult>(
+                `${API_BASE}/issues/${id}/fulfil`,
+                { lines, note: note ?? null },
+                { headers: new HttpHeaders({ 'Idempotency-Key': idempotencyKey }) }
+            )
+        );
+    }
+
+    cancelIssue(id: string): Promise<{ ok: true }> {
+        return firstValueFrom(this.http.post<{ ok: true }>(`${API_BASE}/issues/${id}/cancel`, {}));
+    }
+
+    issueWindows(): Promise<IssueWindow[]> {
+        return firstValueFrom(this.http.get<IssueWindow[]>(`${API_BASE}/issue-windows`));
+    }
+
+    // ── Wastage ─────────────────────────────────────────────────────────────
+
+    reasonCodes(doc = 'wastage'): Promise<ReasonCode[]> {
+        return firstValueFrom(
+            this.http.get<ReasonCode[]>(`${API_BASE}/reason-codes`, { params: { doc } })
+        );
+    }
+
+    listWastage(pendingOnly = false): Promise<WastageRow[]> {
+        const params: Record<string, string> = pendingOnly ? { pendingOnly: 'true' } : {};
+        return firstValueFrom(this.http.get<WastageRow[]>(`${API_BASE}/wastage`, { params }));
+    }
+
+    logWastage(body: {
+        sectionId: number;
+        itemId: number;
+        qtyBase: number;
+        reasonCode: string;
+        photoUrl?: string | null;
+        note?: string | null;
+    }): Promise<{ id: string; businessDate: string }> {
+        return firstValueFrom(
+            this.http.post<{ id: string; businessDate: string }>(`${API_BASE}/wastage`, body)
+        );
+    }
+
+    approveWastage(id: string): Promise<{ ok: true }> {
+        return firstValueFrom(this.http.post<{ ok: true }>(`${API_BASE}/wastage/${id}/approve`, {}));
+    }
+
+    // ── Counts ──────────────────────────────────────────────────────────────
+
+    listCounts(openOnly = false): Promise<CountListRow[]> {
+        const params: Record<string, string> = openOnly ? { openOnly: 'true' } : {};
+        return firstValueFrom(this.http.get<CountListRow[]>(`${API_BASE}/counts`, { params }));
+    }
+
+    getCount(id: string): Promise<CountDetail> {
+        return firstValueFrom(this.http.get<CountDetail>(`${API_BASE}/counts/${id}`));
+    }
+
+    openCount(sectionId: number, countType: CountType): Promise<{ id: string; lines: CountLine[] }> {
+        return firstValueFrom(
+            this.http.post<{ id: string; lines: CountLine[] }>(`${API_BASE}/counts/open`, {
+                sectionId,
+                countType
+            })
+        );
+    }
+
+    saveCountLines(id: string, lines: { lineId: string; qtyCounted: number }[]): Promise<{ ok: true }> {
+        return firstValueFrom(
+            this.http.put<{ ok: true }>(`${API_BASE}/counts/${id}/lines`, { lines })
+        );
+    }
+
+    closeCount(id: string): Promise<CloseCountResult> {
+        return firstValueFrom(this.http.post<CloseCountResult>(`${API_BASE}/counts/${id}/close`, {}));
+    }
+
+    verifyCount(id: string): Promise<{ ok: true }> {
+        return firstValueFrom(this.http.post<{ ok: true }>(`${API_BASE}/counts/${id}/verify`, {}));
+    }
+
+    // ── Corrections ─────────────────────────────────────────────────────────
+
+    /** The only way to undo a posted document. There is no edit and no delete. */
+    reverseDocument(doc: string, id: string, reason: string): Promise<{ rowsReversed: number }> {
+        return firstValueFrom(
+            this.http.post<{ rowsReversed: number }>(`${API_BASE}/documents/${doc}/${id}/reverse`, {
+                reason
             })
         );
     }

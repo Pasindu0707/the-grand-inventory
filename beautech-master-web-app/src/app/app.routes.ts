@@ -46,6 +46,39 @@ export const appRoutes: Routes = [
                 canActivate: [roleGuard],
                 loadComponent: () => import('./pages/stock.component').then((m) => m.StockComponent),
                 title: 'Stock'
+            },
+            {
+                path: 'issues',
+                data: {
+                    breadcrumb: 'Issues',
+                    routeKey: 'issues',
+                    allowed: ['owner', 'manager', 'storekeeper', 'chef', 'bar', 'baker', 'cleaning']
+                },
+                canActivate: [roleGuard],
+                loadComponent: () => import('./pages/issues.component').then((m) => m.IssuesComponent),
+                title: 'Issues'
+            },
+            {
+                path: 'wastage',
+                data: {
+                    breadcrumb: 'Wastage',
+                    routeKey: 'wastage',
+                    allowed: ['owner', 'manager', 'storekeeper', 'chef', 'bar', 'baker']
+                },
+                canActivate: [roleGuard],
+                loadComponent: () => import('./pages/wastage.component').then((m) => m.WastageComponent),
+                title: 'Wastage'
+            },
+            {
+                path: 'counts',
+                data: {
+                    breadcrumb: 'Stock count',
+                    routeKey: 'counts',
+                    allowed: ['owner', 'manager', 'storekeeper', 'chef', 'bar', 'baker']
+                },
+                canActivate: [roleGuard],
+                loadComponent: () => import('./pages/counts.component').then((m) => m.CountsComponent),
+                title: 'Stock count'
             }
         ]
     },

@@ -33,7 +33,15 @@ export const ROLE_LABELS: Record<Role, string> = {
     purchasing: 'Purchasing'
 };
 
-export type RouteKey = 'today' | 'grn' | 'stock' | 'items' | 'reports';
+export type RouteKey =
+    | 'today'
+    | 'grn'
+    | 'stock'
+    | 'issues'
+    | 'wastage'
+    | 'counts'
+    | 'items'
+    | 'reports';
 
 // ── Session ─────────────────────────────────────────────────────────────────
 export interface SessionUser {
@@ -167,4 +175,108 @@ export interface GrnListRow {
     receivedAt: string;
     total: number | null;
     lineCount: number;
+}
+
+// ── Issues ──────────────────────────────────────────────────────────────────
+export interface IssueListRow {
+    id: string;
+    sectionCode: string;
+    sectionName: string;
+    status: string;
+    requestedBy: string;
+    requestedAt: string;
+    lineCount: number;
+}
+
+export interface IssueLine {
+    lineId: string;
+    itemId: number;
+    code: string;
+    name: string;
+    stockUnit: string;
+    qtyRequested: number;
+    qtyIssued: number | null;
+    availableInStore: number;
+}
+
+export interface IssueDetail {
+    id: string;
+    status: string;
+    toSectionId: number;
+    lines: IssueLine[];
+}
+
+export interface FulfilResult {
+    id: string;
+    businessDate: string;
+    linesIssued: number;
+    /** Advisory. An off-window issue is recorded, never refused. */
+    windowWarning: string | null;
+    shortfalls: { itemName: string; requested: number; issued: number; available: number }[];
+}
+
+export interface IssueWindow {
+    at: string;
+    label: string;
+}
+
+// ── Wastage ─────────────────────────────────────────────────────────────────
+export interface ReasonCode {
+    code: string;
+    doc: string;
+    label: string;
+}
+
+export interface WastageRow {
+    id: string;
+    itemName: string;
+    sectionCode: string;
+    qtyBase: number;
+    stockUnit: string;
+    reasonCode: string;
+    reasonLabel: string;
+    loggedBy: string;
+    loggedAt: string;
+    approved: boolean;
+}
+
+// ── Counts ──────────────────────────────────────────────────────────────────
+export type CountType = 'daily_critical' | 'weekly_full' | 'monthly_full';
+
+export interface CountLine {
+    lineId: string;
+    itemId: number;
+    code: string;
+    name: string;
+    stockUnit: string;
+    /** Frozen when the count opened, never re-read. */
+    qtyExpected: number;
+    qtyCounted: number | null;
+}
+
+export interface CountDetail {
+    id: string;
+    countType: string;
+    sectionId: number;
+    businessDate: string;
+    closed: boolean;
+    verified: boolean;
+    lines: CountLine[];
+}
+
+export interface CountListRow {
+    id: string;
+    countType: string;
+    sectionCode: string;
+    businessDate: string;
+    countedBy: string;
+    closed: boolean;
+    verified: boolean;
+}
+
+export interface CloseCountResult {
+    id: string;
+    adjustments: number;
+    varianceValue: number;
+    biggest: { name: string; varianceQty: number; varianceValue: number }[];
 }

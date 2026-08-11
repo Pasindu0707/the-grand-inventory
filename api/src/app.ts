@@ -16,6 +16,7 @@ import { authRoutes } from './routes/auth.js';
 import { itemRoutes } from './routes/items.js';
 import { grnRoutes } from './routes/grn.js';
 import { stockRoutes } from './routes/stock.js';
+import { documentRoutes } from './routes/documents.js';
 
 export async function buildApp(): Promise<FastifyInstance> {
     const app = Fastify({
@@ -31,6 +32,29 @@ export async function buildApp(): Promise<FastifyInstance> {
 
     app.setValidatorCompiler(validatorCompiler);
     app.setSerializerCompiler(serializerCompiler);
+
+    /**
+     * Treat an empty body as `{}`.
+     *
+     * Several endpoints are pure commands — approve, close, verify, cancel —
+     * and take no body at all. Fastify's default parser rejects a POST that
+     * declares `application/json` and then sends nothing, which is exactly what
+     * a reasonable client does for a bodyless command. Failing those with a
+     * parse error is a trap, not a safety feature.
+     */
+    app.addContentTypeParser(
+        'application/json',
+        { parseAs: 'string' },
+        (_req, body: string, done) => {
+            if (!body || body.trim() === '') return done(null, {});
+            try {
+                done(null, JSON.parse(body));
+            } catch (err) {
+                (err as { statusCode?: number }).statusCode = 400;
+                done(err as Error, undefined);
+            }
+        }
+    );
 
     await app.register(cors, {
         origin: config.CORS_ORIGIN.split(',').map((s) => s.trim()),
@@ -69,6 +93,18 @@ export async function buildApp(): Promise<FastifyInstance> {
                 .send({ error: 'TOO_MANY_REQUESTS', message: 'Slow down and try again shortly' });
         }
 
+        // Anything Fastify itself has already classified as a client error --
+        // malformed JSON, unsupported media type -- is the caller's problem,
+        // not ours. Reporting it as a 500 sends people hunting server logs for
+        // a broken request body.
+        const status = (err as { statusCode?: number }).statusCode;
+        if (status && status >= 400 && status < 500) {
+            return reply.status(status).send({
+                error: (err as { code?: string }).code ?? 'BAD_REQUEST',
+                message: asRecord.message ?? 'Request could not be processed'
+            });
+        }
+
         req.log.error({ err }, 'unhandled error');
         return reply
             .status(500)
@@ -81,6 +117,7 @@ export async function buildApp(): Promise<FastifyInstance> {
     await app.register(itemRoutes, { prefix: v1 });
     await app.register(grnRoutes, { prefix: v1 });
     await app.register(stockRoutes, { prefix: v1 });
+    await app.register(documentRoutes, { prefix: v1 });
 
     return app;
 }
