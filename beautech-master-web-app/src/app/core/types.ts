@@ -341,3 +341,94 @@ export interface CleaningToday {
     businessDate: string;
     tasks: CleaningTask[];
 }
+
+// ── Reports ─────────────────────────────────────────────────────────────────
+export interface DateRange {
+    from: string;
+    to: string;
+}
+
+export interface UsageVarianceRow {
+    itemId: number;
+    code: string;
+    name: string;
+    stockUnit: string;
+    sectionCode: string;
+    theoreticalQty: number;
+    actualQty: number;
+    varianceQty: number;
+    variancePct: number;
+    varianceValue: number;
+}
+
+export interface ShrinkageRow {
+    itemId: number;
+    code: string;
+    name: string;
+    stockUnit: string;
+    sectionCode: string;
+    businessDate: string;
+    varianceQty: number;
+    varianceValue: number;
+    variancePct: number | null;
+    /** A gap with a document behind it is explained; it is not shrinkage. */
+    hasWastageDoc: boolean;
+}
+
+export interface PriceMovementRow {
+    itemPackId: number;
+    itemName: string;
+    packName: string;
+    supplierName: string;
+    effectiveFrom: string;
+    previousPrice: number;
+    newPrice: number;
+    changePct: number;
+}
+
+export interface WastageReportRow {
+    reasonCode: string;
+    reasonLabel: string;
+    itemId: number;
+    code: string;
+    name: string;
+    stockUnit: string;
+    sectionCode: string;
+    events: number;
+    qtyBase: number;
+    value: number;
+}
+
+export interface WastageReport extends DateRange {
+    rows: WastageReportRow[];
+    byReason: { reasonCode: string; reasonLabel: string; events: number; value: number }[];
+    totalValue: number;
+}
+
+export interface StockOutRow {
+    itemId: number;
+    code: string;
+    name: string;
+    stockUnit: string;
+    sectionCode: string;
+    businessDate: string;
+    balance: number;
+}
+
+export interface BelowReorderRow {
+    itemId: number;
+    code: string;
+    name: string;
+    stockUnit: string;
+    qtyBase: number;
+    reorderPoint: number;
+    parLevel: number;
+    shortfall: number;
+    isCritical: boolean;
+}
+
+export interface UsageTrendPoint {
+    businessDate: string;
+    theoreticalQty: number;
+    actualQty: number;
+}

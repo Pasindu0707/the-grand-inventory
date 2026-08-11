@@ -12,8 +12,10 @@ import type {
     CloseCountResult,
     CountDetail,
     CountLine,
+    BelowReorderRow,
     CleaningToday,
     CountListRow,
+    DateRange,
     CountType,
     FulfilResult,
     GrnInput,
@@ -26,11 +28,17 @@ import type {
     MarketInput,
     MarketListRow,
     MarketResult,
+    PriceMovementRow,
     ReasonCode,
     SessionResponse,
+    ShrinkageRow,
+    StockOutRow,
     StockResponse,
     Supplier,
     UploadResult,
+    UsageTrendPoint,
+    UsageVarianceRow,
+    WastageReport,
     WastageRow
 } from './types';
 
@@ -255,6 +263,60 @@ export class GrandService {
     verifyCleaning(logId: string): Promise<{ ok: true }> {
         return firstValueFrom(
             this.http.post<{ ok: true }>(`${API_BASE}/cleaning/log/${logId}/verify`, {})
+        );
+    }
+
+    // ── Reports ─────────────────────────────────────────────────────────────
+
+    usageVariance(range: DateRange, minPct = 8): Promise<DateRange & { rows: UsageVarianceRow[] }> {
+        return firstValueFrom(
+            this.http.get<DateRange & { rows: UsageVarianceRow[] }>(
+                `${API_BASE}/reports/usage-variance`,
+                { params: { ...range, minPct: String(minPct) } }
+            )
+        );
+    }
+
+    usageTrend(itemId: number, range: DateRange): Promise<UsageTrendPoint[]> {
+        return firstValueFrom(
+            this.http.get<UsageTrendPoint[]>(`${API_BASE}/reports/usage-variance/${itemId}`, {
+                params: { ...range }
+            })
+        );
+    }
+
+    shrinkage(range: DateRange): Promise<DateRange & { rows: ShrinkageRow[]; totalValue: number }> {
+        return firstValueFrom(
+            this.http.get<DateRange & { rows: ShrinkageRow[]; totalValue: number }>(
+                `${API_BASE}/reports/shrinkage`,
+                { params: { ...range } }
+            )
+        );
+    }
+
+    priceMovement(range: DateRange, minPct = 5): Promise<DateRange & { rows: PriceMovementRow[] }> {
+        return firstValueFrom(
+            this.http.get<DateRange & { rows: PriceMovementRow[] }>(
+                `${API_BASE}/reports/price-movement`,
+                { params: { ...range, minPct: String(minPct) } }
+            )
+        );
+    }
+
+    wastageReport(range: DateRange): Promise<WastageReport> {
+        return firstValueFrom(
+            this.http.get<WastageReport>(`${API_BASE}/reports/wastage`, { params: { ...range } })
+        );
+    }
+
+    stockOutReport(
+        range: DateRange
+    ): Promise<DateRange & { stockOuts: StockOutRow[]; belowReorder: BelowReorderRow[] }> {
+        return firstValueFrom(
+            this.http.get<DateRange & { stockOuts: StockOutRow[]; belowReorder: BelowReorderRow[] }>(
+                `${API_BASE}/reports/stock-outs`,
+                { params: { ...range } }
+            )
         );
     }
 }

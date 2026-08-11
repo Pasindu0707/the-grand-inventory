@@ -92,6 +92,13 @@ export const appRoutes: Routes = [
                 title: 'Wastage'
             },
             {
+                path: 'reports',
+                data: { breadcrumb: 'Reports', routeKey: 'reports', allowed: ['owner', 'manager'] },
+                canActivate: [roleGuard],
+                loadComponent: () => import('./pages/reports.component').then((m) => m.ReportsComponent),
+                title: 'Reports'
+            },
+            {
                 path: 'counts',
                 data: {
                     breadcrumb: 'Stock count',

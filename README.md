@@ -68,13 +68,30 @@ Test data with no faults in it teaches you nothing. Five faults are planted, and
 each maps to a report that must catch it. If a report can't find its fault, the
 report is wrong.
 
-| # | Fault | Where it hides | Report that must catch it |
-|---|---|---|---|
-| A | Chicken breast over-issued from day 20 | Issues look normal individually | Theoretical vs actual usage — issued/day steps 4,403 g → 5,116 g (**+16.2%**) with no rise in production |
-| B | Two gin bottles vanish, days 28 and 44 | No document at all | Bar weekly count — 750 ml gap, surfacing at the counts on **2026-07-12** and **2026-07-26** |
-| C | Sunflower oil +32% at the supplier on day 35 | Buried in a routine GRN | Supplier price movement — 45,880 → 60,561.60 on the next delivery, **2026-07-30** |
-| D | Lettuce spoilage spike, days 38–44 | Genuine waste, correctly logged | Wastage by reason — must read as spoilage, **not** flag as theft |
-| E | Prawns hit zero on day 41 | Store empties mid-service | Stock-out / below-reorder alert — balance reaches exactly 0 on **2026-07-21** |
+| # | Fault | Where it hides | Report that catches it | Verified |
+|---|---|---|---|---|
+| A | Chicken breast over-issued from day 20 | Issues look normal individually | Theoretical vs actual usage | **+18%**, 2 rows in the whole report |
+| B | Two gin bottles vanish, days 28 and 44 | No document at all | Shrinkage (count gaps with no wastage doc) | 2 × **−750 ml, Rs 5,216.25**, both in BAR |
+| C | Sunflower oil +32% at the supplier on day 35 | Buried in a routine GRN | Supplier price movement | **45,880 → 60,561.60** on 2026-07-30 |
+| D | Lettuce spoilage spike, days 38–44 | Genuine waste, correctly logged | Wastage by reason — and **absent** from shrinkage | 3,347 g as *Spoiled / expired*; **zero** shrinkage rows |
+| E | Prawns hit zero on day 41 | Store empties mid-service | Stock-out / below-reorder | balance **0** on 2026-07-21 |
+
+Each row is an assertion in `api/test/anomalies.test.ts`. If a report stops
+finding its fault, the suite fails.
+
+B and C both surface later than they occur, and that is the point. The gin
+leaves on days 28 and 44 but nothing reveals it until the next Sunday bar count.
+The supplier raises the oil price on day 35, but you only find out at the next
+delivery. A report that insists on flagging things the day they happen would
+miss both.
+
+**D is the acceptance gate.** The test asserts the *absence* of a theft flag,
+because that failure mode is the one that gets a report abandoned — and it is
+the one nobody writes a test for. It caught a real defect: without a materiality
+floor the shrinkage report listed Rs 0.44 losses of one gram of lettuce, and a
+flat money floor alone still let fifteen days of ordinary counting noise on
+expensive gin bury the two real bottles. Shrinkage now needs to be material in
+both money and proportion.
 
 B and C both surface later than they occur, and that is the point. The gin
 leaves on days 28 and 44 but nothing reveals it until the next Sunday bar count.
@@ -84,6 +101,8 @@ miss both.
 
 D is the important one. A variance report that screams about lettuce is a report
 the owner will stop opening by week three.
+
+Run the whole suite with `cd api && npm test`.
 
 ## Phase 2 without a POS
 

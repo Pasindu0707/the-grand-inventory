@@ -161,6 +161,13 @@ export class AppMenu implements OnInit, OnDestroy {
                     { label: 'Stock count', icon: 'pi pi-fw pi-check-square', routerLink: ['/counts'], visible: gate('counts') },
                     { label: 'Cleaning', icon: 'pi pi-fw pi-sparkles', routerLink: ['/cleaning'], visible: gate('cleaning') }
                 ]
+            },
+            {
+                label: 'Insights',
+                icon: 'pi pi-fw pi-chart-bar',
+                items: [
+                    { label: 'Reports', icon: 'pi pi-fw pi-chart-bar', routerLink: ['/reports'], visible: gate('reports') }
+                ]
             }
         ];
 
