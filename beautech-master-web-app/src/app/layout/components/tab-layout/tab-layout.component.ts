@@ -1,4 +1,4 @@
-import { AfterViewInit, Component, ElementRef, OnDestroy, OnInit, QueryList, ViewChild, ViewChildren } from '@angular/core';
+﻿import { AfterViewInit, Component, ElementRef, OnDestroy, OnInit, QueryList, ViewChild, ViewChildren } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { NavigationEnd, Router, RouterOutlet } from '@angular/router';
 import { filter } from 'rxjs/operators';
@@ -162,8 +162,11 @@ export class TabLayoutComponent implements OnInit, AfterViewInit, OnDestroy {
     constructor(private tabService: TabService, private router: Router) {}
 
     ngOnInit() {
-        // Force navigate to the Register home on initial load
-        this.router.navigate(['/register'], { replaceUrl: true });
+        // The POS template force-navigated to /register here on every load,
+        // which threw away whatever URL the user actually asked for. With that
+        // route deleted it fell through to Today, so every deep link, bookmark
+        // and page refresh landed on the dashboard. The requested route is now
+        // left alone.
         this.checkDashboardRoute(this.router.url);
         
         // Clear any stored active index to prevent navigation to old tabs
@@ -189,11 +192,14 @@ export class TabLayoutComponent implements OnInit, AfterViewInit, OnDestroy {
             // Defer to allow DOM to render before measuring.
             setTimeout(() => this.recomputeOverflow(), 0);
             
-            // If no tabs exist, ensure we're on the Register home
-            if (tabs.length === 0) {
-                if (!this.isDashboardRoute) {
-                    this.router.navigate(['/register'], { replaceUrl: true });
-                }
+            // When the user closes the last tab, fall back to Today.
+            //
+            // Guarded by isInitialLoad: on a fresh page load there are no tabs
+            // yet either, and without the guard this rule threw away the
+            // requested URL — so refreshing on /stock, or opening a bookmark,
+            // silently landed on Today.
+            if (tabs.length === 0 && !this.isInitialLoad && !this.isDashboardRoute) {
+                this.router.navigate(['/today'], { replaceUrl: true });
             }
         });
 
@@ -238,7 +244,7 @@ export class TabLayoutComponent implements OnInit, AfterViewInit, OnDestroy {
     private checkDashboardRoute(url: string): void {
         // The Register screen is the home: show it full-bleed without the pill-tab strip.
         const path = (url || '').split('?')[0];
-        this.isDashboardRoute = path === '/' || path === '' || path === '/register';
+        this.isDashboardRoute = path === '/' || path === '' || path === '/today';
     }
 
     onTabChange(index: number) {
@@ -253,7 +259,7 @@ export class TabLayoutComponent implements OnInit, AfterViewInit, OnDestroy {
         if (wasLastTab) {
             setTimeout(() => {
                 if (this.openedTabs.length === 0) {
-                    this.router.navigate(['/register'], { replaceUrl: true });
+                    this.router.navigate(['/today'], { replaceUrl: true });
                 }
             }, 100);
         }
@@ -262,7 +268,7 @@ export class TabLayoutComponent implements OnInit, AfterViewInit, OnDestroy {
     onCloseAllTabs() {
         this.tabService.closeAllTabs();
         setTimeout(() => {
-            this.router.navigate(['/register'], { replaceUrl: true });
+            this.router.navigate(['/today'], { replaceUrl: true });
         }, 0);
     }
 

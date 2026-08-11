@@ -122,8 +122,26 @@ export class TodayComponent implements OnInit {
     readonly totalValue = signal(0);
     readonly recent = signal<GrnListRow[]>([]);
 
-    readonly low = computed(() => this.rows().filter((r) => r.belowReorder));
-    readonly outOfStock = computed(() => this.rows().filter((r) => r.qtyBase <= 0).length);
+    /**
+     * Only the main store.
+     *
+     * Ordering is a store decision — you buy into the store, not into the bar.
+     * Listing every section made "Arrack - premium" appear twice, once for the
+     * bar's working stock and once for the store's, which reads as a bug and
+     * would have someone ordering twice.
+     */
+    readonly low = computed(() => {
+        const storeId = this.auth.storeSection()?.id;
+        return this.rows().filter(
+            (r) => r.belowReorder && (storeId === undefined || r.sectionId === storeId)
+        );
+    });
+    readonly outOfStock = computed(() => {
+        const storeId = this.auth.storeSection()?.id;
+        return this.rows().filter(
+            (r) => r.qtyBase <= 0 && (storeId === undefined || r.sectionId === storeId)
+        ).length;
+    });
     readonly firstName = computed(() => this.auth.user()?.name.split(' ')[0] ?? '');
     readonly canReceive = computed(() =>
         ['owner', 'manager', 'storekeeper', 'purchasing'].includes(this.auth.role() ?? '')

@@ -1,5 +1,6 @@
 import type { FastifyInstance } from 'fastify';
 import type { ZodTypeProvider } from 'fastify-type-provider-zod';
+import { sql } from 'kysely';
 import { z } from 'zod';
 import { badRequest } from '../errors.js';
 import { createGrn } from '../services/grn.js';
@@ -129,7 +130,13 @@ export async function grnRoutes(app: FastifyInstance) {
                         'suppliers.name as supplierName',
                         'grn.invoice_no as invoiceNo',
                         'grn.received_at as receivedAt',
-                        'grn.total',
+                        // Derived from the lines, not read from grn.total. The
+                        // stored column is a convenience that can be null
+                        // (seeded rows never set it) or stale; the lines are
+                        // the document. Same principle as stock itself.
+                        sql<number>`coalesce(sum(grn_lines.qty_packs * grn_lines.pack_price), 0)`.as(
+                            'total'
+                        ),
                         fn.count('grn_lines.id').as('lineCount'),
                     ])
                     .groupBy(['grn.id', 'suppliers.name'])
@@ -146,7 +153,7 @@ export async function grnRoutes(app: FastifyInstance) {
                     supplierName: r2.supplierName,
                     invoiceNo: r2.invoiceNo,
                     receivedAt: new Date(r2.receivedAt as unknown as string).toISOString(),
-                    total: r2.total,
+                    total: Number(r2.total ?? 0),
                     lineCount: Number(r2.lineCount),
                 })),
                 total: Number(count.n),
