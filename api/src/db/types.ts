@@ -17,15 +17,16 @@ import type { ColumnType, Generated, Insertable, Selectable, Updateable } from '
 type Ts = ColumnType<Date, Date | string | undefined, Date | string>;
 type DateOnly = ColumnType<string, string, string>;
 
-export type UserRole =
-    | 'owner'
-    | 'manager'
-    | 'storekeeper'
-    | 'chef'
-    | 'bar'
-    | 'baker'
-    | 'cleaning'
-    | 'purchasing';
+/**
+ * Five roles, matching how the business is actually organised.
+ *
+ * The earlier eight-role model split the kitchen into chef, baker and bar, all
+ * of whom do exactly one thing here: ask the store for stock. That distinction
+ * cost users a "which one am I?" decision and bought nothing.
+ */
+export type UserRole = 'admin' | 'management' | 'storekeeper' | 'kitchen' | 'cleaning';
+
+export type PoStatus = 'requested' | 'approved' | 'rejected' | 'ordered' | 'done';
 
 export type StorageType =
     | 'dry'
@@ -214,7 +215,41 @@ export interface IssuesTable {
     issued_by: number | null;
     requested_at: Generated<Ts>;
     issued_at: Ts | null;
+    /** requested | released | received | cancelled */
     status: Generated<string>;
+    /** When the section says they need it by. */
+    needed_by: DateOnly | null;
+    note: string | null;
+    approved_by: number | null;
+    approved_at: ColumnType<Date | null, Date | null | undefined, Date | null>;
+    /** The requester confirming it physically arrived. */
+    received_by: number | null;
+    received_at: ColumnType<Date | null, Date | null | undefined, Date | null>;
+    is_demo: Generated<boolean>;
+}
+
+export interface PurchaseOrdersTable {
+    id: Generated<string>;
+    location_id: number;
+    issue_id: string | null;
+    raised_by: number;
+    raised_at: Generated<Ts>;
+    needed_by: DateOnly | null;
+    reason: string | null;
+    status: Generated<PoStatus>;
+    decided_by: number | null;
+    decided_at: ColumnType<Date | null, Date | null | undefined, Date | null>;
+    decision_note: string | null;
+    is_demo: Generated<boolean>;
+}
+
+export interface PurchaseOrderLinesTable {
+    id: Generated<string>;
+    po_id: string | number;
+    item_id: number;
+    qty_base: number;
+    qty_in_store: Generated<number>;
+    est_price: number | null;
     is_demo: Generated<boolean>;
 }
 
@@ -434,6 +469,8 @@ export interface Database {
     cleaning_log: CleaningLogTable;
     idempotency_keys: IdempotencyKeysTable;
     login_attempts: LoginAttemptsTable;
+    purchase_orders: PurchaseOrdersTable;
+    purchase_order_lines: PurchaseOrderLinesTable;
     settings: SettingsTable;
     audit_log: AuditLogTable;
     current_stock: CurrentStockView;

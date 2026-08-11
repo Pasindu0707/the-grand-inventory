@@ -73,6 +73,10 @@ const catItems = (cat: string) => items.filter((i) => i.category === cat);
 // static master data
 // ---------------------------------------------------------------------------
 
+// The Gastrobar keeps its bakery and bar as separate stock locations, because
+// stock genuinely sits in those rooms. The other four branches get the three
+// sections every site has. Section != role: a kitchen login draws from the
+// KITCHEN section wherever they work.
 const SECTIONS = [
   { id: 1, code: "STORE", name: "Main store", store: true },
   { id: 2, code: "KITCHEN", name: "Kitchen", store: false },
@@ -81,14 +85,30 @@ const SECTIONS = [
   { id: 5, code: "CLEAN", name: "Cleaning", store: false },
 ];
 
+// Branches 2-5. Each gets a store, a kitchen and a cleaning section so the
+// request flow works there on day one.
+const OTHER_BRANCH_SECTIONS = [
+  { code: "STORE", name: "Main store", store: true },
+  { code: "KITCHEN", name: "Kitchen", store: false },
+  { code: "CLEAN", name: "Cleaning", store: false },
+];
+
+// Five roles. Ids are deliberately unchanged from the eight-role version: the
+// 60 days of generated movements reference these numbers throughout, and
+// renumbering to make the list read nicely would rewrite every document's
+// author for no gain.
+//
+// Three kitchen logins at the Gastrobar — the old chef, baker and bar hands —
+// which is the "a section can have more than one login" case working.
 const USERS = [
-  { id: 1, name: "Owner", role: "owner", loc: "null" },
-  { id: 2, name: "Nuwan Perera", role: "manager", loc: "1" },
+  { id: 1, name: "Owner", role: "management", loc: "null" },
+  { id: 2, name: "Nuwan Perera", role: "management", loc: "1" },
   { id: 3, name: "Sunil Fernando", role: "storekeeper", loc: "1" },
-  { id: 4, name: "Chaminda Silva", role: "chef", loc: "1" },
-  { id: 5, name: "Ruwan Dias", role: "baker", loc: "1" },
-  { id: 6, name: "Tharindu Jay", role: "bar", loc: "1" },
+  { id: 4, name: "Chaminda Silva", role: "kitchen", loc: "1" },
+  { id: 5, name: "Ruwan Dias", role: "kitchen", loc: "1" },
+  { id: 6, name: "Tharindu Jay", role: "kitchen", loc: "1" },
   { id: 7, name: "Malani Kumari", role: "cleaning", loc: "1" },
+  { id: 8, name: "System Admin", role: "admin", loc: "null" },
 ];
 
 const SUPPLIERS = [
@@ -174,15 +194,28 @@ const out: string[] = [];
 const w = (s: string) => out.push(s);
 
 w("begin;");
+// All five branches are active. The Coffee Lounge runs 04:00-04:00 because it
+// is a 24-hour site, so "today" there is not "today" anywhere else.
 w(`insert into locations (id,code,name,day_start,is_active,is_demo) values
   (1,'GB','The Grand Gastrobar','06:00',true,true),
-  (2,'ESP','Grand Espresso Bar','06:00',false,true),
-  (3,'TCL','The Grand Coffee Lounge','04:00',false,true),
-  (4,'KAT','The Grand Cafe Katuneriya','06:00',false,true),
-  (5,'BANQ','Banquet hall','06:00',false,true);`);
+  (2,'ESP','Grand Espresso Bar','06:00',true,true),
+  (3,'TCL','The Grand Coffee Lounge','04:00',true,true),
+  (4,'KAT','The Grand Cafe Katuneriya','06:00',true,true),
+  (5,'BANQ','Banquet hall','06:00',true,true);`);
 
 w("insert into sections (id,location_id,code,name,is_store,is_demo) values");
-w(SECTIONS.map((s) => `  (${s.id},1,${q(s.code)},${q(s.name)},${s.store},true)`).join(",\n") + ";");
+{
+  const rows = SECTIONS.map((s) => `  (${s.id},1,${q(s.code)},${q(s.name)},${s.store},true)`);
+  // Branches 2-5 get their three sections too, so a kitchen login at the
+  // Coffee Lounge has somewhere to draw stock from on day one.
+  let sid = SECTIONS.length;
+  for (let loc = 2; loc <= 5; loc++) {
+    for (const s of OTHER_BRANCH_SECTIONS) {
+      rows.push(`  (${++sid},${loc},${q(s.code)},${q(s.name)},${s.store},true)`);
+    }
+  }
+  w(rows.join(",\n") + ";");
+}
 
 w("insert into users (id,location_id,name,role,pin_hash,is_demo) values");
 w(USERS.map((u) => `  (${u.id},${u.loc},${q(u.name)},'${u.role}',${q(DEMO_PIN_HASH)},true)`).join(",\n") + ";");

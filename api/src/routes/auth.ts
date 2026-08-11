@@ -7,16 +7,7 @@ import { config } from '../config.js';
 import { forbidden, tooManyRequests, unauthorized } from '../errors.js';
 import { locationsForUser, type AccessClaims } from '../plugins/auth.js';
 
-const ROLE = z.enum([
-    'owner',
-    'manager',
-    'storekeeper',
-    'chef',
-    'bar',
-    'baker',
-    'cleaning',
-    'purchasing',
-]);
+const ROLE = z.enum(['admin', 'management', 'storekeeper', 'kitchen', 'cleaning']);
 
 /** A valid hash of a value nobody can supply, for constant-time failed logins. */
 const DUMMY_HASH = bcrypt.hashSync('__no_such_user__', 10);

@@ -20,7 +20,7 @@ export async function marketRoutes(app: FastifyInstance) {
     r.post(
         '/market',
         {
-            preHandler: app.requireRole('owner', 'manager', 'storekeeper', 'purchasing'),
+            preHandler: app.requireRole('management', 'storekeeper'),
             schema: {
                 headers: z.object({ 'idempotency-key': z.string().min(8).max(128) }).passthrough(),
                 body: z.object({
@@ -157,15 +157,7 @@ export async function marketRoutes(app: FastifyInstance) {
     r.post(
         '/cleaning/log',
         {
-            preHandler: app.requireRole(
-                'owner',
-                'manager',
-                'cleaning',
-                'storekeeper',
-                'chef',
-                'bar',
-                'baker'
-            ),
+            preHandler: app.requireRole('management', 'cleaning', 'storekeeper', 'kitchen'),
             schema: {
                 body: z.object({
                     taskId: z.number().int().positive(),
@@ -190,7 +182,7 @@ export async function marketRoutes(app: FastifyInstance) {
     r.post(
         '/cleaning/log/:id/verify',
         {
-            preHandler: app.requireRole('owner', 'manager'),
+            preHandler: app.requireRole('management'),
             schema: {
                 params: z.object({ id: z.string() }),
                 response: { 200: z.object({ ok: z.literal(true) }) }

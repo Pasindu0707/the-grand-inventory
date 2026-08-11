@@ -9,6 +9,7 @@ import { firstValueFrom } from 'rxjs';
 import { API_BASE } from './api';
 import type {
     BootstrapResponse,
+    Branch,
     CloseCountResult,
     CountDetail,
     CountLine,
@@ -17,14 +18,20 @@ import type {
     CountListRow,
     DateRange,
     CountType,
-    FulfilResult,
     GrnInput,
     GrnListRow,
     GrnResult,
     IssueDetail,
-    IssueListRow,
     IssueWindow,
     Item,
+    ManagedUser,
+    MyContext,
+    PoDecision,
+    PurchaseOrder,
+    ReleaseResult,
+    RequestRow,
+    Role,
+    Shortage,
     MarketInput,
     MarketListRow,
     MarketResult,
@@ -102,44 +109,130 @@ export class GrandService {
         );
     }
 
-    // ── Issues ──────────────────────────────────────────────────────────────
+    // ── Who am I ────────────────────────────────────────────────────────────
 
-    listIssues(status?: string): Promise<IssueListRow[]> {
-        const params: Record<string, string> = status ? { status } : {};
-        return firstValueFrom(this.http.get<IssueListRow[]>(`${API_BASE}/issues`, { params }));
+    myContext(): Promise<MyContext> {
+        return firstValueFrom(this.http.get<MyContext>(`${API_BASE}/me/context`));
     }
 
-    getIssue(id: string): Promise<IssueDetail> {
-        return firstValueFrom(this.http.get<IssueDetail>(`${API_BASE}/issues/${id}`));
+    // ── Requests: ask → release → confirm ───────────────────────────────────
+
+    listRequests(opts: { status?: string; mineOnly?: boolean } = {}): Promise<RequestRow[]> {
+        const params: Record<string, string> = {};
+        if (opts.status) params['status'] = opts.status;
+        if (opts.mineOnly) params['mineOnly'] = 'true';
+        return firstValueFrom(this.http.get<RequestRow[]>(`${API_BASE}/requests`, { params }));
     }
 
-    requestIssue(toSectionId: number, lines: { itemId: number; qtyRequested: number }[]): Promise<{ id: string }> {
+    /** Ask the store before submitting, so a shortage can be shown up front. */
+    checkStore(lines: { itemId: number; qtyRequested: number }[]): Promise<{ shortages: Shortage[] }> {
         return firstValueFrom(
-            this.http.post<{ id: string }>(`${API_BASE}/issues`, { toSectionId, lines })
+            this.http.post<{ shortages: Shortage[] }>(`${API_BASE}/requests/check`, { lines })
         );
     }
 
-    fulfilIssue(
+    ask(body: {
+        sectionId?: number;
+        neededBy?: string | null;
+        note?: string | null;
+        lines: { itemId: number; qtyRequested: number }[];
+    }): Promise<{ id: string; shortages: Shortage[] }> {
+        return firstValueFrom(
+            this.http.post<{ id: string; shortages: Shortage[] }>(`${API_BASE}/requests`, body)
+        );
+    }
+
+    releaseRequest(
         id: string,
         lines: { lineId: string; qtyIssued: number }[],
-        idempotencyKey: string,
-        note?: string
-    ): Promise<FulfilResult> {
+        idempotencyKey: string
+    ): Promise<ReleaseResult> {
         return firstValueFrom(
-            this.http.post<FulfilResult>(
-                `${API_BASE}/issues/${id}/fulfil`,
-                { lines, note: note ?? null },
+            this.http.post<ReleaseResult>(
+                `${API_BASE}/requests/${id}/release`,
+                { lines },
                 { headers: new HttpHeaders({ 'Idempotency-Key': idempotencyKey }) }
             )
         );
     }
 
-    cancelIssue(id: string): Promise<{ ok: true }> {
-        return firstValueFrom(this.http.post<{ ok: true }>(`${API_BASE}/issues/${id}/cancel`, {}));
+    confirmReceived(id: string): Promise<{ ok: true }> {
+        return firstValueFrom(this.http.post<{ ok: true }>(`${API_BASE}/requests/${id}/confirm`, {}));
+    }
+
+    cancelRequest(id: string): Promise<{ ok: true }> {
+        return firstValueFrom(this.http.post<{ ok: true }>(`${API_BASE}/requests/${id}/cancel`, {}));
+    }
+
+    /** The lines of one request, for the release screen. */
+    getRequest(id: string): Promise<IssueDetail> {
+        return firstValueFrom(this.http.get<IssueDetail>(`${API_BASE}/issues/${id}`));
     }
 
     issueWindows(): Promise<IssueWindow[]> {
         return firstValueFrom(this.http.get<IssueWindow[]>(`${API_BASE}/issue-windows`));
+    }
+
+    // ── Purchase orders ─────────────────────────────────────────────────────
+
+    listPurchaseOrders(status?: string): Promise<PurchaseOrder[]> {
+        const params: Record<string, string> = status ? { status } : {};
+        return firstValueFrom(
+            this.http.get<PurchaseOrder[]>(`${API_BASE}/purchase-orders`, { params })
+        );
+    }
+
+    raisePurchaseOrder(body: {
+        issueId?: string | null;
+        neededBy?: string | null;
+        reason?: string | null;
+        lines: { itemId: number; qtyBase: number; estPrice?: number | null }[];
+    }): Promise<{ id: string }> {
+        return firstValueFrom(
+            this.http.post<{ id: string }>(`${API_BASE}/purchase-orders`, body)
+        );
+    }
+
+    decidePurchaseOrder(id: string, decision: PoDecision, note?: string): Promise<{ ok: true }> {
+        return firstValueFrom(
+            this.http.post<{ ok: true }>(`${API_BASE}/purchase-orders/${id}/decide`, {
+                decision,
+                note: note ?? null
+            })
+        );
+    }
+
+    // ── Admin ───────────────────────────────────────────────────────────────
+
+    listUsers(): Promise<ManagedUser[]> {
+        return firstValueFrom(this.http.get<ManagedUser[]>(`${API_BASE}/admin/users`));
+    }
+
+    listBranches(): Promise<Branch[]> {
+        return firstValueFrom(this.http.get<Branch[]>(`${API_BASE}/admin/branches`));
+    }
+
+    createUser(body: {
+        name: string;
+        role: Role;
+        locationId: number | null;
+        pin: string;
+        phone?: string | null;
+    }): Promise<ManagedUser> {
+        return firstValueFrom(this.http.post<ManagedUser>(`${API_BASE}/admin/users`, body));
+    }
+
+    updateUser(
+        id: number,
+        body: { role?: Role; locationId?: number | null; pin?: string; isActive?: boolean }
+    ): Promise<{ ok: true }> {
+        return firstValueFrom(this.http.patch<{ ok: true }>(`${API_BASE}/admin/users/${id}`, body));
+    }
+
+    unlockUser(id: number): Promise<{ ok: true }> {
+        return firstValueFrom(
+            this.http.post<{ ok: true }>(`${API_BASE}/admin/users/${id}/unlock`, {})
+        );
     }
 
     // ── Wastage ─────────────────────────────────────────────────────────────

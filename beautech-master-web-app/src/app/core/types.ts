@@ -11,39 +11,120 @@
  */
 
 // ── Roles ───────────────────────────────────────────────────────────────────
-// The schema's user_role enum, all eight of them.
-export type Role =
-    | 'owner'
-    | 'manager'
-    | 'storekeeper'
-    | 'chef'
-    | 'bar'
-    | 'baker'
-    | 'cleaning'
-    | 'purchasing';
+// Five, matching how the business is organised. Chef, baker and bar all became
+// "kitchen": they do the same thing here, which is ask the store for stock.
+export type Role = 'admin' | 'management' | 'storekeeper' | 'kitchen' | 'cleaning';
 
 export const ROLE_LABELS: Record<Role, string> = {
-    owner: 'Owner',
-    manager: 'Manager',
+    admin: 'Admin',
+    management: 'Management',
     storekeeper: 'Storekeeper',
-    chef: 'Chef',
-    bar: 'Bar',
-    baker: 'Baker',
-    cleaning: 'Cleaning',
-    purchasing: 'Purchasing'
+    kitchen: 'Kitchen',
+    cleaning: 'Cleaning'
 };
 
 export type RouteKey =
-    | 'today'
+    // Everyday screens
+    | 'home'
+    | 'ask'
+    | 'requests'
+    | 'mystock'
+    | 'purchases'
+    | 'cleaning'
+    | 'users'
+    // Advanced — management and admin only
     | 'grn'
     | 'market'
     | 'stock'
-    | 'issues'
     | 'wastage'
     | 'counts'
-    | 'cleaning'
-    | 'items'
     | 'reports';
+
+/** What this person can do. Answered by the server so the UI never guesses. */
+export interface MyContext {
+    role: Role;
+    locationId: number;
+    mySectionIds: number[];
+    homeSectionId: number | null;
+    canRelease: boolean;
+    canDecidePurchases: boolean;
+    canManageUsers: boolean;
+    seesAdvanced: boolean;
+}
+
+// ── Requests ────────────────────────────────────────────────────────────────
+export interface RequestRow {
+    id: string;
+    sectionId: number;
+    sectionCode: string;
+    sectionName: string;
+    /** requested | released | received | cancelled */
+    status: string;
+    requestedBy: string;
+    requestedAt: string;
+    neededBy: string | null;
+    note: string | null;
+    lineCount: number;
+    releasedBy: string | null;
+    isMine: boolean;
+    /** Waiting on this user to do something. */
+    needsMe: boolean;
+}
+
+export interface Shortage {
+    itemId: number;
+    name: string;
+    stockUnit: string;
+    requested: number;
+    inStore: number;
+    short: number;
+}
+
+export interface ReleaseResult {
+    id: string;
+    linesReleased: number;
+    shortfalls: { itemName: string; requested: number; released: number; available: number }[];
+}
+
+// ── Purchase orders ─────────────────────────────────────────────────────────
+export type PoDecision = 'approved' | 'rejected' | 'ordered' | 'done';
+
+export interface PurchaseOrder {
+    id: string;
+    status: string;
+    raisedBy: string;
+    raisedAt: string;
+    neededBy: string | null;
+    reason: string | null;
+    decidedBy: string | null;
+    decisionNote: string | null;
+    lines: {
+        itemId: number;
+        name: string;
+        stockUnit: string;
+        qtyBase: number;
+        qtyInStore: number;
+        estPrice: number | null;
+    }[];
+}
+
+// ── Admin ───────────────────────────────────────────────────────────────────
+export interface ManagedUser {
+    id: number;
+    name: string;
+    role: Role;
+    locationId: number | null;
+    locationCode: string | null;
+    phone: string | null;
+    isActive: boolean;
+    isLocked: boolean;
+}
+
+export interface Branch {
+    id: number;
+    code: string;
+    name: string;
+}
 
 // ── Session ─────────────────────────────────────────────────────────────────
 export interface SessionUser {

@@ -1,16 +1,12 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import type { FastifyInstance } from 'fastify';
-import { randomUUID } from 'node:crypto';
-import { authedHeaders, db, makeApp } from './helpers.js';
-import { windowWarning, DEFAULT_ISSUE_WINDOWS } from '../src/services/settings.js';
+import { authedHeaders, db, makeApp, supplySection } from './helpers.js';
 
 let app: FastifyInstance;
 let headers: Record<string, string>;
 let locationId: number;
 let storeId: number;
 let kitchenId: number;
-
-const idem = () => ({ 'idempotency-key': randomUUID() });
 
 async function sectionId(code: string) {
     const row = await db
@@ -59,172 +55,10 @@ afterAll(async () => {
     await db.destroy();
 });
 
-describe('issues', () => {
-    it('moves stock out of the store and into the section, netting to zero', async () => {
-        const item = await wellStockedItem();
-        const storeBefore = await stockOf(item.id, storeId);
-        const kitchenBefore = await stockOf(item.id, kitchenId);
-
-        const req = await app.inject({
-            method: 'POST',
-            url: '/api/v1/issues',
-            headers,
-            payload: { toSectionId: kitchenId, lines: [{ itemId: item.id, qtyRequested: 1000 }] }
-        });
-        expect(req.statusCode).toBe(201);
-        const issueId = req.json().id;
-
-        const fulfil = await app.inject({
-            method: 'POST',
-            url: `/api/v1/issues/${issueId}/fulfil`,
-            headers: { ...headers, ...idem() },
-            payload: { lines: [] }
-        });
-        expect(fulfil.statusCode).toBe(200);
-        expect(fulfil.json().linesIssued).toBe(1);
-
-        const storeAfter = await stockOf(item.id, storeId);
-        const kitchenAfter = await stockOf(item.id, kitchenId);
-
-        expect(storeBefore - storeAfter).toBe(1000);
-        expect(kitchenAfter - kitchenBefore).toBe(1000);
-        // Nothing was created or destroyed, only moved.
-        expect(storeAfter + kitchenAfter).toBe(storeBefore + kitchenBefore);
-    });
-
-    it('caps a line at what the store actually holds and reports the shortfall', async () => {
-        const item = await wellStockedItem();
-        const available = await stockOf(item.id, storeId);
-
-        const req = await app.inject({
-            method: 'POST',
-            url: '/api/v1/issues',
-            headers,
-            payload: {
-                toSectionId: kitchenId,
-                lines: [{ itemId: item.id, qtyRequested: available + 50_000 }]
-            }
-        });
-        const issueId = req.json().id;
-
-        const fulfil = await app.inject({
-            method: 'POST',
-            url: `/api/v1/issues/${issueId}/fulfil`,
-            headers: { ...headers, ...idem() },
-            payload: { lines: [] }
-        });
-
-        expect(fulfil.statusCode).toBe(200);
-        const shortfalls = fulfil.json().shortfalls;
-        expect(shortfalls).toHaveLength(1);
-        expect(shortfalls[0].issued).toBe(available);
-
-        // Issuing more than exists would drive the store negative, which is a
-        // number nobody can act on.
-        expect(await stockOf(item.id, storeId)).toBe(0);
-    });
-
-    it('will not fulfil the same issue twice', async () => {
-        const item = await wellStockedItem();
-        const req = await app.inject({
-            method: 'POST',
-            url: '/api/v1/issues',
-            headers,
-            payload: { toSectionId: kitchenId, lines: [{ itemId: item.id, qtyRequested: 10 }] }
-        });
-        const issueId = req.json().id;
-
-        const first = await app.inject({
-            method: 'POST',
-            url: `/api/v1/issues/${issueId}/fulfil`,
-            headers: { ...headers, ...idem() },
-            payload: { lines: [] }
-        });
-        const second = await app.inject({
-            method: 'POST',
-            url: `/api/v1/issues/${issueId}/fulfil`,
-            headers: { ...headers, ...idem() },
-            payload: { lines: [] }
-        });
-
-        expect(first.statusCode).toBe(200);
-        expect(second.statusCode).toBe(409);
-    });
-
-    it('cannot cancel an issue that already moved stock', async () => {
-        const item = await wellStockedItem();
-        const req = await app.inject({
-            method: 'POST',
-            url: '/api/v1/issues',
-            headers,
-            payload: { toSectionId: kitchenId, lines: [{ itemId: item.id, qtyRequested: 10 }] }
-        });
-        const issueId = req.json().id;
-        await app.inject({
-            method: 'POST',
-            url: `/api/v1/issues/${issueId}/fulfil`,
-            headers: { ...headers, ...idem() },
-            payload: { lines: [] }
-        });
-
-        const cancel = await app.inject({
-            method: 'POST',
-            url: `/api/v1/issues/${issueId}/cancel`,
-            headers
-        });
-        expect(cancel.statusCode).toBe(409);
-    });
-});
-
-describe('issue windows', () => {
-    it('warns outside a window and stays quiet inside one', () => {
-        const inWindow = new Date();
-        inWindow.setHours(6, 10, 0, 0);
-        expect(windowWarning(DEFAULT_ISSUE_WINDOWS, inWindow)).toBeNull();
-
-        const outOfWindow = new Date();
-        outOfWindow.setHours(14, 0, 0, 0);
-        const warning = windowWarning(DEFAULT_ISSUE_WINDOWS, outOfWindow);
-        expect(warning).toMatch(/outside the issue windows/i);
-    });
-
-    it('warns but still records the issue — it never blocks', async () => {
-        const item = await wellStockedItem();
-        const req = await app.inject({
-            method: 'POST',
-            url: '/api/v1/issues',
-            headers,
-            payload: { toSectionId: kitchenId, lines: [{ itemId: item.id, qtyRequested: 5 }] }
-        });
-        const fulfil = await app.inject({
-            method: 'POST',
-            url: `/api/v1/issues/${req.json().id}/fulfil`,
-            headers: { ...headers, ...idem() },
-            payload: { lines: [] }
-        });
-
-        // Whatever the clock says, the stock moved and the document exists.
-        expect(fulfil.statusCode).toBe(200);
-        expect(fulfil.json()).toHaveProperty('windowWarning');
-    });
-});
-
 describe('wastage', () => {
     it('reduces the section it was wasted from', async () => {
         const item = await wellStockedItem();
-        await app.inject({
-            method: 'POST',
-            url: '/api/v1/issues',
-            headers,
-            payload: { toSectionId: kitchenId, lines: [{ itemId: item.id, qtyRequested: 500 }] }
-        }).then((r) =>
-            app.inject({
-                method: 'POST',
-                url: `/api/v1/issues/${r.json().id}/fulfil`,
-                headers: { ...headers, ...idem() },
-                payload: { lines: [] }
-            })
-        );
+        await supplySection(app, headers, kitchenId, item.id, 500);
 
         const before = await stockOf(item.id, kitchenId);
 
@@ -273,19 +107,7 @@ describe('transfers', () => {
         const item = await wellStockedItem();
         const bakeryId = await sectionId('BAKERY');
 
-        await app.inject({
-            method: 'POST',
-            url: '/api/v1/issues',
-            headers,
-            payload: { toSectionId: kitchenId, lines: [{ itemId: item.id, qtyRequested: 300 }] }
-        }).then((r) =>
-            app.inject({
-                method: 'POST',
-                url: `/api/v1/issues/${r.json().id}/fulfil`,
-                headers: { ...headers, ...idem() },
-                payload: { lines: [] }
-            })
-        );
+        await supplySection(app, headers, kitchenId, item.id, 300);
 
         const kitchenBefore = await stockOf(item.id, kitchenId);
         const bakeryBefore = await stockOf(item.id, bakeryId);
@@ -340,19 +162,7 @@ describe('stock counts', () => {
         const expectedAtOpen = line.qtyExpected;
 
         // Something moves while the count is being walked.
-        await app.inject({
-            method: 'POST',
-            url: '/api/v1/issues',
-            headers,
-            payload: { toSectionId: kitchenId, lines: [{ itemId: line.itemId, qtyRequested: 50 }] }
-        }).then((r) =>
-            app.inject({
-                method: 'POST',
-                url: `/api/v1/issues/${r.json().id}/fulfil`,
-                headers: { ...headers, ...idem() },
-                payload: { lines: [] }
-            })
-        );
+        await supplySection(app, headers, kitchenId, line.itemId, 50);
 
         const reread = await app.inject({ method: 'GET', url: `/api/v1/counts/${countId}`, headers });
         const rereadLine = reread.json().lines.find((l: { lineId: string }) => l.lineId === line.lineId);
@@ -448,7 +258,7 @@ describe('stock counts', () => {
         const manager = await db
             .selectFrom('users')
             .select(['id', 'location_id'])
-            .where('role', '=', 'manager')
+            .where('role', '=', 'management')
             .executeTakeFirstOrThrow();
         const login = await app.inject({
             method: 'POST',
@@ -472,19 +282,7 @@ describe('stock counts', () => {
 describe('reversals', () => {
     it('undoes a wastage document and nets its effect to zero', async () => {
         const item = await wellStockedItem();
-        await app.inject({
-            method: 'POST',
-            url: '/api/v1/issues',
-            headers,
-            payload: { toSectionId: kitchenId, lines: [{ itemId: item.id, qtyRequested: 200 }] }
-        }).then((r) =>
-            app.inject({
-                method: 'POST',
-                url: `/api/v1/issues/${r.json().id}/fulfil`,
-                headers: { ...headers, ...idem() },
-                payload: { lines: [] }
-            })
-        );
+        await supplySection(app, headers, kitchenId, item.id, 200);
 
         const waste = await app.inject({
             method: 'POST',
@@ -498,7 +296,7 @@ describe('reversals', () => {
         const manager = await db
             .selectFrom('users')
             .select(['id', 'location_id'])
-            .where('role', '=', 'manager')
+            .where('role', '=', 'management')
             .executeTakeFirstOrThrow();
         const login = await app.inject({
             method: 'POST',

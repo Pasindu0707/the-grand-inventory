@@ -33,7 +33,7 @@ export async function reportRoutes(app: FastifyInstance) {
 
     // Reports are a management view. A chef does not need to see what the bar
     // is losing, and the owner reads everything.
-    const managers = () => app.requireRole('owner', 'manager');
+    const managers = () => app.requireRole('management');
 
     r.get(
         '/reports/usage-variance',

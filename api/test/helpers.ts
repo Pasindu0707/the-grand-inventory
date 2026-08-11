@@ -1,4 +1,5 @@
 import type { FastifyInstance } from 'fastify';
+import { randomUUID } from 'node:crypto';
 import { buildApp } from '../src/app.js';
 import { db } from '../src/db/index.js';
 
@@ -47,6 +48,36 @@ export async function authedHeaders(app: FastifyInstance) {
 /** Clears lockout state so one test's failures do not leak into another. */
 export async function clearLoginAttempts(userId: number) {
     await db.deleteFrom('login_attempts').where('user_id', '=', userId).execute();
+}
+
+/**
+ * Move stock from the store into a section using the real flow: ask, then
+ * release. Several tests need a section to actually hold something before they
+ * can waste it or transfer it.
+ */
+export async function supplySection(
+    app: FastifyInstance,
+    headers: Record<string, string>,
+    sectionId: number,
+    itemId: number,
+    qty: number
+): Promise<string> {
+    const asked = await app.inject({
+        method: 'POST',
+        url: '/api/v1/requests',
+        headers,
+        payload: { sectionId, lines: [{ itemId, qtyRequested: qty }] }
+    });
+    const id = asked.json().id;
+
+    await app.inject({
+        method: 'POST',
+        url: `/api/v1/requests/${id}/release`,
+        headers: { ...headers, 'idempotency-key': randomUUID() },
+        payload: { lines: [] }
+    });
+
+    return id;
 }
 
 export async function ledgerRowsFor(doc: string, docId: string) {

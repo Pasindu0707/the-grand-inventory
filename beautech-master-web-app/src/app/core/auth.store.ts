@@ -48,19 +48,37 @@ function load(): AuthState {
  * Section roles get the screens they actually use. The storekeeper is the only
  * role that receives deliveries; the owner reads everything and writes little.
  */
+const EVERYONE: Role[] = ['admin', 'management', 'storekeeper', 'kitchen', 'cleaning'];
+const ASKERS: Role[] = ['management', 'storekeeper', 'kitchen', 'cleaning'];
+
+/**
+ * Who sees what.
+ *
+ * The everyday screens are short and shared. The advanced ones — deliveries,
+ * counts, wastage, reports — are management and admin only, because a cleaner
+ * opening a shrinkage report has no use for it and every extra menu item is
+ * one more thing to be wrong about.
+ */
 export const ROUTE_PERMISSIONS: Record<RouteKey, Role[]> = {
-    today: ['owner', 'manager', 'storekeeper', 'chef', 'bar', 'baker', 'cleaning', 'purchasing'],
-    grn: ['owner', 'manager', 'storekeeper', 'purchasing'],
-    market: ['owner', 'manager', 'storekeeper', 'purchasing'],
-    cleaning: ['owner', 'manager', 'cleaning', 'storekeeper', 'chef', 'bar', 'baker'],
-    stock: ['owner', 'manager', 'storekeeper', 'chef', 'bar', 'baker'],
-    // Sections request, the storekeeper fulfils — both live on the same screen.
-    issues: ['owner', 'manager', 'storekeeper', 'chef', 'bar', 'baker', 'cleaning'],
-    wastage: ['owner', 'manager', 'storekeeper', 'chef', 'bar', 'baker'],
-    counts: ['owner', 'manager', 'storekeeper', 'chef', 'bar', 'baker'],
-    items: ['owner', 'manager', 'purchasing'],
-    reports: ['owner', 'manager']
+    home: EVERYONE,
+    ask: ASKERS,
+    requests: ASKERS,
+    mystock: ASKERS,
+    purchases: ASKERS,
+    cleaning: ['management', 'cleaning', 'storekeeper', 'kitchen'],
+    users: ['admin'],
+
+    // Advanced
+    grn: ['management', 'storekeeper'],
+    market: ['management', 'storekeeper'],
+    stock: ['management', 'storekeeper'],
+    wastage: ['management', 'storekeeper', 'kitchen'],
+    counts: ['management', 'storekeeper', 'kitchen'],
+    reports: ['management']
 };
+
+/** Screens kept out of the way of people who only ask for stock. */
+export const ADVANCED_ROUTES: RouteKey[] = ['grn', 'market', 'stock', 'wastage', 'counts', 'reports'];
 
 export function canAccess(role: Role | undefined | null, allowed: Role[]): boolean {
     return !!role && allowed.includes(role);

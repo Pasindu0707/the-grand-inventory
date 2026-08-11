@@ -24,6 +24,8 @@ import { documentRoutes } from './routes/documents.js';
 import { marketRoutes } from './routes/market.js';
 import { uploadRoutes } from './routes/uploads.js';
 import { reportRoutes } from './routes/reports.js';
+import { requestRoutes } from './routes/requests.js';
+import { adminRoutes } from './routes/admin.js';
 
 export async function buildApp(): Promise<FastifyInstance> {
     const app = Fastify({
@@ -145,6 +147,8 @@ export async function buildApp(): Promise<FastifyInstance> {
     await app.register(marketRoutes, { prefix: v1 });
     await app.register(uploadRoutes, { prefix: v1 });
     await app.register(reportRoutes, { prefix: v1 });
+    await app.register(requestRoutes, { prefix: v1 });
+    await app.register(adminRoutes, { prefix: v1 });
 
     return app;
 }

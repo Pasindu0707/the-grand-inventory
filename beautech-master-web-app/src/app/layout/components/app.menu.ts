@@ -25,7 +25,7 @@ import type { RouteKey } from '@/core/types';
                     <ul class="layout-rail-list">
                         <li class="layout-rail-item layout-rail-item--home">
                             <a
-                                routerLink="/today"
+                                routerLink="/home"
                                 class="layout-rail-home"
                                 [class.layout-rail-home--active]="isSlimRailHomeActive()"
                                 (click)="onSlimRailHomeClick($event)"
@@ -126,46 +126,39 @@ export class AppMenu implements OnInit, OnDestroy {
     private rebuildMenuModel(): void {
         const gate = (key: RouteKey) => this.auth.canUseRoute(key);
 
-        // Grouped by what someone is doing, not by which table it touches.
-        // Issues, wastage, counts, cleaning and the five reports arrive with
-        // their slices; the groups appear when they have something in them.
+        // Two groups at most for the people who use this all day, and an
+        // "Advanced" group that only management and admin ever see. Every extra
+        // menu item is one more thing for a non-technical user to be unsure
+        // about, so the everyday list stays short on purpose.
         const baseModel = [
             {
-                label: 'Store',
+                label: 'Everyday',
                 icon: 'pi pi-fw pi-home',
                 items: [
-                    { label: 'Today', icon: 'pi pi-fw pi-home', routerLink: ['/today'], visible: gate('today') },
-                    { label: 'Stock', icon: 'pi pi-fw pi-box', routerLink: ['/stock'], visible: gate('stock') }
-                ]
-            },
-            {
-                label: 'Goods in',
-                icon: 'pi pi-fw pi-truck',
-                items: [
-                    { label: 'Receive delivery', icon: 'pi pi-fw pi-truck', routerLink: ['/grn'], visible: gate('grn') },
-                    { label: 'Market purchase', icon: 'pi pi-fw pi-wallet', routerLink: ['/market'], visible: gate('market') }
-                ]
-            },
-            {
-                label: 'Goods out',
-                icon: 'pi pi-fw pi-arrow-right-arrow-left',
-                items: [
-                    { label: 'Issues', icon: 'pi pi-fw pi-send', routerLink: ['/issues'], visible: gate('issues') },
-                    { label: 'Wastage', icon: 'pi pi-fw pi-trash', routerLink: ['/wastage'], visible: gate('wastage') }
-                ]
-            },
-            {
-                label: 'Control',
-                icon: 'pi pi-fw pi-check-square',
-                items: [
-                    { label: 'Stock count', icon: 'pi pi-fw pi-check-square', routerLink: ['/counts'], visible: gate('counts') },
+                    { label: 'Home', icon: 'pi pi-fw pi-home', routerLink: ['/home'], visible: gate('home') },
+                    { label: 'Ask for stock', icon: 'pi pi-fw pi-plus-circle', routerLink: ['/ask'], visible: gate('ask') },
+                    { label: 'Requests', icon: 'pi pi-fw pi-send', routerLink: ['/requests'], visible: gate('requests') },
+                    { label: 'What we have', icon: 'pi pi-fw pi-box', routerLink: ['/mystock'], visible: gate('mystock') },
+                    { label: 'Purchases', icon: 'pi pi-fw pi-shopping-cart', routerLink: ['/purchases'], visible: gate('purchases') },
                     { label: 'Cleaning', icon: 'pi pi-fw pi-sparkles', routerLink: ['/cleaning'], visible: gate('cleaning') }
                 ]
             },
             {
-                label: 'Insights',
-                icon: 'pi pi-fw pi-chart-bar',
+                label: 'Setup',
+                icon: 'pi pi-fw pi-users',
                 items: [
+                    { label: 'Logins', icon: 'pi pi-fw pi-users', routerLink: ['/users'], visible: gate('users') }
+                ]
+            },
+            {
+                label: 'Advanced',
+                icon: 'pi pi-fw pi-cog',
+                items: [
+                    { label: 'Receive delivery', icon: 'pi pi-fw pi-truck', routerLink: ['/grn'], visible: gate('grn') },
+                    { label: 'Market purchase', icon: 'pi pi-fw pi-wallet', routerLink: ['/market'], visible: gate('market') },
+                    { label: 'Stock detail', icon: 'pi pi-fw pi-list', routerLink: ['/stock'], visible: gate('stock') },
+                    { label: 'Wastage', icon: 'pi pi-fw pi-trash', routerLink: ['/wastage'], visible: gate('wastage') },
+                    { label: 'Stock count', icon: 'pi pi-fw pi-check-square', routerLink: ['/counts'], visible: gate('counts') },
                     { label: 'Reports', icon: 'pi pi-fw pi-chart-bar', routerLink: ['/reports'], visible: gate('reports') }
                 ]
             }
@@ -264,12 +257,12 @@ export class AppMenu implements OnInit, OnDestroy {
      * currently open section pane is preserved instead of being force-closed.
      */
     onSlimRailHomeClick(event: Event): void {
-        this.openRootLeafInTab(event, { label: 'Today', routerLink: ['/today'] });
+        this.openRootLeafInTab(event, { label: 'Today', routerLink: ['/home'] });
     }
 
     isSlimRailHomeActive(): boolean {
         const onHome =
-            this.router.isActive('/today', {
+            this.router.isActive('/home', {
                 paths: 'exact',
                 queryParams: 'ignored',
                 matrixParams: 'ignored',

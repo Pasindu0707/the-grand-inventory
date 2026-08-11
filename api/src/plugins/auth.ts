@@ -82,7 +82,7 @@ export const authPlugin = fp(async (app: FastifyInstance) => {
     });
 });
 
-/** Locations a user may act in. Owners (location_id null) get all active ones. */
+/** Locations a user may act in. Group-wide users get all active ones. */
 export async function locationsForUser(
     userId: number,
     homeLocationId: number | null
@@ -94,4 +94,43 @@ export async function locationsForUser(
         .where('is_active', '=', true)
         .execute();
     return rows.map((r) => r.id);
+}
+
+/**
+ * Which section a role speaks for.
+ *
+ * A kitchen login at any branch draws from and answers for that branch's
+ * KITCHEN section. Management and admin see everything, so they are not tied to
+ * one. This is what lets "confirm it arrived" be restricted to the people who
+ * actually asked.
+ */
+const ROLE_SECTIONS: Record<UserRole, string[] | 'all'> = {
+    admin: 'all',
+    management: 'all',
+    storekeeper: 'all',
+    kitchen: ['KITCHEN', 'BAKERY', 'BAR'],
+    cleaning: ['CLEAN']
+};
+
+export async function sectionsForUser(role: UserRole, locationId: number): Promise<number[]> {
+    const codes = ROLE_SECTIONS[role];
+    let q = db.selectFrom('sections').select('id').where('location_id', '=', locationId);
+    if (codes !== 'all') q = q.where('code', 'in', codes);
+    return (await q.execute()).map((r) => r.id);
+}
+
+/** The one section a role primarily works out of, for defaults in the UI. */
+export async function homeSectionFor(
+    role: UserRole,
+    locationId: number
+): Promise<number | null> {
+    const code =
+        role === 'cleaning' ? 'CLEAN' : role === 'kitchen' ? 'KITCHEN' : 'STORE';
+    const row = await db
+        .selectFrom('sections')
+        .select('id')
+        .where('location_id', '=', locationId)
+        .where('code', '=', code)
+        .executeTakeFirst();
+    return row?.id ?? null;
 }

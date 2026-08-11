@@ -3,279 +3,17 @@ import type { ZodTypeProvider } from 'fastify-type-provider-zod';
 import { z } from 'zod';
 import { db } from '../db/index.js';
 import { badRequest, notFound } from '../errors.js';
-import { cancelIssue, fulfilIssue, requestIssue } from '../services/issues.js';
 import { approveWastage, logWastage, receiveTransfer, transfer } from '../services/wastage.js';
 import { closeCount, openCount, saveCountLines, verifyCount } from '../services/counts.js';
 import { reverseDocument } from '../services/ledger.js';
-import { findReplay, hashBody } from '../services/idempotency.js';
-import { issueWindowsFor } from '../services/settings.js';
-
-const idHeader = z.object({ 'idempotency-key': z.string().min(8).max(128) }).passthrough();
-
-const fulfilResult = z.object({
-    id: z.string(),
-    businessDate: z.string(),
-    linesIssued: z.number(),
-    windowWarning: z.string().nullable(),
-    shortfalls: z.array(
-        z.object({
-            itemName: z.string(),
-            requested: z.number(),
-            issued: z.number(),
-            available: z.number()
-        })
-    )
-});
 
 export async function documentRoutes(app: FastifyInstance) {
     const r = app.withTypeProvider<ZodTypeProvider>();
 
-    // ── Issues ──────────────────────────────────────────────────────────────
-
-    r.get(
-        '/issue-windows',
-        {
-            preHandler: app.authenticate,
-            schema: {
-                response: {
-                    200: z.array(z.object({ at: z.string(), label: z.string() }))
-                }
-            }
-        },
-        async (req) => issueWindowsFor(req.locationId)
-    );
-
-    r.post(
-        '/issues',
-        {
-            preHandler: app.requireRole(
-                'owner',
-                'manager',
-                'storekeeper',
-                'chef',
-                'bar',
-                'baker',
-                'cleaning'
-            ),
-            schema: {
-                body: z.object({
-                    toSectionId: z.number().int().positive(),
-                    lines: z
-                        .array(
-                            z.object({
-                                itemId: z.number().int().positive(),
-                                qtyRequested: z.number().positive()
-                            })
-                        )
-                        .min(1)
-                }),
-                response: { 201: z.object({ id: z.string() }) }
-            }
-        },
-        async (req, reply) => {
-            const result = await requestIssue({
-                locationId: req.locationId,
-                toSectionId: req.body.toSectionId,
-                requestedBy: req.user.sub,
-                lines: req.body.lines
-            });
-            return reply.status(201).send(result);
-        }
-    );
-
-    r.post(
-        '/issues/:id/fulfil',
-        {
-            preHandler: app.requireRole('owner', 'manager', 'storekeeper'),
-            schema: {
-                params: z.object({ id: z.string() }),
-                headers: idHeader,
-                body: z.object({
-                    lines: z
-                        .array(
-                            z.object({
-                                lineId: z.string(),
-                                qtyIssued: z.number().nonnegative()
-                            })
-                        )
-                        .default([]),
-                    note: z.string().max(500).nullish()
-                }),
-                response: { 200: fulfilResult }
-            }
-        },
-        async (req) => {
-            const key = req.headers['idempotency-key'] as string;
-            const endpoint = 'POST /issues/:id/fulfil';
-            const requestHash = hashBody({ id: req.params.id, ...req.body });
-
-            const replay = await findReplay<z.infer<typeof fulfilResult>>(key, endpoint, requestHash);
-            if (replay) return replay.response;
-
-            return fulfilIssue({
-                issueId: req.params.id,
-                locationId: req.locationId,
-                issuedBy: req.user.sub,
-                lines: req.body.lines,
-                note: req.body.note ?? null,
-                idempotency: { key, endpoint, requestHash }
-            });
-        }
-    );
-
-    r.post(
-        '/issues/:id/cancel',
-        {
-            preHandler: app.requireRole('owner', 'manager', 'storekeeper'),
-            schema: {
-                params: z.object({ id: z.string() }),
-                response: { 200: z.object({ ok: z.literal(true) }) }
-            }
-        },
-        async (req) => {
-            await cancelIssue(req.params.id, req.locationId, req.user.sub);
-            return { ok: true as const };
-        }
-    );
-
-    r.get(
-        '/issues',
-        {
-            preHandler: app.authenticate,
-            schema: {
-                querystring: z.object({
-                    status: z.enum(['requested', 'issued', 'cancelled']).optional(),
-                    limit: z.coerce.number().int().min(1).max(200).default(50)
-                }),
-                response: {
-                    200: z.array(
-                        z.object({
-                            id: z.string(),
-                            sectionCode: z.string(),
-                            sectionName: z.string(),
-                            status: z.string(),
-                            requestedBy: z.string(),
-                            requestedAt: z.string(),
-                            lineCount: z.number()
-                        })
-                    )
-                }
-            }
-        },
-        async (req) => {
-            let q = db
-                .selectFrom('issues')
-                .innerJoin('sections', 'sections.id', 'issues.to_section_id')
-                .innerJoin('users', 'users.id', 'issues.requested_by')
-                .leftJoin('issue_lines', 'issue_lines.issue_id', 'issues.id')
-                .select(({ fn }) => [
-                    'issues.id',
-                    'sections.code as sectionCode',
-                    'sections.name as sectionName',
-                    'issues.status',
-                    'users.name as requestedBy',
-                    'issues.requested_at as requestedAt',
-                    fn.count('issue_lines.id').as('lineCount')
-                ])
-                .where('issues.location_id', '=', req.locationId)
-                .groupBy(['issues.id', 'sections.code', 'sections.name', 'users.name']);
-
-            if (req.query.status) q = q.where('issues.status', '=', req.query.status);
-
-            const rows = await q.orderBy('issues.requested_at', 'desc').limit(req.query.limit).execute();
-
-            return rows.map((row) => ({
-                id: String(row.id),
-                sectionCode: row.sectionCode,
-                sectionName: row.sectionName,
-                status: row.status,
-                requestedBy: row.requestedBy,
-                requestedAt: new Date(row.requestedAt as unknown as string).toISOString(),
-                lineCount: Number(row.lineCount)
-            }));
-        }
-    );
-
-    r.get(
-        '/issues/:id',
-        {
-            preHandler: app.authenticate,
-            schema: {
-                params: z.object({ id: z.string() }),
-                response: {
-                    200: z.object({
-                        id: z.string(),
-                        status: z.string(),
-                        toSectionId: z.number(),
-                        lines: z.array(
-                            z.object({
-                                lineId: z.string(),
-                                itemId: z.number(),
-                                code: z.string(),
-                                name: z.string(),
-                                stockUnit: z.string(),
-                                qtyRequested: z.number(),
-                                qtyIssued: z.number().nullable(),
-                                availableInStore: z.number()
-                            })
-                        )
-                    })
-                }
-            }
-        },
-        async (req) => {
-            const issue = await db
-                .selectFrom('issues')
-                .select(['id', 'status', 'to_section_id'])
-                .where('id', '=', req.params.id)
-                .where('location_id', '=', req.locationId)
-                .executeTakeFirst();
-            if (!issue) throw notFound(`Issue ${req.params.id}`);
-
-            const store = await db
-                .selectFrom('sections')
-                .select('id')
-                .where('location_id', '=', req.locationId)
-                .where('is_store', '=', true)
-                .executeTakeFirstOrThrow();
-
-            const lines = await db
-                .selectFrom('issue_lines')
-                .innerJoin('items', 'items.id', 'issue_lines.item_id')
-                .leftJoin('current_stock as cs', (join) =>
-                    join.onRef('cs.item_id', '=', 'items.id').on('cs.section_id', '=', store.id)
-                )
-                .select([
-                    'issue_lines.id as lineId',
-                    'items.id as itemId',
-                    'items.code',
-                    'items.name',
-                    'items.stock_unit as stockUnit',
-                    'issue_lines.qty_requested as qtyRequested',
-                    'issue_lines.qty_issued as qtyIssued',
-                    'cs.qty_base as availableInStore'
-                ])
-                .where('issue_lines.issue_id', '=', req.params.id)
-                .orderBy('items.name')
-                .execute();
-
-            return {
-                id: String(issue.id),
-                status: issue.status,
-                toSectionId: issue.to_section_id,
-                lines: lines.map((l) => ({
-                    lineId: String(l.lineId),
-                    itemId: l.itemId,
-                    code: l.code,
-                    name: l.name,
-                    stockUnit: l.stockUnit,
-                    qtyRequested: Number(l.qtyRequested),
-                    qtyIssued: l.qtyIssued === null ? null : Number(l.qtyIssued),
-                    availableInStore: Number(l.availableInStore ?? 0)
-                }))
-            };
-        }
-    );
+    // Issues used to live here as a two-step request/fulfil pair. They are
+    // now the four-step flow in routes/requests.ts — ask, release, confirm —
+    // and having both would have left two ways to do the same thing, which is
+    // exactly the kind of thing that makes an app feel complicated.
 
     // ── Wastage ─────────────────────────────────────────────────────────────
 
@@ -300,14 +38,7 @@ export async function documentRoutes(app: FastifyInstance) {
     r.post(
         '/wastage',
         {
-            preHandler: app.requireRole(
-                'owner',
-                'manager',
-                'storekeeper',
-                'chef',
-                'bar',
-                'baker'
-            ),
+            preHandler: app.requireRole('management', 'storekeeper', 'kitchen'),
             schema: {
                 body: z.object({
                     sectionId: z.number().int().positive(),
@@ -338,7 +69,7 @@ export async function documentRoutes(app: FastifyInstance) {
     r.post(
         '/wastage/:id/approve',
         {
-            preHandler: app.requireRole('owner', 'manager'),
+            preHandler: app.requireRole('management'),
             schema: {
                 params: z.object({ id: z.string() }),
                 response: { 200: z.object({ ok: z.literal(true) }) }
@@ -422,7 +153,7 @@ export async function documentRoutes(app: FastifyInstance) {
     r.post(
         '/transfers',
         {
-            preHandler: app.requireRole('owner', 'manager', 'storekeeper'),
+            preHandler: app.requireRole('management', 'storekeeper'),
             schema: {
                 body: z.object({
                     fromSectionId: z.number().int().positive(),
@@ -442,7 +173,7 @@ export async function documentRoutes(app: FastifyInstance) {
     r.post(
         '/transfers/:id/receive',
         {
-            preHandler: app.requireRole('owner', 'manager', 'storekeeper'),
+            preHandler: app.requireRole('management', 'storekeeper'),
             schema: {
                 params: z.object({ id: z.string() }),
                 response: { 200: z.object({ id: z.string() }) }
@@ -466,14 +197,7 @@ export async function documentRoutes(app: FastifyInstance) {
     r.post(
         '/counts/open',
         {
-            preHandler: app.requireRole(
-                'owner',
-                'manager',
-                'storekeeper',
-                'chef',
-                'bar',
-                'baker'
-            ),
+            preHandler: app.requireRole('management', 'storekeeper', 'kitchen'),
             schema: {
                 body: z.object({
                     sectionId: z.number().int().positive(),
@@ -516,14 +240,7 @@ export async function documentRoutes(app: FastifyInstance) {
     r.post(
         '/counts/:id/close',
         {
-            preHandler: app.requireRole(
-                'owner',
-                'manager',
-                'storekeeper',
-                'chef',
-                'bar',
-                'baker'
-            ),
+            preHandler: app.requireRole('management', 'storekeeper', 'kitchen'),
             schema: {
                 params: z.object({ id: z.string() }),
                 response: {
@@ -548,7 +265,7 @@ export async function documentRoutes(app: FastifyInstance) {
     r.post(
         '/counts/:id/verify',
         {
-            preHandler: app.requireRole('owner', 'manager'),
+            preHandler: app.requireRole('management'),
             schema: {
                 params: z.object({ id: z.string() }),
                 response: { 200: z.object({ ok: z.literal(true) }) }
@@ -697,7 +414,7 @@ export async function documentRoutes(app: FastifyInstance) {
     r.post(
         '/documents/:doc/:id/reverse',
         {
-            preHandler: app.requireRole('owner', 'manager'),
+            preHandler: app.requireRole('management'),
             schema: {
                 params: z.object({
                     doc: z.enum(['grn', 'market', 'issue', 'wastage', 'transfer', 'count']),

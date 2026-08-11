@@ -1,4 +1,4 @@
-/**
+﻿/**
  * Goods received note.
  *
  * Three rules from the build notes are load-bearing in this form:
@@ -282,7 +282,7 @@ export class GrnComponent implements OnInit {
     }
 
     cancel(): void {
-        void this.router.navigate(['/today']);
+        void this.router.navigate(['/home']);
     }
 
     async submit(): Promise<void> {

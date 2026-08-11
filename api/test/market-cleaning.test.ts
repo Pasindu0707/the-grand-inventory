@@ -213,7 +213,7 @@ describe('cleaning', () => {
         const manager = await db
             .selectFrom('users')
             .select(['id', 'location_id'])
-            .where('role', '=', 'manager')
+            .where('role', '=', 'management')
             .executeTakeFirstOrThrow();
         const login = await app.inject({
             method: 'POST',

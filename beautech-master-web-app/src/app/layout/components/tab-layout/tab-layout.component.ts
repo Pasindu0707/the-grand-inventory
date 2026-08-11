@@ -199,7 +199,7 @@ export class TabLayoutComponent implements OnInit, AfterViewInit, OnDestroy {
             // requested URL — so refreshing on /stock, or opening a bookmark,
             // silently landed on Today.
             if (tabs.length === 0 && !this.isInitialLoad && !this.isDashboardRoute) {
-                this.router.navigate(['/today'], { replaceUrl: true });
+                this.router.navigate(['/home'], { replaceUrl: true });
             }
         });
 
@@ -244,7 +244,7 @@ export class TabLayoutComponent implements OnInit, AfterViewInit, OnDestroy {
     private checkDashboardRoute(url: string): void {
         // The Register screen is the home: show it full-bleed without the pill-tab strip.
         const path = (url || '').split('?')[0];
-        this.isDashboardRoute = path === '/' || path === '' || path === '/today';
+        this.isDashboardRoute = path === '/' || path === '' || path === '/home';
     }
 
     onTabChange(index: number) {
@@ -259,7 +259,7 @@ export class TabLayoutComponent implements OnInit, AfterViewInit, OnDestroy {
         if (wasLastTab) {
             setTimeout(() => {
                 if (this.openedTabs.length === 0) {
-                    this.router.navigate(['/today'], { replaceUrl: true });
+                    this.router.navigate(['/home'], { replaceUrl: true });
                 }
             }, 100);
         }
@@ -268,7 +268,7 @@ export class TabLayoutComponent implements OnInit, AfterViewInit, OnDestroy {
     onCloseAllTabs() {
         this.tabService.closeAllTabs();
         setTimeout(() => {
-            this.router.navigate(['/today'], { replaceUrl: true });
+            this.router.navigate(['/home'], { replaceUrl: true });
         }, 0);
     }
 

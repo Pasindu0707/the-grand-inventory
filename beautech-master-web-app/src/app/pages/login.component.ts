@@ -1,4 +1,4 @@
-/**
+﻿/**
  * Sign in on a shared device.
  *
  * Pick the outlet, tap your name, key in a PIN. Nobody types an email address
@@ -224,7 +224,7 @@ export class LoginComponent implements OnInit {
             const session = await this.api.login(user.id, loc.id, this.pin());
             this.auth.setSession(session);
             this.notify.success(`Welcome, ${session.user.name}`);
-            await this.router.navigate(['/today']);
+            await this.router.navigate(['/home']);
         } catch (err) {
             this.error.set(apiErrorMessage(err));
             this.pin.set('');

@@ -15,9 +15,9 @@ const LOCAL_STORAGE_ACTIVE_INDEX = 'mainActiveTabIndex';
 
 // Default tab
 const DEFAULT_TAB: AppTab = {
-    key: 'today',
-    title: 'Today',
-    routerLink: ['/today']
+    key: 'home',
+    title: 'Home',
+    routerLink: ['/home']
 };
 
 @Injectable({ providedIn: 'root' })

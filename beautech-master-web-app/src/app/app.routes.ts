@@ -2,6 +2,13 @@ import { Routes } from '@angular/router';
 import { AppLayout } from '@/layout/components/app.layout';
 import { authGuard, roleGuard } from '@/core/guards';
 
+/**
+ * Everyday screens first, advanced ones after.
+ *
+ * "Advanced" means deliveries, counts, wastage and reports: real features that
+ * a kitchen or cleaning login has no use for. They stay in the app for
+ * management, they are simply not in anyone else's way.
+ */
 export const appRoutes: Routes = [
     {
         path: 'login',
@@ -13,101 +20,150 @@ export const appRoutes: Routes = [
         component: AppLayout,
         canActivate: [authGuard],
         children: [
-            { path: '', pathMatch: 'full', redirectTo: 'today' },
+            { path: '', pathMatch: 'full', redirectTo: 'home' },
+
+            // ── Everyday ────────────────────────────────────────────────────
             {
-                path: 'today',
+                path: 'home',
                 data: {
-                    breadcrumb: 'Today',
-                    routeKey: 'today',
-                    allowed: ['owner', 'manager', 'storekeeper', 'chef', 'bar', 'baker', 'cleaning', 'purchasing']
+                    breadcrumb: 'Home',
+                    routeKey: 'home',
+                    allowed: ['admin', 'management', 'storekeeper', 'kitchen', 'cleaning']
                 },
                 canActivate: [roleGuard],
-                loadComponent: () => import('./pages/today.component').then((m) => m.TodayComponent),
-                title: 'Today'
+                loadComponent: () => import('./pages/home.component').then((m) => m.HomeComponent),
+                title: 'Home'
             },
             {
-                path: 'grn',
+                path: 'ask',
                 data: {
-                    breadcrumb: 'Receive delivery',
-                    routeKey: 'grn',
-                    allowed: ['owner', 'manager', 'storekeeper', 'purchasing']
+                    breadcrumb: 'Ask for stock',
+                    routeKey: 'ask',
+                    allowed: ['management', 'storekeeper', 'kitchen', 'cleaning']
                 },
                 canActivate: [roleGuard],
-                loadComponent: () => import('./pages/grn.component').then((m) => m.GrnComponent),
-                title: 'Receive delivery'
+                loadComponent: () => import('./pages/ask.component').then((m) => m.AskComponent),
+                title: 'Ask for stock'
             },
             {
-                path: 'stock',
+                path: 'requests',
                 data: {
-                    breadcrumb: 'Stock',
-                    routeKey: 'stock',
-                    allowed: ['owner', 'manager', 'storekeeper', 'chef', 'bar', 'baker']
+                    breadcrumb: 'Requests',
+                    routeKey: 'requests',
+                    allowed: ['management', 'storekeeper', 'kitchen', 'cleaning']
                 },
                 canActivate: [roleGuard],
-                loadComponent: () => import('./pages/stock.component').then((m) => m.StockComponent),
-                title: 'Stock'
+                loadComponent: () =>
+                    import('./pages/requests.component').then((m) => m.RequestsComponent),
+                title: 'Requests'
             },
             {
-                path: 'market',
+                path: 'mystock',
                 data: {
-                    breadcrumb: 'Market purchase',
-                    routeKey: 'market',
-                    allowed: ['owner', 'manager', 'storekeeper', 'purchasing']
+                    breadcrumb: 'What we have',
+                    routeKey: 'mystock',
+                    allowed: ['management', 'storekeeper', 'kitchen', 'cleaning']
                 },
                 canActivate: [roleGuard],
-                loadComponent: () => import('./pages/market.component').then((m) => m.MarketComponent),
-                title: 'Market purchase'
+                loadComponent: () =>
+                    import('./pages/my-stock.component').then((m) => m.MyStockComponent),
+                title: 'What we have'
+            },
+            {
+                path: 'purchases',
+                data: {
+                    breadcrumb: 'Purchases',
+                    routeKey: 'purchases',
+                    allowed: ['management', 'storekeeper', 'kitchen', 'cleaning']
+                },
+                canActivate: [roleGuard],
+                loadComponent: () =>
+                    import('./pages/purchases.component').then((m) => m.PurchasesComponent),
+                title: 'Purchases'
             },
             {
                 path: 'cleaning',
                 data: {
                     breadcrumb: 'Cleaning',
                     routeKey: 'cleaning',
-                    allowed: ['owner', 'manager', 'cleaning', 'storekeeper', 'chef', 'bar', 'baker']
+                    allowed: ['management', 'cleaning', 'storekeeper', 'kitchen']
                 },
                 canActivate: [roleGuard],
-                loadComponent: () => import('./pages/cleaning.component').then((m) => m.CleaningComponent),
+                loadComponent: () =>
+                    import('./pages/cleaning.component').then((m) => m.CleaningComponent),
                 title: 'Cleaning'
             },
             {
-                path: 'issues',
+                path: 'users',
+                data: { breadcrumb: 'Logins', routeKey: 'users', allowed: ['admin'] },
+                canActivate: [roleGuard],
+                loadComponent: () => import('./pages/users.component').then((m) => m.UsersComponent),
+                title: 'Logins'
+            },
+
+            // ── Advanced: management and the storekeeper only ───────────────
+            {
+                path: 'grn',
                 data: {
-                    breadcrumb: 'Issues',
-                    routeKey: 'issues',
-                    allowed: ['owner', 'manager', 'storekeeper', 'chef', 'bar', 'baker', 'cleaning']
+                    breadcrumb: 'Receive delivery',
+                    routeKey: 'grn',
+                    allowed: ['management', 'storekeeper']
                 },
                 canActivate: [roleGuard],
-                loadComponent: () => import('./pages/issues.component').then((m) => m.IssuesComponent),
-                title: 'Issues'
+                loadComponent: () => import('./pages/grn.component').then((m) => m.GrnComponent),
+                title: 'Receive delivery'
+            },
+            {
+                path: 'market',
+                data: {
+                    breadcrumb: 'Market purchase',
+                    routeKey: 'market',
+                    allowed: ['management', 'storekeeper']
+                },
+                canActivate: [roleGuard],
+                loadComponent: () => import('./pages/market.component').then((m) => m.MarketComponent),
+                title: 'Market purchase'
+            },
+            {
+                path: 'stock',
+                data: {
+                    breadcrumb: 'Stock detail',
+                    routeKey: 'stock',
+                    allowed: ['management', 'storekeeper']
+                },
+                canActivate: [roleGuard],
+                loadComponent: () => import('./pages/stock.component').then((m) => m.StockComponent),
+                title: 'Stock detail'
             },
             {
                 path: 'wastage',
                 data: {
                     breadcrumb: 'Wastage',
                     routeKey: 'wastage',
-                    allowed: ['owner', 'manager', 'storekeeper', 'chef', 'bar', 'baker']
+                    allowed: ['management', 'storekeeper', 'kitchen']
                 },
                 canActivate: [roleGuard],
-                loadComponent: () => import('./pages/wastage.component').then((m) => m.WastageComponent),
+                loadComponent: () =>
+                    import('./pages/wastage.component').then((m) => m.WastageComponent),
                 title: 'Wastage'
-            },
-            {
-                path: 'reports',
-                data: { breadcrumb: 'Reports', routeKey: 'reports', allowed: ['owner', 'manager'] },
-                canActivate: [roleGuard],
-                loadComponent: () => import('./pages/reports.component').then((m) => m.ReportsComponent),
-                title: 'Reports'
             },
             {
                 path: 'counts',
                 data: {
                     breadcrumb: 'Stock count',
                     routeKey: 'counts',
-                    allowed: ['owner', 'manager', 'storekeeper', 'chef', 'bar', 'baker']
+                    allowed: ['management', 'storekeeper', 'kitchen']
                 },
                 canActivate: [roleGuard],
                 loadComponent: () => import('./pages/counts.component').then((m) => m.CountsComponent),
                 title: 'Stock count'
+            },
+            {
+                path: 'reports',
+                data: { breadcrumb: 'Reports', routeKey: 'reports', allowed: ['management'] },
+                canActivate: [roleGuard],
+                loadComponent: () => import('./pages/reports.component').then((m) => m.ReportsComponent),
+                title: 'Reports'
             }
         ]
     },

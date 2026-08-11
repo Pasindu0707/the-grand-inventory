@@ -30,7 +30,7 @@ export async function grnRoutes(app: FastifyInstance) {
     r.post(
         '/grn',
         {
-            preHandler: app.requireRole('storekeeper', 'manager', 'owner', 'purchasing'),
+            preHandler: app.requireRole('storekeeper', 'management'),
             schema: {
                 headers: z.object({ 'idempotency-key': z.string().min(8).max(128) }).passthrough(),
                 body: z.object({

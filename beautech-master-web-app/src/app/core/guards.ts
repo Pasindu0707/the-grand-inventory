@@ -1,4 +1,4 @@
-/**
+﻿/**
  * Route guards. Same data-driven shape as the POS template — roles come from
  * route `data`, not from a switch buried in each component — minus the
  * subscription-plan feature gate, which does not apply here.
@@ -23,7 +23,7 @@ export const roleGuard: CanActivateFn = (route: ActivatedRouteSnapshot) => {
     if (!canAccess(auth.role(), allowed)) {
         // Everyone can see Today, so it is a safe landing place for a role
         // that wandered somewhere it should not be.
-        return router.createUrlTree(['/today']);
+        return router.createUrlTree(['/home']);
     }
     return true;
 };
