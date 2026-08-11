@@ -16,6 +16,12 @@ const schema = z.object({
     PIN_LOCKOUT_MINUTES: z.coerce.number().int().positive().default(15),
 
     CORS_ORIGIN: z.string().default('http://localhost:4200'),
+
+    // Photos of cash-purchase slips and wastage. On the VPS this is a mounted
+    // volume so it survives a container rebuild -- losing it would destroy the
+    // only evidence a cash buy ever has.
+    UPLOAD_DIR: z.string().default('uploads'),
+    MAX_UPLOAD_BYTES: z.coerce.number().int().positive().default(8 * 1024 * 1024),
 });
 
 const parsed = schema.safeParse(process.env);

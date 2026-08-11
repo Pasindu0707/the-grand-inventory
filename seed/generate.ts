@@ -102,6 +102,38 @@ const SUPPLIERS = [
   { id: 8, name: "CleanPro Chemicals", cash: false },
 ];
 
+// Cleaning areas and their schedule.
+//
+// This lives with the demo data rather than in a migration because an area
+// belongs to a location, and locations do not exist until the seed runs. At
+// cutover the real areas are created alongside the real locations -- Phase 0
+// work, same as confirming the item master.
+const CLEANING: { area: string; areaName: string; tasks: [string, string][] }[] = [
+  { area: "KITCHEN", areaName: "Kitchen", tasks: [
+    ["Degrease the range and hood filters", "daily"],
+    ["Sanitise prep surfaces and boards", "daily"],
+    ["Empty and wash the bins", "daily"],
+    ["Deep clean behind the equipment", "weekly"]] },
+  { area: "BAR", areaName: "Bar", tasks: [
+    ["Wipe down the speed rail and wells", "daily"],
+    ["Flush and sanitise the beer lines", "weekly"],
+    ["Descale the ice machine", "monthly"]] },
+  { area: "BAKERY", areaName: "Bakery and pastry", tasks: [
+    ["Clean the mixer and attachments", "daily"],
+    ["Wash the proving trays", "daily"],
+    ["Oven deep clean", "weekly"]] },
+  { area: "STORE", areaName: "Main store", tasks: [
+    ["Sweep and mop the store floor", "daily"],
+    ["Check for pests and spillage behind racks", "weekly"]] },
+  { area: "CHILLERS", areaName: "Chillers and freezers", tasks: [
+    ["Record chiller and freezer temperatures", "daily"],
+    ["Clean chiller shelves and door seals", "weekly"],
+    ["Defrost the freezer", "monthly"]] },
+  { area: "FRONT", areaName: "Dining area and washrooms", tasks: [
+    ["Clean the washrooms", "daily"],
+    ["Wipe tables, chairs and menus", "daily"]] },
+];
+
 // products the bakery/kitchen declare each day — the Phase 2 depletion driver
 const PRODUCTS = [
   { id: 1, code: "CAKE-CHOC", name: "Chocolate fudge cake", sec: 3, yield: 1,
@@ -180,6 +212,15 @@ w(items.map((i) =>
 w("insert into products (id,location_id,code,name,section_id,yield_qty,is_demo) values");
 w(PRODUCTS.map((p) =>
   `  (${p.id},1,${q(p.code)},${q(p.name)},${p.sec},${p.yield},true)`).join(",\n") + ";");
+
+w("insert into cleaning_areas (id,location_id,code,name,is_demo) values");
+w(CLEANING.map((c, i) =>
+  `  (${i + 1},1,${q(c.area)},${q(c.areaName)},true)`).join(",\n") + ";");
+
+let ctId = 0;
+w("insert into cleaning_tasks (id,area_id,name,frequency,is_demo) values");
+w(CLEANING.flatMap((c, i) => c.tasks.map(([name, freq]) =>
+  `  (${++ctId},${i + 1},${q(name)},'${freq}',true)`)).join(",\n") + ";");
 
 let rlId = 0;
 w("insert into recipe_lines (id,product_id,item_id,qty_base,is_demo) values");

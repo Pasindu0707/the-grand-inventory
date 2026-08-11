@@ -1,7 +1,11 @@
+import { mkdir } from 'node:fs/promises';
+import { resolve } from 'node:path';
 import Fastify, { type FastifyInstance } from 'fastify';
 import cors from '@fastify/cors';
 import jwt from '@fastify/jwt';
+import multipart from '@fastify/multipart';
 import rateLimit from '@fastify/rate-limit';
+import fastifyStatic from '@fastify/static';
 import {
     serializerCompiler,
     validatorCompiler,
@@ -17,6 +21,8 @@ import { itemRoutes } from './routes/items.js';
 import { grnRoutes } from './routes/grn.js';
 import { stockRoutes } from './routes/stock.js';
 import { documentRoutes } from './routes/documents.js';
+import { marketRoutes } from './routes/market.js';
+import { uploadRoutes } from './routes/uploads.js';
 
 export async function buildApp(): Promise<FastifyInstance> {
     const app = Fastify({
@@ -62,6 +68,23 @@ export async function buildApp(): Promise<FastifyInstance> {
     });
 
     await app.register(jwt, { secret: config.JWT_SECRET });
+
+    await app.register(multipart, {
+        limits: { fileSize: config.MAX_UPLOAD_BYTES, files: 1 }
+    });
+
+    // Photos are served straight off the volume. They are evidence, not
+    // content: no directory listing, and a long cache since the filenames are
+    // random and immutable.
+    await mkdir(config.UPLOAD_DIR, { recursive: true });
+    await app.register(fastifyStatic, {
+        root: resolve(config.UPLOAD_DIR),
+        prefix: '/uploads/',
+        index: false,
+        list: false,
+        cacheControl: true,
+        maxAge: '365d'
+    });
 
     await app.register(rateLimit, {
         global: false,
@@ -118,6 +141,8 @@ export async function buildApp(): Promise<FastifyInstance> {
     await app.register(grnRoutes, { prefix: v1 });
     await app.register(stockRoutes, { prefix: v1 });
     await app.register(documentRoutes, { prefix: v1 });
+    await app.register(marketRoutes, { prefix: v1 });
+    await app.register(uploadRoutes, { prefix: v1 });
 
     return app;
 }

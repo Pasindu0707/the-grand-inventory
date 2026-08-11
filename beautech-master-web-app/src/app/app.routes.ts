@@ -48,6 +48,28 @@ export const appRoutes: Routes = [
                 title: 'Stock'
             },
             {
+                path: 'market',
+                data: {
+                    breadcrumb: 'Market purchase',
+                    routeKey: 'market',
+                    allowed: ['owner', 'manager', 'storekeeper', 'purchasing']
+                },
+                canActivate: [roleGuard],
+                loadComponent: () => import('./pages/market.component').then((m) => m.MarketComponent),
+                title: 'Market purchase'
+            },
+            {
+                path: 'cleaning',
+                data: {
+                    breadcrumb: 'Cleaning',
+                    routeKey: 'cleaning',
+                    allowed: ['owner', 'manager', 'cleaning', 'storekeeper', 'chef', 'bar', 'baker']
+                },
+                canActivate: [roleGuard],
+                loadComponent: () => import('./pages/cleaning.component').then((m) => m.CleaningComponent),
+                title: 'Cleaning'
+            },
+            {
                 path: 'issues',
                 data: {
                     breadcrumb: 'Issues',

@@ -51,6 +51,8 @@ function load(): AuthState {
 export const ROUTE_PERMISSIONS: Record<RouteKey, Role[]> = {
     today: ['owner', 'manager', 'storekeeper', 'chef', 'bar', 'baker', 'cleaning', 'purchasing'],
     grn: ['owner', 'manager', 'storekeeper', 'purchasing'],
+    market: ['owner', 'manager', 'storekeeper', 'purchasing'],
+    cleaning: ['owner', 'manager', 'cleaning', 'storekeeper', 'chef', 'bar', 'baker'],
     stock: ['owner', 'manager', 'storekeeper', 'chef', 'bar', 'baker'],
     // Sections request, the storekeeper fulfils — both live on the same screen.
     issues: ['owner', 'manager', 'storekeeper', 'chef', 'bar', 'baker', 'cleaning'],

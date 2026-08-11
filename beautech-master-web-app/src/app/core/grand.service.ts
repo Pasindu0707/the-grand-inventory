@@ -12,6 +12,7 @@ import type {
     CloseCountResult,
     CountDetail,
     CountLine,
+    CleaningToday,
     CountListRow,
     CountType,
     FulfilResult,
@@ -22,10 +23,14 @@ import type {
     IssueListRow,
     IssueWindow,
     Item,
+    MarketInput,
+    MarketListRow,
+    MarketResult,
     ReasonCode,
     SessionResponse,
     StockResponse,
     Supplier,
+    UploadResult,
     WastageRow
 } from './types';
 
@@ -201,6 +206,55 @@ export class GrandService {
             this.http.post<{ rowsReversed: number }>(`${API_BASE}/documents/${doc}/${id}/reverse`, {
                 reason
             })
+        );
+    }
+
+    // ── Uploads ─────────────────────────────────────────────────────────────
+
+    /** Returns the URL to store on the document. */
+    uploadPhoto(file: File): Promise<UploadResult> {
+        const form = new FormData();
+        form.append('file', file, file.name);
+        // No Content-Type header on purpose: the browser has to set the
+        // multipart boundary itself.
+        return firstValueFrom(this.http.post<UploadResult>(`${API_BASE}/uploads`, form));
+    }
+
+    // ── Market purchase ─────────────────────────────────────────────────────
+
+    createMarketPurchase(input: MarketInput, idempotencyKey: string): Promise<MarketResult> {
+        return firstValueFrom(
+            this.http.post<MarketResult>(`${API_BASE}/market`, input, {
+                headers: new HttpHeaders({ 'Idempotency-Key': idempotencyKey })
+            })
+        );
+    }
+
+    listMarket(limit = 20): Promise<MarketListRow[]> {
+        return firstValueFrom(
+            this.http.get<MarketListRow[]>(`${API_BASE}/market`, { params: { limit: String(limit) } })
+        );
+    }
+
+    // ── Cleaning ────────────────────────────────────────────────────────────
+
+    cleaningToday(): Promise<CleaningToday> {
+        return firstValueFrom(this.http.get<CleaningToday>(`${API_BASE}/cleaning/today`));
+    }
+
+    logCleaning(taskId: number, photoUrl?: string | null, note?: string | null): Promise<{ id: string }> {
+        return firstValueFrom(
+            this.http.post<{ id: string }>(`${API_BASE}/cleaning/log`, {
+                taskId,
+                photoUrl: photoUrl ?? null,
+                note: note ?? null
+            })
+        );
+    }
+
+    verifyCleaning(logId: string): Promise<{ ok: true }> {
+        return firstValueFrom(
+            this.http.post<{ ok: true }>(`${API_BASE}/cleaning/log/${logId}/verify`, {})
         );
     }
 }

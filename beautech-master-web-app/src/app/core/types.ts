@@ -36,10 +36,12 @@ export const ROLE_LABELS: Record<Role, string> = {
 export type RouteKey =
     | 'today'
     | 'grn'
+    | 'market'
     | 'stock'
     | 'issues'
     | 'wastage'
     | 'counts'
+    | 'cleaning'
     | 'items'
     | 'reports';
 
@@ -279,4 +281,63 @@ export interface CloseCountResult {
     adjustments: number;
     varianceValue: number;
     biggest: { name: string; varianceQty: number; varianceValue: number }[];
+}
+
+// ── Market purchase ─────────────────────────────────────────────────────────
+export interface MarketLineInput {
+    itemId: number;
+    /** In stock units — there is no pack at a market stall. */
+    qtyBase: number;
+    totalPrice: number;
+}
+
+export interface MarketInput {
+    supplierId?: number | null;
+    /** Required. The slip photo is the only evidence a cash buy has. */
+    photoUrl: string;
+    cashGiven?: number | null;
+    cashReturned?: number | null;
+    lines: MarketLineInput[];
+}
+
+export interface MarketResult {
+    id: string;
+    total: number;
+    businessDate: string;
+    lineCount: number;
+    cashDiscrepancy: number | null;
+}
+
+export interface MarketListRow {
+    id: string;
+    supplierName: string | null;
+    boughtAt: string;
+    boughtBy: string;
+    photoUrl: string | null;
+    lineCount: number;
+    total: number;
+}
+
+export interface UploadResult {
+    url: string;
+    filename: string;
+}
+
+// ── Cleaning ────────────────────────────────────────────────────────────────
+export interface CleaningTask {
+    taskId: number;
+    areaCode: string;
+    areaName: string;
+    name: string;
+    frequency: 'daily' | 'weekly' | 'monthly';
+    doneToday: boolean;
+    lastDoneOn: string | null;
+    lastDoneBy: string | null;
+    verified: boolean;
+    logId: string | null;
+}
+
+export interface CleaningToday {
+    businessDate: string;
+    tasks: CleaningTask[];
 }

@@ -142,7 +142,8 @@ export class AppMenu implements OnInit, OnDestroy {
                 label: 'Goods in',
                 icon: 'pi pi-fw pi-truck',
                 items: [
-                    { label: 'Receive delivery', icon: 'pi pi-fw pi-truck', routerLink: ['/grn'], visible: gate('grn') }
+                    { label: 'Receive delivery', icon: 'pi pi-fw pi-truck', routerLink: ['/grn'], visible: gate('grn') },
+                    { label: 'Market purchase', icon: 'pi pi-fw pi-wallet', routerLink: ['/market'], visible: gate('market') }
                 ]
             },
             {
@@ -157,7 +158,8 @@ export class AppMenu implements OnInit, OnDestroy {
                 label: 'Control',
                 icon: 'pi pi-fw pi-check-square',
                 items: [
-                    { label: 'Stock count', icon: 'pi pi-fw pi-check-square', routerLink: ['/counts'], visible: gate('counts') }
+                    { label: 'Stock count', icon: 'pi pi-fw pi-check-square', routerLink: ['/counts'], visible: gate('counts') },
+                    { label: 'Cleaning', icon: 'pi pi-fw pi-sparkles', routerLink: ['/cleaning'], visible: gate('cleaning') }
                 ]
             }
         ];
