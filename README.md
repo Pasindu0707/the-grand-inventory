@@ -19,6 +19,19 @@ npm install
 npm run db:reset-all
 ```
 
+Then the API and the web app, in two terminals:
+
+```bash
+cd api && npm install && npm run dev
+```
+
+```bash
+cd beautech-master-web-app && npm install && npm start
+```
+
+The web app runs on 4200 and proxies `/api` to the API on 3000. Sign in as
+any seeded user with PIN `1234`.
+
 `db:reset-all` drops the schema, migrates, regenerates `seed.sql` and loads it.
 To check the whole cycle including cutover:
 

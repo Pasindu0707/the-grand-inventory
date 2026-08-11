@@ -309,8 +309,8 @@ After that first real GRN the ledger is immutable for real. That is the point.
 
 | Slice | Work | Est. |
 |---|---|---|
-| 0 | Phase A schema fixes, `api/` scaffold, CI, seeded local DB | 3–4 days |
-| 1 | **Vertical slice:** template refactor (C1–C2) + PIN auth + ledger core + GRN + stock view + first tests | 1 week |
+| 0 | ~~Phase A schema fixes, `api/` scaffold, CI, seeded local DB~~ **done** | 3–4 days |
+| 1 | ~~**Vertical slice:** template refactor (C1–C2) + PIN auth + ledger core + GRN + stock view + first tests~~ **done** | 1 week |
 | 2 | Issue, wastage, transfer, count + approvals | 1 week |
 | 3 | Market purchase + photo upload + cleaning module | 3–4 days |
 | 4 | Reports A–E + the anomaly acceptance suite | 1 week |
