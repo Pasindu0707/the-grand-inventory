@@ -135,11 +135,13 @@ describe('schema drift', () => {
         const declared: Array<keyof Database> = [
             'locations', 'sections', 'users', 'suppliers', 'item_categories', 'items',
             'item_packs', 'supplier_prices', 'reason_codes', 'stock_ledger',
-            'item_cost_state', 'grn', 'grn_lines', 'market_purchase',
-            'market_purchase_lines', 'issues', 'issue_lines', 'wastage', 'transfers',
+            'item_cost_state', 'grn', 'grn_lines',
+            'issues', 'issue_lines', 'wastage', 'transfers',
             'stock_counts', 'stock_count_lines', 'products', 'recipe_lines',
-            'production_log', 'cleaning_areas', 'cleaning_tasks', 'cleaning_log',
+            'production_log',
             'idempotency_keys', 'login_attempts', 'settings', 'audit_log',
+            'purchase_orders', 'purchase_order_lines', 'opening_stock',
+            'opening_stock_lines',
             'current_stock', 'current_stock_valued', 'usage_variance',
         ];
 

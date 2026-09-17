@@ -138,7 +138,7 @@ export interface TransferResult {
  * Within one outlet, a transfer is instantaneous: someone carries a tray from
  * the bakery to the kitchen, and both legs post together.
  *
- * Between outlets it is not — stock sits in a van. So the send leg posts now
+ * Between outlets it is not - stock sits in a van. So the send leg posts now
  * and the receiving leg waits for someone at the far end to confirm. Until
  * then the stock is off both books, which is honest: nobody can count it.
  */

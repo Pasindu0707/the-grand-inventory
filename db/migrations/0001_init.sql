@@ -1,4 +1,4 @@
--- The Grand — inventory schema (Postgres 16)
+-- The Grand - inventory schema (Postgres 16)
 --
 -- Design rule: stock_ledger is append-only. Nothing is ever UPDATEd or DELETEd.
 -- Corrections are new rows with is_reversal = true pointing at the original.
@@ -345,7 +345,7 @@ create table stock_count_lines (
 );
 
 -- ---------------------------------------------------------------------------
--- 4. Phase 2 — recipes and production (replaces POS sales import)
+-- 4. Phase 2 - recipes and production (replaces POS sales import)
 -- ---------------------------------------------------------------------------
 
 create table products (                            -- what is sold/made

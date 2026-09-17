@@ -21,11 +21,14 @@ import { itemRoutes } from './routes/items.js';
 import { grnRoutes } from './routes/grn.js';
 import { stockRoutes } from './routes/stock.js';
 import { documentRoutes } from './routes/documents.js';
-import { marketRoutes } from './routes/market.js';
 import { uploadRoutes } from './routes/uploads.js';
 import { reportRoutes } from './routes/reports.js';
 import { requestRoutes } from './routes/requests.js';
 import { adminRoutes } from './routes/admin.js';
+import { setupRoutes } from './routes/setup.js';
+import { purchasingRoutes } from './routes/purchasing.js';
+import { openingRoutes } from './routes/opening.js';
+import { returnRoutes } from './routes/returns.js';
 
 export async function buildApp(): Promise<FastifyInstance> {
     const app = Fastify({
@@ -45,7 +48,7 @@ export async function buildApp(): Promise<FastifyInstance> {
     /**
      * Treat an empty body as `{}`.
      *
-     * Several endpoints are pure commands — approve, close, verify, cancel —
+     * Several endpoints are pure commands - approve, close, verify, cancel -
      * and take no body at all. Fastify's default parser rejects a POST that
      * declares `application/json` and then sends nothing, which is exactly what
      * a reasonable client does for a bodyless command. Failing those with a
@@ -144,11 +147,14 @@ export async function buildApp(): Promise<FastifyInstance> {
     await app.register(grnRoutes, { prefix: v1 });
     await app.register(stockRoutes, { prefix: v1 });
     await app.register(documentRoutes, { prefix: v1 });
-    await app.register(marketRoutes, { prefix: v1 });
     await app.register(uploadRoutes, { prefix: v1 });
     await app.register(reportRoutes, { prefix: v1 });
     await app.register(requestRoutes, { prefix: v1 });
     await app.register(adminRoutes, { prefix: v1 });
+    await app.register(setupRoutes, { prefix: v1 });
+    await app.register(purchasingRoutes, { prefix: v1 });
+    await app.register(openingRoutes, { prefix: v1 });
+    await app.register(returnRoutes, { prefix: v1 });
 
     return app;
 }

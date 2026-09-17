@@ -31,7 +31,7 @@ export default tseslint.config(
                     selector:
                         "CallExpression[callee.property.name='insertInto'][arguments.0.value='stock_ledger']",
                     message:
-                        'Only services/ledger.ts may write to stock_ledger. Use postDocument() — the document is the API, the ledger is a consequence.',
+                        'Only services/ledger.ts may write to stock_ledger. Use postDocument() - the document is the API, the ledger is a consequence.',
                 },
                 {
                     selector:

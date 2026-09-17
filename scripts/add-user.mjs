@@ -5,27 +5,22 @@
  * hand-writing a bcrypt hash into psql is how people end up with an account
  * nobody can log into. This does it properly.
  *
- *   node scripts/add-user.mjs --name "Kamal Perera" --role chef --pin 4821
- *   node scripts/add-user.mjs --name "Owner" --role owner --pin 9137 --group
+ *   node scripts/add-user.mjs --name "Kamal Perera" --role kitchen --pin 4821
+ *   node scripts/add-user.mjs --name "Nuwan" --role management --pin 9137 --group
  *   node scripts/add-user.mjs --name "Sunil Fernando" --pin 5566   (reset a PIN)
  *   node scripts/add-user.mjs --list
  *   node scripts/add-user.mjs --name "Old Staff" --deactivate
  *
- * Roles: owner manager storekeeper chef bar baker cleaning purchasing
+ * Roles: admin management storekeeper kitchen cleaning
  */
 import bcrypt from 'bcryptjs';
 import { connect, redact, DATABASE_URL } from './db.mjs';
 
-const ROLES = [
-    'owner',
-    'manager',
-    'storekeeper',
-    'chef',
-    'bar',
-    'baker',
-    'cleaning',
-    'purchasing'
-];
+// The five roles from migration 0003. The eight-role list that used to be
+// here was left behind by that migration, so every --role this script would
+// accept was one the database had already dropped: `--role admin` -- the one
+// step the go-live runbook needs a terminal for -- was refused outright.
+const ROLES = ['admin', 'management', 'storekeeper', 'kitchen', 'cleaning'];
 
 function arg(flag) {
     const i = process.argv.indexOf(flag);
@@ -115,7 +110,8 @@ try {
         process.exit(1);
     }
 
-    // Group-wide (owner) users have no home location and can act anywhere.
+    // Group-wide users (management, admin) have no home location and can act
+    // at any branch.
     let locationId = null;
     if (!has('--group')) {
         const code = arg('--outlet') ?? 'GB';

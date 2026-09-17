@@ -1,4 +1,4 @@
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import type { FastifyInstance } from 'fastify';
 import { authedHeaders, db, makeApp, supplySection } from './helpers.js';
 
@@ -55,6 +55,181 @@ afterAll(async () => {
     await db.destroy();
 });
 
+describe('the cleaning store keeps its own shelf', () => {
+    /**
+     * Cleaning was excluded from counts and wastage while kitchen had both,
+     * and nothing ever justified the difference. The effect was that the one
+     * person who stands at the cleaning shelf could neither count it nor say
+     * what they had broken -- so a split drum of degreaser left the ledger
+     * believing it was still there, and surfaced weeks later as *shrinkage*,
+     * which is the report that means somebody took it.
+     *
+     * The section boundary is unchanged: cleaning still reaches nothing but
+     * its own store. That is asserted at the end.
+     */
+    async function cleaningHeaders() {
+        const user = await db
+            .selectFrom('users')
+            .select(['id', 'location_id'])
+            .where('role', '=', 'cleaning')
+            .where('is_active', '=', true)
+            .executeTakeFirstOrThrow();
+        const res = await app.inject({
+            method: 'POST',
+            url: '/api/v1/auth/login',
+            payload: { userId: user.id, locationId: user.location_id ?? 1, pin: '1234' }
+        });
+        return {
+            authorization: `Bearer ${res.json().accessToken}`,
+            'x-location-id': String(user.location_id ?? 1)
+        };
+    }
+
+    it('lets a cleaning login log wastage and count its own store', async () => {
+        const ch = await cleaningHeaders();
+        const clean = await sectionId('CLEAN');
+        const item = await db
+            .selectFrom('current_stock')
+            .select(['item_id', 'qty_base'])
+            .where('section_id', '=', clean)
+            .where('qty_base', '>', 10)
+            .executeTakeFirstOrThrow();
+
+        const waste = await app.inject({
+            method: 'POST',
+            url: '/api/v1/wastage',
+            headers: ch,
+            payload: {
+                sectionId: clean,
+                itemId: item.item_id,
+                qtyBase: 1,
+                reasonCode: 'SPOIL'
+            }
+        });
+        expect(waste.statusCode).toBe(201);
+
+        const opened = await app.inject({
+            method: 'POST',
+            url: '/api/v1/counts/open',
+            headers: ch,
+            payload: { sectionId: clean, countType: 'daily_critical' }
+        });
+        expect(opened.statusCode).toBe(201);
+
+        const closed = await app.inject({
+            method: 'POST',
+            url: `/api/v1/counts/${opened.json().id}/close`,
+            headers: ch
+        });
+        expect(closed.statusCode).toBe(200);
+    });
+
+    it('still refuses a cleaning login the kitchen', async () => {
+        const ch = await cleaningHeaders();
+        const res = await app.inject({
+            method: 'POST',
+            url: '/api/v1/counts/open',
+            headers: ch,
+            payload: { sectionId: kitchenId, countType: 'daily_critical' }
+        });
+        expect(res.statusCode).toBe(403);
+    });
+
+    it('still refuses a cleaning login the verification of its own work', async () => {
+        const ch = await cleaningHeaders();
+        const clean = await sectionId('CLEAN');
+        const opened = await app.inject({
+            method: 'POST',
+            url: '/api/v1/counts/open',
+            headers: ch,
+            payload: { sectionId: clean, countType: 'daily_critical' }
+        });
+        await app.inject({
+            method: 'POST',
+            url: `/api/v1/counts/${opened.json().id}/close`,
+            headers: ch
+        });
+        const verify = await app.inject({
+            method: 'POST',
+            url: `/api/v1/counts/${opened.json().id}/verify`,
+            headers: ch
+        });
+        expect(verify.statusCode).toBe(403);
+    });
+});
+
+describe('section boundaries', () => {
+    /**
+     * Every endpoint that took a section id took it on trust. The screens
+     * never offered another section, which is not the same as it being
+     * refused - and a section login could reach into any other by sending a
+     * different number.
+     */
+    it('refuses a kitchen login every door into the cleaning store', async () => {
+        const kitchen = await db
+            .selectFrom('users')
+            .select(['id', 'location_id'])
+            .where('role', '=', 'kitchen')
+            .where('is_active', '=', true)
+            .executeTakeFirstOrThrow();
+        const login = await app.inject({
+            method: 'POST',
+            url: '/api/v1/auth/login',
+            payload: { userId: kitchen.id, locationId: kitchen.location_id ?? 1, pin: '1234' }
+        });
+        const kh = {
+            authorization: `Bearer ${login.json().accessToken}`,
+            'x-location-id': String(kitchen.location_id ?? 1)
+        };
+        const clean = await sectionId('CLEAN');
+        const item = await db
+            .selectFrom('current_stock')
+            .select('item_id')
+            .where('section_id', '=', clean)
+            .executeTakeFirstOrThrow();
+
+        const attempts = [
+            app.inject({
+                method: 'POST',
+                url: '/api/v1/wastage',
+                headers: kh,
+                payload: {
+                    sectionId: clean,
+                    itemId: item.item_id,
+                    qtyBase: 1,
+                    reasonCode: 'SPOIL'
+                }
+            }),
+            app.inject({
+                method: 'POST',
+                url: '/api/v1/counts/open',
+                headers: kh,
+                payload: { sectionId: clean, countType: 'daily_critical' }
+            }),
+            app.inject({ method: 'GET', url: `/api/v1/stock?sectionId=${clean}`, headers: kh }),
+            app.inject({ method: 'GET', url: `/api/v1/wastage?sectionId=${clean}`, headers: kh }),
+            app.inject({ method: 'GET', url: `/api/v1/counts?sectionId=${clean}`, headers: kh })
+        ];
+
+        for (const res of await Promise.all(attempts)) {
+            expect(res.statusCode).toBe(403);
+        }
+
+        // And with no section named, the lists narrow themselves rather than
+        // handing back the whole branch.
+        const stock = await app.inject({
+            method: 'GET',
+            url: '/api/v1/stock?limit=200',
+            headers: kh
+        });
+        const codes = new Set(
+            stock.json().items.map((r: { sectionCode: string }) => r.sectionCode)
+        );
+        expect(codes.has('CLEAN')).toBe(false);
+        expect(codes.has('STORE')).toBe(false);
+    });
+});
+
 describe('wastage', () => {
     it('reduces the section it was wasted from', async () => {
         const item = await wellStockedItem();
@@ -105,12 +280,14 @@ describe('wastage', () => {
 describe('transfers', () => {
     it('posts both legs at once within one outlet', async () => {
         const item = await wellStockedItem();
-        const bakeryId = await sectionId('BAKERY');
+        // Kitchen to the cleaning store. With BAKERY and BAR gone there are
+        // two rooms left that both hold stock, which is all a transfer needs.
+        const otherId = await sectionId('CLEAN');
 
         await supplySection(app, headers, kitchenId, item.id, 300);
 
         const kitchenBefore = await stockOf(item.id, kitchenId);
-        const bakeryBefore = await stockOf(item.id, bakeryId);
+        const bakeryBefore = await stockOf(item.id, otherId);
 
         const res = await app.inject({
             method: 'POST',
@@ -118,7 +295,7 @@ describe('transfers', () => {
             headers,
             payload: {
                 fromSectionId: kitchenId,
-                toSectionId: bakeryId,
+                toSectionId: otherId,
                 itemId: item.id,
                 qtyBase: 100
             }
@@ -127,7 +304,7 @@ describe('transfers', () => {
         expect(res.statusCode).toBe(201);
         expect(res.json().completed).toBe(true);
         expect(await stockOf(item.id, kitchenId)).toBe(kitchenBefore - 100);
-        expect(await stockOf(item.id, bakeryId)).toBe(bakeryBefore + 100);
+        expect(await stockOf(item.id, otherId)).toBe(bakeryBefore + 100);
     });
 
     it('refuses a transfer to the same section', async () => {
@@ -148,6 +325,22 @@ describe('transfers', () => {
 });
 
 describe('stock counts', () => {
+    // One open count per section, type and business day is a unique
+    // constraint, so a count left open by one test makes the next one 409.
+    // An open count has posted nothing to the ledger, so the cleanest start
+    // is no open counts at all.
+    beforeEach(async () => {
+        const open = await db
+            .selectFrom('stock_counts')
+            .select('id')
+            .where('closed_at', 'is', null)
+            .execute();
+        if (open.length === 0) return;
+        const ids = open.map((r) => r.id);
+        await db.deleteFrom('stock_count_lines').where('count_id', 'in', ids).execute();
+        await db.deleteFrom('stock_counts').where('id', 'in', ids).execute();
+    });
+
     it('freezes expected at open, and a later movement does not absorb the variance', async () => {
         const open = await app.inject({
             method: 'POST',
@@ -202,7 +395,7 @@ describe('stock counts', () => {
             }
         });
 
-        const before = await stockOf(target.itemId, kitchenId);
+        const before = await stockOf(target!.itemId, kitchenId);
 
         const close = await app.inject({
             method: 'POST',
@@ -228,12 +421,107 @@ describe('stock counts', () => {
         expect(adj.every((r) => r.reason_code === 'COUNTADJ')).toBe(true);
     });
 
+    it('leaves untouched lines alone - a partial count adjusts only what was counted', async () => {
+        const kitchenId = await sectionId('KITCHEN');
+        const open = await app.inject({
+            method: 'POST',
+            url: '/api/v1/counts/open',
+            headers,
+            payload: { sectionId: kitchenId, countType: 'weekly_full' }
+        });
+        expect(open.statusCode).toBe(201);
+        const countId = open.json().id;
+        const lines = open.json().lines as {
+            lineId: string;
+            itemId: number;
+            qtyExpected: number;
+        }[];
+        expect(lines.length).toBeGreaterThan(2);
+
+        // Count exactly one line, two short. Everything else is left blank -
+        // which under the old NOT NULL default meant "counted zero" and would
+        // have written the whole section off.
+        //
+        // The line has to be one the section actually holds some of. Taking
+        // lines[0] on trust worked until the kitchen's contents shifted and the
+        // first line came back expecting zero: counting zero short of zero is
+        // no variance at all, so nothing moved and the test failed for a reason
+        // that had nothing to do with partial counts.
+        const shortBy = 2;
+        const target = lines.find((l) => l.qtyExpected > shortBy);
+        const untouched = lines.find((l) => l !== target);
+        expect(target, 'the kitchen holds nothing worth counting short').toBeTruthy();
+        expect(untouched).toBeTruthy();
+        const before = await stockOf(target!.itemId, kitchenId);
+        const untouchedBefore = await stockOf(untouched!.itemId, kitchenId);
+
+        await app.inject({
+            method: 'PUT',
+            url: `/api/v1/counts/${countId}/lines`,
+            headers,
+            payload: {
+                lines: [
+                    {
+                        lineId: target!.lineId,
+                        qtyCounted: target!.qtyExpected - shortBy
+                    }
+                ]
+            }
+        });
+
+        const close = await app.inject({
+            method: 'POST',
+            url: `/api/v1/counts/${countId}/close`,
+            headers
+        });
+        expect(close.statusCode).toBe(200);
+        expect(close.json().counted).toBe(1);
+        expect(close.json().skipped).toBe(lines.length - 1);
+
+        // The counted line moved; the blank one did not.
+        expect(await stockOf(target!.itemId, kitchenId)).toBe(before - shortBy);
+        expect(await stockOf(untouched!.itemId, kitchenId)).toBe(untouchedBefore);
+
+        // And only the counted line produced a ledger row.
+        const adj = await db
+            .selectFrom('stock_ledger')
+            .selectAll()
+            .where('doc', '=', 'count')
+            .where('doc_id', '=', String(countId))
+            .execute();
+        expect(adj.length).toBe(1);
+        expect(adj[0]!.item_id).toBe(target!.itemId);
+    });
+
+    it('scopes the daily count to what the section actually holds', async () => {
+        const open = await app.inject({
+            method: 'POST',
+            url: '/api/v1/counts/open',
+            headers,
+            payload: { sectionId: await sectionId('KITCHEN'), countType: 'daily_critical' }
+        });
+        expect(open.statusCode).toBe(201);
+
+        const lines = open.json().lines as { itemId: number }[];
+        const held = await db
+            .selectFrom('current_stock')
+            .select('item_id')
+            .where('section_id', '=', await sectionId('KITCHEN'))
+            .execute();
+        const heldIds = new Set(held.map((r) => r.item_id));
+
+        // Nothing the kitchen has never stocked. It used to be handed all
+        // thirty-two critical items in the group.
+        expect(lines.length).toBeGreaterThan(0);
+        expect(lines.every((l) => heldIds.has(l.itemId))).toBe(true);
+    });
+
     it('will not close the same count twice', async () => {
         const open = await app.inject({
             method: 'POST',
             url: '/api/v1/counts/open',
             headers,
-            payload: { sectionId: await sectionId('BAR'), countType: 'daily_critical' }
+            payload: { sectionId: await sectionId('KITCHEN'), countType: 'daily_critical' }
         });
         const countId = open.json().id;
 

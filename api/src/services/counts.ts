@@ -3,7 +3,7 @@
  *
  * The count is where shrinkage becomes visible. The ledger believes what the
  * documents told it; the count is the only moment anyone looks at the shelf.
- * Anomaly B — two gin bottles that leave with no document at all — is
+ * Anomaly B - two gin bottles that leave with no document at all - is
  * detectable *only* here, which is why the expected quantity is frozen when the
  * count opens rather than read at close.
  *
@@ -94,7 +94,31 @@ export async function openCount(input: OpenCountInput): Promise<{ id: string; li
             .where('items.is_active', '=', true);
 
         if (input.countType === 'daily_critical') {
-            itemsQuery = itemsQuery.where('items.is_critical', '=', true);
+            // Critical *and* actually on this section's shelves. Filtering on
+            // the flag alone asked the bar - which holds nine items - for all
+            // thirty-two critical items in the group, most of which it has
+            // never stocked. Counting things that are not there is how a daily
+            // count turns into a form-filling exercise.
+            //
+            // Some sections hold nothing anybody flagged critical - cleaning is
+            // one. Rather than refuse them a daily count, they get what they
+            // actually hold, which is a short list anyway.
+            const criticalHere = await db
+                .selectFrom('items')
+                .innerJoin('current_stock as cs', (join) =>
+                    join
+                        .onRef('cs.item_id', '=', 'items.id')
+                        .on('cs.section_id', '=', input.sectionId)
+                )
+                .select(({ fn }) => fn.countAll().as('n'))
+                .where('items.is_active', '=', true)
+                .where('items.is_critical', '=', true)
+                .executeTakeFirst();
+
+            itemsQuery = itemsQuery.where('cs.qty_base', 'is not', null);
+            if (Number(criticalHere?.n ?? 0) > 0) {
+                itemsQuery = itemsQuery.where('items.is_critical', '=', true);
+            }
         } else {
             itemsQuery = itemsQuery.where((eb) =>
                 eb.or([eb('cs.qty_base', 'is not', null), eb('items.is_critical', '=', true)])
@@ -102,7 +126,9 @@ export async function openCount(input: OpenCountInput): Promise<{ id: string; li
         }
 
         const items = await itemsQuery.orderBy('items.name').execute();
-        if (items.length === 0) throw badRequest('Nothing to count in this section');
+        if (items.length === 0) {
+            throw badRequest('There is no stock recorded in this section yet, so there is nothing to count');
+        }
 
         const lines: CountLineView[] = [];
         for (const item of items) {
@@ -113,10 +139,11 @@ export async function openCount(input: OpenCountInput): Promise<{ id: string; li
                     count_id: count.id,
                     item_id: item.itemId,
                     qty_expected: expected,
-                    // Counted defaults to expected only so the column is
-                    // non-null; close() refuses to run until each line has
-                    // actually been entered.
-                    qty_counted: 0,
+                    // Null until somebody actually counts it. See migration
+                    // 0004: a zero here used to mean both "not counted yet" and
+                    // "counted, and the shelf was empty", and close could not
+                    // tell them apart.
+                    qty_counted: null,
                     variance_value: 0,
                     is_demo: false
                 })
@@ -149,7 +176,7 @@ export async function openCount(input: OpenCountInput): Promise<{ id: string; li
 export async function saveCountLines(
     countId: string,
     locationId: number,
-    lines: { lineId: string; qtyCounted: number }[]
+    lines: { lineId: string; qtyCounted: number | null }[]
 ): Promise<void> {
     const count = await db
         .selectFrom('stock_counts')
@@ -162,7 +189,11 @@ export async function saveCountLines(
 
     await db.transaction().execute(async (trx) => {
         for (const line of lines) {
-            if (line.qtyCounted < 0) throw badRequest('A counted quantity cannot be negative');
+            // Null clears the line back to uncounted - how someone undoes a
+            // figure they typed against the wrong item.
+            if (line.qtyCounted !== null && line.qtyCounted < 0) {
+                throw badRequest('A counted quantity cannot be negative');
+            }
             await trx
                 .updateTable('stock_count_lines')
                 .set({ qty_counted: line.qtyCounted })
@@ -177,6 +208,10 @@ export interface CloseCountResult {
     id: string;
     adjustments: number;
     varianceValue: number;
+    /** Lines somebody actually entered. */
+    counted: number;
+    /** Lines left blank, and therefore left alone. */
+    skipped: number;
     biggest: { name: string; varianceQty: number; varianceValue: number }[];
 }
 
@@ -226,7 +261,20 @@ export async function closeCount(
         let totalVariance = 0;
         let docLine = 0;
 
+        let counted = 0;
+        let skipped = 0;
+
         for (const line of lines) {
+            // A line nobody counted is left exactly as it was: no variance, no
+            // adjustment, no ledger movement. This is what makes it safe to
+            // count part of a section and close - the shelves you did not walk
+            // past are none of this document's business.
+            if (line.qtyCounted === null) {
+                skipped += 1;
+                continue;
+            }
+            counted += 1;
+
             const varianceQty = Number(line.qtyCounted) - Number(line.qtyExpected);
             const varianceValue = varianceQty * Number(line.avgCost ?? 0);
 
@@ -277,7 +325,12 @@ export async function closeCount(
             action: 'count.close',
             entity: 'stock_counts',
             entityId: countId,
-            after: { adjustments: ledgerLines.length, varianceValue: totalVariance }
+            after: {
+                adjustments: ledgerLines.length,
+                varianceValue: totalVariance,
+                counted,
+                skipped
+            }
         });
 
         biggest.sort((a, b) => Math.abs(b.varianceValue) - Math.abs(a.varianceValue));
@@ -286,6 +339,8 @@ export async function closeCount(
             id: String(countId),
             adjustments: ledgerLines.length,
             varianceValue: Math.round(totalVariance * 100) / 100,
+            counted,
+            skipped,
             biggest: biggest.slice(0, 5)
         };
     });

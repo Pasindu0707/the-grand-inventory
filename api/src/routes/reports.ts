@@ -12,6 +12,17 @@ import {
     wastageByReason,
     wastageTrend
 } from '../services/reports.js';
+import {
+    consumptionBySection,
+    countAccuracy,
+    deadStock,
+    openPurchaseOrders,
+    openReturns,
+    requestServiceLevel,
+    returnsByReason,
+    stockValuation,
+    supplierPerformance
+} from '../services/reports-ops.js';
 
 const dateStr = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Use YYYY-MM-DD');
 
@@ -305,6 +316,313 @@ export async function reportRoutes(app: FastifyInstance) {
                 belowReorder(req.locationId)
             ]);
             return { ...range, stockOuts: outs, belowReorder: low };
+        }
+    );
+
+    // ── The operating reports ───────────────────────────────────────────────
+    //
+    // Same shape as the five above: a range in, `{ from, to, rows }` out. The
+    // screen renders them from one generic runner, so a report that answered in
+    // its own shape would need its own special case on the client for no gain.
+
+    r.get(
+        '/reports/open-purchase-orders',
+        {
+            preHandler: managers(),
+            schema: {
+                querystring: rangeQuery,
+                response: {
+                    200: z.object({
+                        from: z.string(),
+                        to: z.string(),
+                        rows: z.array(
+                            z.object({
+                                id: z.string(),
+                                status: z.string(),
+                                supplierName: z.string().nullable(),
+                                raisedBy: z.string(),
+                                raisedAt: z.string(),
+                                neededBy: z.string().nullable(),
+                                lineCount: z.number(),
+                                daysOpen: z.number(),
+                                daysLate: z.number(),
+                                estimatedValue: z.number(),
+                                outstandingValue: z.number()
+                            })
+                        )
+                    })
+                }
+            }
+        },
+        async (req) => {
+            const range = resolveRange(req.query);
+            return { ...range, rows: await openPurchaseOrders(req.locationId, range) };
+        }
+    );
+
+    r.get(
+        '/reports/service-level',
+        {
+            preHandler: managers(),
+            schema: {
+                querystring: rangeQuery,
+                response: {
+                    200: z.object({
+                        from: z.string(),
+                        to: z.string(),
+                        rows: z.array(
+                            z.object({
+                                sectionId: z.number(),
+                                sectionName: z.string(),
+                                requests: z.number(),
+                                stillWaiting: z.number(),
+                                lines: z.number(),
+                                linesInFull: z.number(),
+                                linesShort: z.number(),
+                                fillRatePct: z.number().nullable(),
+                                qtyFillPct: z.number().nullable(),
+                                avgHoursToRelease: z.number().nullable()
+                            })
+                        )
+                    })
+                }
+            }
+        },
+        async (req) => {
+            const range = resolveRange(req.query);
+            return { ...range, rows: await requestServiceLevel(req.locationId, range) };
+        }
+    );
+
+    r.get(
+        '/reports/supplier-performance',
+        {
+            preHandler: managers(),
+            schema: {
+                querystring: rangeQuery,
+                response: {
+                    200: z.object({
+                        from: z.string(),
+                        to: z.string(),
+                        rows: z.array(
+                            z.object({
+                                supplierId: z.number(),
+                                supplierName: z.string(),
+                                orders: z.number(),
+                                deliveries: z.number(),
+                                fillRatePct: z.number().nullable(),
+                                lateOrders: z.number(),
+                                avgDaysToClose: z.number().nullable(),
+                                spend: z.number(),
+                                returns: z.number(),
+                                returnedValue: z.number(),
+                                creditedValue: z.number(),
+                                netSpend: z.number(),
+                                returnRatePct: z.number().nullable()
+                            })
+                        )
+                    })
+                }
+            }
+        },
+        async (req) => {
+            const range = resolveRange(req.query);
+            return { ...range, rows: await supplierPerformance(req.locationId, range) };
+        }
+    );
+
+    r.get(
+        '/reports/valuation',
+        {
+            preHandler: managers(),
+            schema: {
+                querystring: rangeQuery,
+                response: {
+                    200: z.object({
+                        from: z.string(),
+                        to: z.string(),
+                        rows: z.array(
+                            z.object({
+                                sectionId: z.number(),
+                                sectionName: z.string(),
+                                itemId: z.number(),
+                                code: z.string(),
+                                name: z.string(),
+                                stockUnit: z.string(),
+                                qtyBase: z.number(),
+                                avgCost: z.number(),
+                                value: z.number()
+                            })
+                        )
+                    })
+                }
+            }
+        },
+        async (req) => {
+            const range = resolveRange(req.query);
+            return { ...range, rows: await stockValuation(req.locationId, range) };
+        }
+    );
+
+    r.get(
+        '/reports/dead-stock',
+        {
+            preHandler: managers(),
+            schema: {
+                querystring: rangeQuery,
+                response: {
+                    200: z.object({
+                        from: z.string(),
+                        to: z.string(),
+                        rows: z.array(
+                            z.object({
+                                itemId: z.number(),
+                                code: z.string(),
+                                name: z.string(),
+                                stockUnit: z.string(),
+                                sectionName: z.string(),
+                                qtyBase: z.number(),
+                                value: z.number(),
+                                lastMovedOn: z.string().nullable(),
+                                daysSinceMoved: z.number().nullable()
+                            })
+                        )
+                    })
+                }
+            }
+        },
+        async (req) => {
+            const range = resolveRange(req.query);
+            return { ...range, rows: await deadStock(req.locationId, range) };
+        }
+    );
+
+    r.get(
+        '/reports/consumption',
+        {
+            preHandler: managers(),
+            schema: {
+                querystring: rangeQuery,
+                response: {
+                    200: z.object({
+                        from: z.string(),
+                        to: z.string(),
+                        rows: z.array(
+                            z.object({
+                                sectionId: z.number(),
+                                sectionName: z.string(),
+                                itemId: z.number(),
+                                code: z.string(),
+                                name: z.string(),
+                                stockUnit: z.string(),
+                                qtyBase: z.number(),
+                                value: z.number()
+                            })
+                        )
+                    })
+                }
+            }
+        },
+        async (req) => {
+            const range = resolveRange(req.query);
+            return { ...range, rows: await consumptionBySection(req.locationId, range) };
+        }
+    );
+
+    r.get(
+        '/reports/count-accuracy',
+        {
+            preHandler: managers(),
+            schema: {
+                querystring: rangeQuery,
+                response: {
+                    200: z.object({
+                        from: z.string(),
+                        to: z.string(),
+                        rows: z.array(
+                            z.object({
+                                countedBy: z.string(),
+                                sectionName: z.string(),
+                                counts: z.number(),
+                                lines: z.number(),
+                                linesOff: z.number(),
+                                accuracyPct: z.number().nullable(),
+                                absVarianceValue: z.number()
+                            })
+                        )
+                    })
+                }
+            }
+        },
+        async (req) => {
+            const range = resolveRange(req.query);
+            return { ...range, rows: await countAccuracy(req.locationId, range) };
+        }
+    );
+
+    r.get(
+        '/reports/returns',
+        {
+            preHandler: managers(),
+            schema: {
+                querystring: rangeQuery,
+                response: {
+                    200: z.object({
+                        from: z.string(),
+                        to: z.string(),
+                        rows: z.array(
+                            z.object({
+                                reasonCode: z.string(),
+                                reasonLabel: z.string(),
+                                sectionReturns: z.number(),
+                                sectionQtyValue: z.number(),
+                                supplierReturns: z.number(),
+                                supplierValue: z.number(),
+                                creditedValue: z.number()
+                            })
+                        )
+                    })
+                }
+            }
+        },
+        async (req) => {
+            const range = resolveRange(req.query);
+            return { ...range, rows: await returnsByReason(req.locationId, range) };
+        }
+    );
+
+    r.get(
+        '/reports/open-returns',
+        {
+            preHandler: managers(),
+            schema: {
+                querystring: rangeQuery,
+                response: {
+                    200: z.object({
+                        from: z.string(),
+                        to: z.string(),
+                        rows: z.array(
+                            z.object({
+                                id: z.string(),
+                                status: z.string(),
+                                supplierName: z.string(),
+                                invoiceNo: z.string().nullable(),
+                                reasonLabel: z.string(),
+                                raisedBy: z.string(),
+                                raisedAt: z.string(),
+                                sentAt: z.string().nullable(),
+                                daysWaiting: z.number(),
+                                expectedCredit: z.number(),
+                                lines: z.number()
+                            })
+                        )
+                    })
+                }
+            }
+        },
+        async (req) => {
+            const range = resolveRange(req.query);
+            return { ...range, rows: await openReturns(req.locationId, range) };
         }
     );
 }

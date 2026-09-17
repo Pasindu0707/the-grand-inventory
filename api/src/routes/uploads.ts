@@ -1,10 +1,10 @@
 /**
  * Photo upload.
  *
- * This is the evidence trail. A cash market purchase has no invoice, so the
- * photo of the slip is the only record that the money bought anything — which
- * is why the market endpoint refuses to post without one, and why this
- * endpoint is strict about what it accepts.
+ * This is the evidence trail. A crate of spoiled lettuce and a delivery that
+ * arrived short are both arguments waiting to happen, and a photograph taken
+ * at the time is what settles them - which is why this endpoint is strict
+ * about what it accepts.
  *
  * Files go to a disk volume rather than object storage. One VPS, one restaurant
  * group, and the nightly pg_dump has a matching rsync; S3 is a Phase 4 problem

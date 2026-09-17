@@ -11,6 +11,7 @@ import { db } from '../db/index.js';
 import { badRequest, notFound } from '../errors.js';
 import { audit, businessDateFor, postDocument, type LedgerLine } from './ledger.js';
 import { claimKey, storeResponse } from './idempotency.js';
+import { applyReceiptToPo } from './purchasing.js';
 
 export interface GrnLineInput {
     itemPackId: number;
@@ -22,6 +23,14 @@ export interface GrnLineInput {
 export interface CreateGrnInput {
     locationId: number;
     supplierId: number;
+    /**
+     * The order this delivery is against, if it was ordered rather than simply
+     * turning up. Booking it here rather than through a separate "receive"
+     * endpoint keeps one code path for stock arriving: the order is told what
+     * came in the same transaction that moves the ledger, so a delivery can
+     * never be recorded while the order it fills stays open.
+     */
+    poId?: string | null;
     invoiceNo?: string | null;
     invoiceDate?: string | null;
     photoUrl?: string | null;
@@ -95,12 +104,23 @@ export async function createGrn(input: CreateGrnInput): Promise<CreateGrnResult>
     // which is what keeps every movement a section-to-section transfer.
     const storeSectionId = store.id;
 
+    /**
+     * The price this supplier last charged for each pack.
+     *
+     * Ordered by id as well as date. `effective_from` is a date, not a
+     * timestamp, and two price changes on one day are ordinary -- a corrected
+     * entry, or a second delivery the same afternoon. With only the date in
+     * the sort, "the most recent" was whichever row Postgres happened to hand
+     * back first, so the same delivery could be judged against either price
+     * from one save to the next. The higher id is the later row.
+     */
     const previousPrices = await db
         .selectFrom('supplier_prices')
         .select(['item_pack_id', 'price', 'effective_from'])
         .where('supplier_id', '=', input.supplierId)
         .where('item_pack_id', 'in', packIds)
         .orderBy('effective_from', 'desc')
+        .orderBy('id', 'desc')
         .execute();
 
     const lastPrice = new Map<number, number>();
@@ -130,6 +150,7 @@ export async function createGrn(input: CreateGrnInput): Promise<CreateGrnResult>
                 received_by: input.receivedBy,
                 photo_url: input.photoUrl ?? null,
                 total,
+                po_id: input.poId ?? null,
                 is_demo: false,
             })
             .returning('id')
@@ -203,6 +224,17 @@ export async function createGrn(input: CreateGrnInput): Promise<CreateGrnResult>
             }
         }
 
+        if (input.poId) {
+            await applyReceiptToPo(
+                trx,
+                input.poId,
+                input.locationId,
+                input.supplierId,
+                input.receivedBy,
+                ledgerLines.map((l) => ({ itemId: l.itemId, qtyBase: l.qtyBase }))
+            );
+        }
+
         await postDocument(trx, {
             doc: 'grn',
             docId: grn.id,
@@ -217,7 +249,12 @@ export async function createGrn(input: CreateGrnInput): Promise<CreateGrnResult>
             action: 'grn.create',
             entity: 'grn',
             entityId: grn.id,
-            after: { supplierId: input.supplierId, total, lineCount: input.lines.length },
+            after: {
+                supplierId: input.supplierId,
+                total,
+                lineCount: input.lines.length,
+                poId: input.poId ?? null,
+            },
         });
 
         const result: CreateGrnResult = {

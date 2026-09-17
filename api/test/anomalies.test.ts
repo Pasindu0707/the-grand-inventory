@@ -35,7 +35,7 @@ afterAll(async () => {
     await db.destroy();
 });
 
-describe('A — chicken breast over-issued from day 20', () => {
+describe('A - chicken breast over-issued from day 20', () => {
     it('is flagged by theoretical vs actual usage', async () => {
         const rows = await usageVariance(LOCATION, SEED, 8);
         const chicken = rows.find((r) => r.code === 'MEA-001');
@@ -74,15 +74,21 @@ describe('A — chicken breast over-issued from day 20', () => {
     });
 });
 
-describe('B — two gin bottles vanish with no document', () => {
+describe('B - two gin bottles vanish with no document', () => {
     it('is flagged by the shrinkage report', async () => {
         const rows = await shrinkage(LOCATION, SEED);
         const gin = rows.filter((r) => r.code === 'BAR-001' && !r.hasWastageDoc);
 
-        expect(gin.length, 'BAR-001 should show unexplained gaps in the bar').toBeGreaterThanOrEqual(2);
+        expect(
+            gin.length,
+            'BAR-001 should show unexplained gaps on the drinks shelf'
+        ).toBeGreaterThanOrEqual(2);
 
+        // The drinks shelf is part of the kitchen now -- BAR stopped being a
+        // section of its own. What makes the gin detectable was never the room
+        // it stood in, but that spirits are counted by the bottle.
         for (const gap of gin) {
-            expect(gap.sectionCode).toBe('BAR');
+            expect(gap.sectionCode).toBe('KITCHEN');
             expect(gap.varianceQty).toBeLessThan(0);
         }
 
@@ -93,14 +99,14 @@ describe('B — two gin bottles vanish with no document', () => {
         }
     });
 
-    it('has no wastage document behind it — that is what makes it shrinkage', async () => {
+    it('has no wastage document behind it - that is what makes it shrinkage', async () => {
         const rows = await shrinkage(LOCATION, SEED);
         const gin = rows.filter((r) => r.code === 'BAR-001');
         expect(gin.every((g) => g.hasWastageDoc === false)).toBe(true);
     });
 });
 
-describe('C — sunflower oil price rises 32%', () => {
+describe('C - sunflower oil price rises 32%', () => {
     it('is flagged by supplier price movement', async () => {
         const rows = await priceMovement(SEED, 10);
         const oil = rows.find((r) => r.itemName.toLowerCase().includes('sunflower'));
@@ -120,7 +126,7 @@ describe('C — sunflower oil price rises 32%', () => {
     });
 });
 
-describe('D — lettuce spoilage spike in week six', () => {
+describe('D - lettuce spoilage spike in week six', () => {
     it('reads as spoilage in the wastage report', async () => {
         const rows = await wastageByReason(LOCATION, SEED);
         const lettuce = rows.filter((r) => r.code === 'VEG-009');
@@ -130,7 +136,7 @@ describe('D — lettuce spoilage spike in week six', () => {
         expect(lettuce[0]!.reasonLabel.toLowerCase()).toContain('spoil');
     });
 
-    it('shows a visible spike in days 38–44 rather than a flat line', async () => {
+    it('shows a visible spike in days 38-44 rather than a flat line', async () => {
         const item = await db
             .selectFrom('items')
             .select('id')
@@ -175,7 +181,7 @@ describe('D — lettuce spoilage spike in week six', () => {
     });
 });
 
-describe('E — prawns run out on day 41', () => {
+describe('E - prawns run out on day 41', () => {
     it('is flagged by the stock-out report', async () => {
         const rows = await stockOuts(LOCATION, SEED);
         const prawns = rows.filter((r) => r.code === 'SEA-001');

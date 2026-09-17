@@ -37,7 +37,7 @@ export interface UsageVarianceRow {
 /**
  * What the recipes say should have been used, against what was actually issued.
  *
- * The driver is production_log, not sales — there is no POS. A section declares
+ * The driver is production_log, not sales - there is no POS. A section declares
  * "42 chocolate cakes", the recipe explodes that into ingredients, and the
  * difference against what left the store is the variance.
  *
@@ -82,7 +82,7 @@ export async function usageVariance(
     return rows.map(numeric);
 }
 
-/** Daily issued quantity for one item — the detail behind a variance row. */
+/** Daily issued quantity for one item - the detail behind a variance row. */
 export async function usageTrend(
     locationId: number,
     itemId: number,
@@ -136,7 +136,7 @@ export interface ShrinkageRow {
  *    produces Rs 0.44 "losses" of one gram of lettuce.
  *
  *  - Proportion, because a money floor alone does not scale. Gin is expensive:
- *    ordinary 0.5% counting noise in the store is worth Rs 100–175 a day and
+ *    ordinary 0.5% counting noise in the store is worth Rs 100-175 a day and
  *    produced fifteen false positives that buried the two real bottles. Noise
  *    is proportional to what is on the shelf; theft is not.
  *
@@ -151,7 +151,7 @@ export const DEFAULT_SHRINKAGE_FLOOR_PCT = 2;
  *
  * A count adjustment is the system admitting the shelf disagrees with the
  * ledger. If wastage was logged for that item on that day, the gap is
- * explained and this is not shrinkage — it is paperwork catching up. What is
+ * explained and this is not shrinkage - it is paperwork catching up. What is
  * left is the interesting set: anomaly B, two gin bottles that left the bar
  * with no document at all.
  *
@@ -368,7 +368,7 @@ export interface StockOutRow {
  * Days an item ran out.
  *
  * Reconstructs the running balance per item and section from the ledger, which
- * is the only way to answer "when did this hit zero" after the fact — there is
+ * is the only way to answer "when did this hit zero" after the fact - there is
  * no historical stock table, by design.
  */
 export async function stockOuts(

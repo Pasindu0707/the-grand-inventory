@@ -33,7 +33,19 @@ const sessionSchema = z.object({
             id: z.number(),
             code: z.string(),
             name: z.string(),
+            /**
+             * What kind of room it is. `code` is a short label an admin may
+             * name anything; the kind carries the meaning, and a screen that
+             * has to leave quarantine out of a picker needs the meaning.
+             */
+            kind: z.string(),
             isStore: z.boolean(),
+            /**
+             * Switched-off sections are still sent, because last month's
+             * documents have to stay readable. The flag is what lets a picker
+             * that files new work leave them out.
+             */
+            isActive: z.boolean(),
         })
     ),
 });
@@ -282,7 +294,7 @@ async function buildSession(
             .execute(),
         db
             .selectFrom('sections')
-            .select(['id', 'code', 'name', 'is_store'])
+            .select(['id', 'code', 'name', 'kind', 'is_store', 'is_active'])
             .where('location_id', '=', locationId)
             .orderBy('id')
             .execute(),
@@ -319,7 +331,9 @@ async function buildSession(
             id: s.id,
             code: s.code,
             name: s.name,
+            kind: s.kind,
             isStore: s.is_store,
+            isActive: s.is_active,
         })),
     };
 }

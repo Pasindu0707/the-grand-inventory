@@ -62,15 +62,25 @@ async function stockOf(itemId: number, section: number) {
 }
 
 async function wellStocked() {
+    // Carries its default purchase pack: purchase orders are raised in packs,
+    // so a test that wants to order something needs to know which one.
     const row = await db
         .selectFrom('current_stock as cs')
         .innerJoin('items', 'items.id', 'cs.item_id')
-        .select(['items.id', 'items.name', 'cs.qty_base'])
+        .innerJoin('item_packs as p', (join) =>
+            join.onRef('p.item_id', '=', 'items.id').on('p.is_default_purchase', '=', true)
+        )
+        .select(['items.id', 'items.name', 'cs.qty_base', 'p.id as packId'])
         .where('cs.section_id', '=', storeSectionId)
         .where('cs.qty_base', '>', 5000)
         .orderBy('cs.qty_base', 'desc')
         .executeTakeFirstOrThrow();
-    return { id: row.id, name: row.name, qty: Number(row.qty_base) };
+    return {
+        id: row.id,
+        name: row.name,
+        qty: Number(row.qty_base),
+        packId: row.packId
+    };
 }
 
 beforeAll(async () => {
@@ -110,7 +120,9 @@ describe('who am I', () => {
         const mgmt = (
             await app.inject({ method: 'GET', url: '/api/v1/me/context', headers: H['management']! })
         ).json();
-        expect(mgmt.canRelease).toBe(true);
+        // Management decides money and approves what comes back. They do
+        // not stand at the shelf handing stock over -- see the release route.
+        expect(mgmt.canRelease).toBe(false);
         expect(mgmt.canDecidePurchases).toBe(true);
         expect(mgmt.seesAdvanced).toBe(true);
 
@@ -128,7 +140,7 @@ describe('ask → release → confirm', () => {
         const storeBefore = await stockOf(item.id, storeSectionId);
         const kitchenBefore = await stockOf(item.id, kitchenSectionId);
 
-        // Kitchen does not pick a section — it is theirs.
+        // Kitchen does not pick a section - it is theirs.
         const asked = await app.inject({
             method: 'POST',
             url: '/api/v1/requests',
@@ -219,7 +231,16 @@ describe('ask → release → confirm', () => {
         }
     });
 
-    it('lets management release too, not only the storekeeper', async () => {
+    /**
+     * Releasing belongs to the storekeeper alone.
+     *
+     * Management used to be allowed to release as a stand-in. In practice that
+     * let the people who approve the spending also hand the goods out, which
+     * is the one separation the rest of this system is built to keep. A
+     * storekeeper who is away is covered by another storekeeper login, not by
+     * a manager reaching past them.
+     */
+    it('will not let management release, however senior they are', async () => {
         const item = await wellStocked();
         const asked = await app.inject({
             method: 'POST',
@@ -234,7 +255,15 @@ describe('ask → release → confirm', () => {
             headers: { ...H['management']!, ...idem() },
             payload: { lines: [] }
         });
-        expect(res.statusCode).toBe(200);
+        expect(res.statusCode).toBe(403);
+
+        // And the request is untouched: a refusal must not half-release.
+        const after = await app.inject({
+            method: 'GET',
+            url: `/api/v1/requests/${asked.json().id}`,
+            headers: H['storekeeper']!
+        });
+        expect(after.json().status).toBe('requested');
     });
 
     it('will not let the cleaner confirm the kitchen’s delivery', async () => {
@@ -304,7 +333,7 @@ describe('ask → release → confirm', () => {
                 headers: H['storekeeper']!
             })
         ).json();
-        expect(forStore.some((r: { needsMe: boolean }) => r.needsMe)).toBe(true);
+        expect(forStore.items.some((r: { needsMe: boolean }) => r.needsMe)).toBe(true);
 
         // The kitchen is not being asked to release anything.
         const forKitchen = (
@@ -314,7 +343,95 @@ describe('ask → release → confirm', () => {
                 headers: H['kitchen']!
             })
         ).json();
-        expect(forKitchen.every((r: { needsMe: boolean }) => !r.needsMe)).toBe(true);
+        expect(forKitchen.items.every((r: { needsMe: boolean }) => !r.needsMe)).toBe(true);
+    });
+
+    it('filters requests to one section, and refuses a section that is not yours', async () => {
+        const sections = await db
+            .selectFrom('sections')
+            .select(['id', 'code'])
+            .where('location_id', '=', 1)
+            .execute();
+        const kitchen = sections.find((s) => s.code === 'KITCHEN')!;
+        const cleaning = sections.find((s) => s.code === 'CLEAN')!;
+
+        // The storekeeper works the whole branch, one section at a time.
+        const forStore = await app.inject({
+            method: 'GET',
+            url: `/api/v1/requests?sectionId=${kitchen.id}&limit=100`,
+            headers: H['storekeeper']!
+        });
+        expect(forStore.statusCode).toBe(200);
+        expect(
+            forStore.json().items.every((r: { sectionId: number }) => r.sectionId === kitchen.id)
+        ).toBe(true);
+
+        // A kitchen login has no business in the cleaning store, and is told so
+        // rather than quietly handed an empty list.
+        const peek = await app.inject({
+            method: 'GET',
+            url: `/api/v1/requests?sectionId=${cleaning.id}`,
+            headers: H['kitchen']!
+        });
+        expect(peek.statusCode).toBe(403);
+    });
+
+    it('lets only the receiving section say it came - not the people who handed it over', async () => {
+        const kitchen = await sectionId('KITCHEN');
+        const released = await db
+            .selectFrom('issues')
+            .select('id')
+            .where('location_id', '=', 1)
+            .where('status', '=', 'released')
+            .where('to_section_id', '=', kitchen)
+            .executeTakeFirst();
+        expect(released).toBeTruthy();
+        const url = `/api/v1/requests/${released!.id}/confirm`;
+
+        // The storekeeper can see every section, and used to count as a member
+        // of all of them - so the person who released the stock could also sign
+        // for having received it.
+        const store = await app.inject({ method: 'POST', url, headers: H['storekeeper']! });
+        expect(store.statusCode).toBe(403);
+
+        // Management runs the branch but stands at no shelf.
+        const mgmt = await app.inject({ method: 'POST', url, headers: H['management']! });
+        expect(mgmt.statusCode).toBe(403);
+
+        // The kitchen asked for it, so the kitchen confirms it.
+        const kitchenSays = await app.inject({ method: 'POST', url, headers: H['kitchen']! });
+        expect(kitchenSays.statusCode).toBe(200);
+    });
+
+    it('serves one request with its lines, which the release panel cannot open without', async () => {
+        const waiting = await db
+            .selectFrom('issues')
+            .select('id')
+            .where('location_id', '=', 1)
+            .where('status', '=', 'requested')
+            .executeTakeFirst();
+        expect(waiting).toBeTruthy();
+
+        const res = await app.inject({
+            method: 'GET',
+            url: `/api/v1/requests/${waiting!.id}`,
+            headers: H['storekeeper']!
+        });
+        expect(res.statusCode).toBe(200);
+
+        const body = res.json();
+        expect(body.lines.length).toBeGreaterThan(0);
+        // Every field the release panel binds to.
+        for (const key of ['lineId', 'itemId', 'name', 'stockUnit', 'qtyRequested', 'availableInStore']) {
+            expect(body.lines[0]).toHaveProperty(key);
+        }
+
+        const missing = await app.inject({
+            method: 'GET',
+            url: '/api/v1/requests/99999999',
+            headers: H['storekeeper']!
+        });
+        expect(missing.statusCode).toBe(404);
     });
 });
 
@@ -334,17 +451,35 @@ describe('when the store is short', () => {
         expect(shortages[0].short).toBeGreaterThan(0);
     });
 
+    it('will not let the kitchen buy its way around the store', async () => {
+        const item = await wellStocked();
+
+        // The kitchen cannot see the store's shelf, so it is in no position to
+        // say something must be bought. It asks; the store decides.
+        for (const role of ['kitchen', 'cleaning'] as const) {
+            const res = await app.inject({
+                method: 'POST',
+                url: '/api/v1/purchase-orders',
+                headers: H[role]!,
+                payload: { lines: [{ itemPackId: item.packId, qtyPacks: 2 }] }
+            });
+            expect(res.statusCode).toBe(403);
+        }
+    });
+
     it('turns the shortfall into a purchase order that only management can decide', async () => {
         const item = await wellStocked();
 
+        // Raised by the storekeeper: the person who just watched the shelf come
+        // up short releasing the kitchen's request.
         const po = await app.inject({
             method: 'POST',
             url: '/api/v1/purchase-orders',
-            headers: H['kitchen']!,
+            headers: H['storekeeper']!,
             payload: {
                 neededBy: '2026-08-25',
                 reason: 'not enough in the store for Saturday',
-                lines: [{ itemId: item.id, qtyBase: 500 }]
+                lines: [{ itemPackId: item.packId, qtyPacks: 2 }]
             }
         });
         expect(po.statusCode).toBe(201);
@@ -374,11 +509,48 @@ describe('when the store is short', () => {
                 headers: H['management']!
             })
         ).json();
-        const found = list.find((p: { id: string }) => p.id === poId);
+        const found = list.items.find((p: { id: string }) => p.id === poId);
         expect(found.status).toBe('approved');
         expect(found.decidedBy).toBeTruthy();
         // Records what the store had at the time, so the decision can be read back.
         expect(found.lines[0]).toHaveProperty('qtyInStore');
+    });
+
+    it('shows a login only its own purchases unless it asks for the branch', async () => {
+        // The storekeeper raised the purchase above. The kitchen raised
+        // nothing -- it cannot -- so "mine" is empty for them rather than
+        // quietly showing somebody else's order as their own.
+        const mine = (
+            await app.inject({
+                method: 'GET',
+                url: '/api/v1/purchase-orders?mine=true',
+                headers: H['kitchen']!
+            })
+        ).json();
+        expect(mine.total).toBe(0);
+
+        // Reading is not restricted: a section can still see what the store is
+        // buying for the branch, which is how they learn their shortfall is
+        // being dealt with.
+        const branch = (
+            await app.inject({
+                method: 'GET',
+                url: '/api/v1/purchase-orders',
+                headers: H['kitchen']!
+            })
+        ).json();
+        expect(branch.total).toBeGreaterThan(0);
+
+        // And the raiser sees their own.
+        const store = (
+            await app.inject({
+                method: 'GET',
+                url: '/api/v1/purchase-orders?mine=true',
+                headers: H['storekeeper']!
+            })
+        ).json();
+        expect(store.total).toBeGreaterThan(0);
+        expect(store.items.every((p: { raisedBy: string }) => !!p.raisedBy)).toBe(true);
     });
 });
 
@@ -388,7 +560,12 @@ describe('admin', () => {
             method: 'POST',
             url: '/api/v1/admin/users',
             headers: H['admin']!,
-            payload: { name: 'Test Kitchen Two', role: 'kitchen', locationId: 1, pin: '2468' }
+            payload: {
+                name: `Test Kitchen ${randomUUID().slice(0, 8)}`,
+                role: 'kitchen',
+                locationId: 1,
+                pin: '2468'
+            }
         });
         expect(created.statusCode).toBe(201);
 
@@ -401,12 +578,25 @@ describe('admin', () => {
         expect(login.json().user.role).toBe('kitchen');
     });
 
-    it('refuses a duplicate name — two identical tiles is a login nobody can pick', async () => {
+    it('refuses a duplicate name - two identical tiles is a login nobody can pick', async () => {
+        // The name is created here rather than assumed to exist. Asserting on a
+        // fixed name left behind by an earlier run passes on a database that
+        // has been used and fails on a freshly seeded one, which is exactly
+        // backwards.
+        const name = `Test Kitchen ${randomUUID().slice(0, 8)}`;
+        const first = await app.inject({
+            method: 'POST',
+            url: '/api/v1/admin/users',
+            headers: H['admin']!,
+            payload: { name, role: 'kitchen', locationId: 1, pin: '1357' }
+        });
+        expect(first.statusCode).toBe(201);
+
         const res = await app.inject({
             method: 'POST',
             url: '/api/v1/admin/users',
             headers: H['admin']!,
-            payload: { name: 'Test Kitchen Two', role: 'kitchen', locationId: 1, pin: '1357' }
+            payload: { name, role: 'kitchen', locationId: 1, pin: '1357' }
         });
         expect(res.statusCode).toBe(409);
     });
@@ -448,7 +638,8 @@ describe('admin', () => {
         const branches = (
             await app.inject({ method: 'GET', url: '/api/v1/admin/branches', headers: H['admin']! })
         ).json();
-        expect(branches).toHaveLength(5);
+        const codes = branches.map((b: { code: string }) => b.code);
+        expect(codes).toEqual(expect.arrayContaining(['GB', 'ESP', 'TCL', 'KAT', 'BANQ']));
 
         const lounge = branches.find((b: { code: string }) => b.code === 'TCL');
         const created = await app.inject({
@@ -456,7 +647,7 @@ describe('admin', () => {
             url: '/api/v1/admin/users',
             headers: H['admin']!,
             payload: {
-                name: 'Lounge Kitchen',
+                name: `Lounge Kitchen ${randomUUID().slice(0, 8)}`,
                 role: 'kitchen',
                 locationId: lounge.id,
                 pin: '3690'

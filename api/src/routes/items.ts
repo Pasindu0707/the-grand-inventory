@@ -2,6 +2,7 @@ import type { FastifyInstance } from 'fastify';
 import type { ZodTypeProvider } from 'fastify-type-provider-zod';
 import { z } from 'zod';
 import { db } from '../db/index.js';
+import { homeSectionFor } from '../plugins/auth.js';
 
 export async function itemRoutes(app: FastifyInstance) {
     const r = app.withTypeProvider<ZodTypeProvider>();
@@ -19,6 +20,21 @@ export async function itemRoutes(app: FastifyInstance) {
                 querystring: z.object({
                     search: z.string().max(64).optional(),
                     criticalOnly: z.coerce.boolean().optional(),
+                    /**
+                     * Narrow the list to things this person's own section
+                     * actually deals in. A cleaner asking for stock was being
+                     * shown all hundred items, chicken and gin included, and had
+                     * to find the four they wanted among them.
+                     *
+                     * "Deals in" is read from the ledger rather than a
+                     * configured catalogue: anything the section has ever been
+                     * issued, received or counted. That keeps itself up to date
+                     * with no list for anyone to maintain, and it survives being
+                     * out of stock - which is exactly when you ask for
+                     * something. Roles without a section of their own
+                     * (management, storekeeper) are unaffected.
+                     */
+                    mySection: z.coerce.boolean().optional(),
                 }),
                 response: {
                     200: z.array(
@@ -68,6 +84,19 @@ export async function itemRoutes(app: FastifyInstance) {
             }
             if (req.query.criticalOnly) q = q.where('items.is_critical', '=', true);
 
+            if (req.query.mySection) {
+                const sectionId = await homeSectionFor(req.user.role, req.locationId);
+                if (sectionId !== null) {
+                    q = q.where('items.id', 'in', (eb) =>
+                        eb
+                            .selectFrom('stock_ledger')
+                            .select('item_id')
+                            .where('section_id', '=', sectionId)
+                            .distinct()
+                    );
+                }
+            }
+
             const items = await q.orderBy('items.name').execute();
             if (items.length === 0) return [];
 
@@ -85,6 +114,10 @@ export async function itemRoutes(app: FastifyInstance) {
                     'in',
                     items.map((i) => i.id)
                 )
+                // A retired pack stays in the ledger's history but must not be
+                // offered on a new delivery -- retiring it is how the owner
+                // says the supplier has stopped selling that size.
+                .where('is_active', '=', true)
                 .execute();
 
             const byItem = new Map<number, typeof packs>();
@@ -118,7 +151,6 @@ export async function itemRoutes(app: FastifyInstance) {
                         z.object({
                             id: z.number(),
                             name: z.string(),
-                            isCashMarket: z.boolean(),
                             phone: z.string().nullable(),
                         })
                     ),
@@ -129,7 +161,7 @@ export async function itemRoutes(app: FastifyInstance) {
             (
                 await db
                     .selectFrom('suppliers')
-                    .select(['id', 'name', 'is_cash_market as isCashMarket', 'phone'])
+                    .select(['id', 'name', 'phone'])
                     .where('is_active', '=', true)
                     .orderBy('name')
                     .execute()

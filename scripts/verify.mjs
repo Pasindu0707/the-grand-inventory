@@ -185,7 +185,7 @@ await c.end();
 
 console.log(
     failures === 0
-        ? '\nPhase A verified — all checks passed.\n'
+        ? '\nPhase A verified - all checks passed.\n'
         : `\n${failures} check(s) FAILED.\n`
 );
 process.exit(failures === 0 ? 0 : 1);

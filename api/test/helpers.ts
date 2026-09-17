@@ -11,7 +11,7 @@ export async function makeApp(): Promise<FastifyInstance> {
     return app;
 }
 
-/** The seeded storekeeper at the Gastrobar — the person who receives deliveries. */
+/** The seeded storekeeper at the Gastrobar - the person who receives deliveries. */
 export async function storekeeper() {
     return db
         .selectFrom('users')

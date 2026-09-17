@@ -2,7 +2,7 @@
  * Issues: stock leaving the store for a section.
  *
  * Two steps on purpose. A section *requests*, the storekeeper *fulfils*, and
- * the quantity issued may differ from the quantity asked for — which is the
+ * the quantity issued may differ from the quantity asked for - which is the
  * normal case, not an error. The ledger only moves at fulfilment, because a
  * request is a piece of paper and nothing has physically moved yet.
  *
@@ -197,7 +197,7 @@ export async function fulfilIssue(input: FulfilIssueInput): Promise<FulfilResult
         }
 
         if (ledgerLines.length === 0) {
-            throw badRequest('Nothing was issued — every line came to zero');
+            throw badRequest('Nothing was issued - every line came to zero');
         }
 
         await postDocument(trx, {

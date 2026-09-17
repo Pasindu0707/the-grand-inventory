@@ -1,4 +1,4 @@
-# The Grand — implementation plan
+# The Grand - implementation plan
 
 Pilot: The Grand Gastrobar, Negombo. Inventory only, no POS.
 
@@ -6,11 +6,32 @@ Pilot: The Grand Gastrobar, Negombo. Inventory only, no POS.
 vertical slice first · frontend built on the **beautech-master-web-app** template
 (Angular 19 + PrimeNG).
 
+**Since added:** **returns** (CR-003) - a section hands stock back into a
+quarantine section, and the store hands it on to the supplier who delivered it,
+priced from that delivery. The `return` doc type reserved in `0001_init` is what
+both post under. Three existing reports had to be taught to net returns off, or
+a kitchen would have read as consuming what it sent back.
+
+**Since narrowed:** **CR-004** retires the `BAKERY` and `BAR` section kinds -
+the Gastrobar runs one kitchen, and three rooms that behaved identically bought
+a "which one am I?" decision and split one sack of flour across three balances.
+A branch that genuinely works a pastry bench makes a second section *of kind
+KITCHEN*. **CR-005** takes releasing, quarantining and sending stock away from
+management: *management decides, the store handles stock, and neither does both*.
+Both are in the demo data, the tests and the permission matrix.
+
+**Since withdrawn:** the cash **market purchase** and the **cleaning checklist**
+were built in slice 3 and removed again in `db/migrations/0006`. Every purchase
+goes through a supplier who invoices, and the cleaning checklist was a screen
+nobody filled in. The cleaning *role* and the cleaning store remain - they ask
+the store for supplies like any other section. Sections below are left as they
+were written, because a plan is a record of what was decided at the time.
+
 ---
 
 ## 1. What the template actually is
 
-It is not a skin. It is **VendEasy POS** — a working multi-tenant POS app. That is good news
+It is not a skin. It is **VendEasy POS** - a working multi-tenant POS app. That is good news
 and bad news, and the plan turns on telling the two apart.
 
 **Genuinely valuable, reuse as-is:**
@@ -24,7 +45,7 @@ and bad news, and the plan turns on telling the two apart.
 | Design system | `shared/design-system/` | `kpi-card`, `table`, `empty-state`, `error-state`, `status-badge`, `form-header` |
 | Helpers | `pos/core/` | `money.ts`, `uuid.ts`, `notify.service.ts`, `live-query.ts`, `pagination` |
 
-**Dead weight for this project — remove:** the sales half. `register` (cart/checkout),
+**Dead weight for this project - remove:** the sales half. `register` (cart/checkout),
 `transactions`, `customers`, `discounts`, `gift-cards`, `payment-modal`, `receipt-overlay`,
 `cart.store`, `checkout/payments/discounts/gift-cards/sales` services, the SaaS plan gating
 (`features.ts`, `upgrade.component`) and tenant onboarding (`admin/`).
@@ -39,10 +60,10 @@ These are the whole reason the frontend cannot simply be "pointed at a new API".
 
 1. **Stock is not a number on a product.** `ApiProduct.stockQty` is a scalar the POS mutates.
    In The Grand, stock is `sum(qty_base)` over `stock_ledger` per **section**, and that is the
-   entire point of the design. `ApiProduct` and `LocalProduct` must not be reused — new types.
+   entire point of the design. `ApiProduct` and `LocalProduct` must not be reused - new types.
 2. **Roles: 3 → 8.** Template has `OWNER | MANAGER | CASHIER`. The schema has eight, including
    `storekeeper`, `chef`, `bar`, `baker`, `cleaning`, `purchasing`.
-3. **Auth: email + password → PIN.** The schema stores a 4–6 digit bcrypt `pin_hash`. The JWT
+3. **Auth: email + password → PIN.** The schema stores a 4-6 digit bcrypt `pin_hash`. The JWT
    machinery is kept exactly as-is; only the credential form and the login screen change.
 4. **Tenant → location/section.** The POS is multi-tenant with one branch dimension. The Grand
    is one business, five **locations**, each with **sections** (store, kitchen, bakery, bar,
@@ -65,7 +86,7 @@ if Phase 4 needs it.
 | Layer | Choice | Why |
 |---|---|---|
 | DB | Postgres 16 | Schema already assumes it: rules, enums, `numeric`, `timestamptz` |
-| Query layer | **Kysely** + `kysely-codegen` | This system *is* SQL — ledger maths, variance windows, moving average. An ORM fights all three. |
+| Query layer | **Kysely** + `kysely-codegen` | This system *is* SQL - ledger maths, variance windows, moving average. An ORM fights all three. |
 | API | **Fastify 5** + `fastify-type-provider-zod` | Zod schemas serve as runtime validation *and* generated OpenAPI |
 | Migrations | Numbered plain `.sql` + small runner | `schema.sql` becomes `0001_init.sql` unchanged. No DSL between you and the ledger rules. |
 | Tests | Vitest + Testcontainers | The 5 planted anomalies become the acceptance suite |
@@ -73,7 +94,7 @@ if Phase 4 needs it.
 | Deploy | Docker Compose + Caddy, one VPS | Singapore or Mumbai region. Replicable per outlet for Phase 4. |
 | Backup | Nightly `pg_dump` → object storage, 30-day retention | With a restore drill that is actually run |
 
-**Repo layout.** Two independent apps, no pnpm workspace — Angular CLI does not take kindly to
+**Repo layout.** Two independent apps, no pnpm workspace - Angular CLI does not take kindly to
 being hoisted, and the risk buys nothing:
 
 ```
@@ -89,15 +110,15 @@ step failing, and neither app has to know how the other is packaged.
 
 ---
 
-## 3. Phase A — fix the foundation (before any app code)
+## 3. Phase A - fix the foundation (before any app code)
 
-**Status: complete and verified.** `npm run db:verify` proves the whole cycle —
-schema → seed → immutability probes → cutover → re-seed — in one command, 12 checks.
+**Status: complete and verified.** `npm run db:verify` proves the whole cycle -
+schema → seed → immutability probes → cutover → re-seed - in one command, 12 checks.
 
 Ten defects in the build pack, plus an eleventh found while verifying. All small, all
 unfixable later.
 
-**A1. `reset.sql` cannot run — highest severity.**
+**A1. `reset.sql` cannot run - highest severity.**
 [schema.sql:139](db/schema.sql:139) is `create rule ledger_no_delete as on delete to stock_ledger
 do instead nothing`. It blocks *every* delete, including the cutover script itself. Go-live
 would silently leave all 10,800 demo rows in the live ledger. Replace both rules with a trigger
@@ -117,10 +138,10 @@ end $$;
 ```
 
 `reset.sql` opens with `set local grand.allow_demo_reset = 'on';`. Real rows stay immutable
-under every code path — the property the README is actually protecting.
+under every code path - the property the README is actually protecting.
 
 **A2. Sequences are never advanced.** [generate.ts:417](seed/generate.ts:417) calls `setval` for
-the ledger only. Every other table gets explicit IDs while its sequence sits at 1 — the first
+the ledger only. Every other table gets explicit IDs while its sequence sits at 1 - the first
 real GRN after seeding collides on the primary key. Emit `setval` for all serial columns,
 generated by querying `pg_class` rather than hand-listed.
 
@@ -136,7 +157,7 @@ Issues, wastage and count adjustments *read* the average; they never change it. 
 every rupee figure in every variance report is wrong.
 
 **A4. `usage_variance` is half-built.** [schema.sql:302](db/schema.sql:302) computes theoretical
-only and never joins actual issues — and it is the Phase 2 headline report. Rewrite as
+only and never joins actual issues - and it is the Phase 2 headline report. Rewrite as
 theoretical vs actual with variance qty, value and percentage.
 
 **A5. `supplier_prices` is never seeded.** Anomaly C (oil +32%) is visible only in
@@ -158,7 +179,7 @@ carrying value at current average cost.
 
 **A10. Housekeeping.** Move files into the `db/` and `seed/` paths the README already claims.
 
-**A11. Anomaly C was never actually planted** — found while verifying, not by reading.
+**A11. Anomaly C was never actually planted** - found while verifying, not by reading.
 Sunflower oil (`DRY-022`) appears in no recipe, so it is never issued, never falls below its
 reorder point, and is therefore never purchased: **zero** GRN lines against it across all 60
 days. The generator's `cost *= 1.32` on day 35 mutated a variable that no later document read.
@@ -168,11 +189,11 @@ Phase D test for C would have failed against any report, however correct.
 Fixed at the source rather than by forcing a purchase: sunflower oil is the kitchen's bulk
 frying oil and now appears in the fried-rice and chicken-curry recipes, so it depletes,
 restocks, and carries the price rise into a real delivery. The seed now shows
-45,880 → 60,561.60 — exactly +32% — on 2026-07-30.
+45,880 → 60,561.60 - exactly +32% - on 2026-07-30.
 
 Two further consequences worth knowing. Adding a recipe line shifts the PRNG call sequence, so
 every figure in the dataset moved slightly; the README's anomaly table has been updated to the
-values the data now actually contains. And the price rise is *detected* on day 50, not day 35 —
+values the data now actually contains. And the price rise is *detected* on day 50, not day 35 -
 the supplier raises the price on 35, you find out at the next delivery. Same for anomaly B,
 which happens on days 28 and 44 but only surfaces at the following Sunday bar count. **A report
 that insists on flagging faults on the day they occur would miss both.**
@@ -182,10 +203,10 @@ that insists on flagging faults on the day they occur would miss both.**
 
 ---
 
-## 4. Phase B — the ledger core
+## 4. Phase B - the ledger core
 
 > *"Never write to `stock_ledger` from a controller. One service function per document type;
-> the document is the API, the ledger is a consequence."* — README
+> the document is the API, the ledger is a consequence."* - README
 
 One module, `api/src/services/ledger.ts`, exporting a single private writer. Nothing else may
 insert into `stock_ledger`, enforced by an ESLint `no-restricted-imports` rule so the constraint
@@ -204,15 +225,15 @@ Responsibilities: derive `business_date` from `locations.day_start` (already cor
 one transaction, write `audit_log`.
 
 `reverseDocument(docType, docId, reason, userId)` emits mirrored rows with `is_reversal = true`
-and `reverses_id` set — never an UPDATE.
+and `reverses_id` set - never an UPDATE.
 
 **Idempotency.** Every document POST takes a client-generated `Idempotency-Key` (the template's
-`uuid.ts` already produces one). Roughly thirty lines, no sync layer, no client complexity — and
+`uuid.ts` already produces one). Roughly thirty lines, no sync layer, no client complexity - and
 the difference between a flaky 4G connection at the delivery door creating one GRN or three.
 
 ---
 
-## 5. Phase C — template refactor and auth
+## 5. Phase C - template refactor and auth
 
 **C1. Lift shared infrastructure out of `pos/`.** Move `core/` (api, auth.interceptor, guards,
 notify, money, uuid, live-query) and `stores/auth.store.ts` to `app/core/`; move `pagination`
@@ -220,7 +241,7 @@ into the design system. Update the two imports in `app.routes.ts` and `app.confi
 must stay green after this step, before anything is deleted.
 
 **C2. Delete the sales half.** Pages, stores and services listed in §1, plus the plan-gating and
-tenant-onboarding machinery. Strip `features.ts` gating to a pass-through — a single restaurant
+tenant-onboarding machinery. Strip `features.ts` gating to a pass-through - a single restaurant
 group has no upgrade tiers.
 
 **C3. Roles.** Extend `Role` to the schema's eight, update `canAccess`, the `allowed` arrays in
@@ -246,26 +267,26 @@ list is scoped from the token, never from a query parameter.
 
 ---
 
-## 6. Phase D — reports, tested against the planted faults
+## 6. Phase D - reports, tested against the planted faults
 
 The README is explicit: *"If a report can't find its fault, the report is wrong."* So each
 report ships with a Vitest test asserting detection against `seed.sql`.
 
 | Report | Must detect | Assertion |
 |---|---|---|
-| Theoretical vs actual usage | **A** — chicken breast over-issued ~18% from day 20 | Flags `MEA-001` from day 20±2; issued/day steps 4,389 g → 5,152 g with flat production |
-| Count variance / shrinkage | **B** — 2 gin bottles gone, days 28 & 44 | Bar weekly count shows two 750 ml gaps, ~Rs 5,216 each, **no matching wastage document** |
-| Supplier price movement | **C** — sunflower oil +32% on day 35 | Flags `DRY-022` above the 10% threshold on day 35 |
-| Wastage by reason | **D** — lettuce spoilage days 38–44 | Appears under **spoilage**, and **must not** appear in the shrinkage report |
-| Stock-out / below reorder | **E** — prawns hit zero on day 41 | `SEA-001` on-hand = 0 on day 41; below-reorder fires ahead of it |
+| Theoretical vs actual usage | **A** - chicken breast over-issued ~18% from day 20 | Flags `MEA-001` from day 20±2; issued/day steps 4,389 g → 5,152 g with flat production |
+| Count variance / shrinkage | **B** - 2 gin bottles gone, days 28 & 44 | Bar weekly count shows two 750 ml gaps, ~Rs 5,216 each, **no matching wastage document** |
+| Supplier price movement | **C** - sunflower oil +32% on day 35 | Flags `DRY-022` above the 10% threshold on day 35 |
+| Wastage by reason | **D** - lettuce spoilage days 38-44 | Appears under **spoilage**, and **must not** appear in the shrinkage report |
+| Stock-out / below reorder | **E** - prawns hit zero on day 41 | `SEA-001` on-hand = 0 on day 41; below-reorder fires ahead of it |
 
 **D is the acceptance gate.** The test asserts the *absence* of a theft flag. A variance report
-that screams about honest lettuce waste is a report the owner stops opening by week three — and
+that screams about honest lettuce waste is a report the owner stops opening by week three - and
 that failure mode is the one nobody writes a test for.
 
 ---
 
-## 7. Phase E — screens
+## 7. Phase E - screens
 
 Built around what the person is holding: storekeeper on a phone at the delivery door, manager on
 a tablet, owner on a laptop. All reuse the template's layout, tab system and design system.
@@ -275,27 +296,25 @@ a tablet, owner on a laptop. All reuse the template's layout, tab system and des
 | `/login` | Location → user tiles → PIN pad | all |
 | `/today` | Low stock, pending issues, open counts (`kpi-card`) | all |
 | `/grn` | Supplier → items → **packs**, price change warned inline | storekeeper, manager |
-| `/market` | Cash purchase — **photo mandatory** | storekeeper, manager |
 | `/issues` | Request and fulfil; issue windows warn, never block | all sections |
 | `/wastage` | Reason code + photo | sections, manager approves |
 | `/count/daily` | Critical items, one per screen, large touch targets | storekeeper, sections |
 | `/count/full` | Weekly/monthly full count | storekeeper, manager |
 | `/transfers` | Between sections and outlets | storekeeper |
-| `/cleaning` | Cleaning log | cleaning |
 | `/reports/*` | The five reports (chart patterns from `reports.component`) | manager, owner |
 | `/items` | Item master + CSV import for Phase 0 cutover | manager |
 
 **Non-negotiable UI rules from the README:**
 - Users enter **packs**. If grams reach a field a human types into, something is wrong.
-- Cash market purchase cannot submit without a photo — it is the only evidence that exists.
+- Wastage and a short delivery both take a photo. A photograph taken at the time is what settles an argument later.
 - Issue outside a window warns and asks for a note. It does not block.
 
 ---
 
-## 8. Phase F — deploy and cutover
+## 8. Phase F - deploy and cutover
 
 Docker Compose (postgres, api, caddy) on the VPS. Replace the template's GitLab CI, k8s manifests
-and `vercel.json` — all of which target Beautech's pipeline. GitHub Actions builds, tests against
+and `vercel.json` - all of which target Beautech's pipeline. GitHub Actions builds, tests against
 a real Postgres, pushes, deploys over SSH. Nightly `pg_dump` to object storage **with a restore
 drill that is actually run once**, plus uptime and error alerting to the owner's phone.
 
@@ -309,17 +328,17 @@ After that first real GRN the ledger is immutable for real. That is the point.
 
 | Slice | Work | Est. |
 |---|---|---|
-| 0 | ~~Phase A schema fixes, `api/` scaffold, CI, seeded local DB~~ **done** | 3–4 days |
-| 1 | ~~**Vertical slice:** template refactor (C1–C2) + PIN auth + ledger core + GRN + stock view + first tests~~ **done** | 1 week |
+| 0 | ~~Phase A schema fixes, `api/` scaffold, CI, seeded local DB~~ **done** | 3-4 days |
+| 1 | ~~**Vertical slice:** template refactor (C1-C2) + PIN auth + ledger core + GRN + stock view + first tests~~ **done** | 1 week |
 | 2 | ~~Issue, wastage, transfer, count + approvals~~ **done** | 1 week |
-| 3 | ~~Market purchase + photo upload + cleaning module~~ **done** | 3–4 days |
-| 4 | ~~Reports A–E + the anomaly acceptance suite~~ **done** | 1 week |
-| 5 | Roles/RBAC hardening, deploy, backup and restore drill | 4–5 days |
-| — | **Phase 1 complete** | **~5 weeks** — matches the README estimate |
+| 3 | ~~Market purchase + photo upload + cleaning module~~ **done, then withdrawn** - see the banner above; photo upload stayed | 3-4 days |
+| 4 | ~~Reports A-E + the anomaly acceptance suite~~ **done** | 1 week |
+| 5 | Roles/RBAC hardening (**done** - CR-005), deploy, backup and restore drill | 4-5 days |
+| - | **Phase 1 complete** | **~5 weeks** - matches the README estimate |
 | 6 | Phase 2: products, recipes, production log, theoretical vs actual | ~4 weeks |
 
 Slice 1 proves the ledger service pattern once, on one document type, before it is replicated
-across six. The ledger is append-only by design — a flaw there cannot be edited out later.
+across six. The ledger is append-only by design - a flaw there cannot be edited out later.
 
 Phase 0 (two weeks walking the store with the storekeeper, confirming every item, unit and pack
 conversion) runs in parallel and is not engineering work. The README is right that it decides
@@ -334,6 +353,6 @@ adoption: real-time depletion per plate · barcode scanning on vegetables · sup
 demand forecasting.
 
 À-la-carte kitchen items stay on issue-vs-count control. A chef will not log every plate, and
-pretending otherwise makes the whole variance report untrustworthy. Bar is the strongest case —
+pretending otherwise makes the whole variance report untrustworthy. Bar is the strongest case -
 spirits are countable by bottle and millilitre, which is exactly why anomaly B is detectable at
 all.

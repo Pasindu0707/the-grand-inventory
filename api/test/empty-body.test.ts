@@ -4,7 +4,7 @@ import { authedHeaders, db, makeApp } from './helpers.js';
 
 /**
  * Command endpoints take no body. A client that sets Content-Type:
- * application/json and sends nothing must not get a parse error — this was a
+ * application/json and sends nothing must not get a parse error - this was a
  * real 500 found by driving the API over HTTP rather than through inject().
  */
 let app: FastifyInstance;

@@ -27,7 +27,7 @@ import { badRequest } from '../errors.js';
 export type Tx = Transaction<Database>;
 
 /** Movements that establish or change cost. Everything else only consumes it. */
-const RECEIPT_DOCS: ReadonlySet<DocType> = new Set<DocType>(['grn', 'market', 'opening']);
+const RECEIPT_DOCS: ReadonlySet<DocType> = new Set<DocType>(['grn', 'opening']);
 
 export interface LedgerLine {
     sectionId: number;
@@ -97,7 +97,7 @@ export async function postDocument(trx: Tx, input: PostDocumentInput): Promise<v
 
     for (const line of input.lines) {
         if (line.qtyBase === 0) {
-            throw badRequest(`Zero quantity on item ${line.itemId} — nothing to record`);
+            throw badRequest(`Zero quantity on item ${line.itemId} - nothing to record`);
         }
 
         let unitCost: number;

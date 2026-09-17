@@ -2,6 +2,8 @@ import type { FastifyInstance } from 'fastify';
 import type { ZodTypeProvider } from 'fastify-type-provider-zod';
 import { z } from 'zod';
 import { db } from '../db/index.js';
+import { offsetOf, pageOf, pageQuery, toPage } from '../services/pagination.js';
+import { assertSectionAllowed, assertSectionOpen, sectionsForUser } from '../plugins/auth.js';
 import { badRequest, notFound } from '../errors.js';
 import { approveWastage, logWastage, receiveTransfer, transfer } from '../services/wastage.js';
 import { closeCount, openCount, saveCountLines, verifyCount } from '../services/counts.js';
@@ -11,7 +13,7 @@ export async function documentRoutes(app: FastifyInstance) {
     const r = app.withTypeProvider<ZodTypeProvider>();
 
     // Issues used to live here as a two-step request/fulfil pair. They are
-    // now the four-step flow in routes/requests.ts — ask, release, confirm —
+    // now the four-step flow in routes/requests.ts - ask, release, confirm -
     // and having both would have left two ways to do the same thing, which is
     // exactly the kind of thing that makes an app feel complicated.
 
@@ -38,7 +40,7 @@ export async function documentRoutes(app: FastifyInstance) {
     r.post(
         '/wastage',
         {
-            preHandler: app.requireRole('management', 'storekeeper', 'kitchen'),
+            preHandler: app.requireRole('management', 'storekeeper', 'kitchen', 'cleaning'),
             schema: {
                 body: z.object({
                     sectionId: z.number().int().positive(),
@@ -52,6 +54,8 @@ export async function documentRoutes(app: FastifyInstance) {
             }
         },
         async (req, reply) => {
+            await assertSectionAllowed(req.user.role, req.locationId, req.body.sectionId);
+            await assertSectionOpen(req.body.sectionId);
             const result = await logWastage({
                 locationId: req.locationId,
                 sectionId: req.body.sectionId,
@@ -86,12 +90,12 @@ export async function documentRoutes(app: FastifyInstance) {
         {
             preHandler: app.authenticate,
             schema: {
-                querystring: z.object({
-                    limit: z.coerce.number().int().min(1).max(200).default(50),
-                    pendingOnly: z.coerce.boolean().optional()
+                querystring: pageQuery.extend({
+                    pendingOnly: z.coerce.boolean().optional(),
+                    sectionId: z.coerce.number().int().positive().optional()
                 }),
                 response: {
-                    200: z.array(
+                    200: pageOf(
                         z.object({
                             id: z.string(),
                             itemName: z.string(),
@@ -109,6 +113,20 @@ export async function documentRoutes(app: FastifyInstance) {
             }
         },
         async (req) => {
+            // The wastage book is per section: the kitchen has no reason to read
+            // what the cleaning store threw away, and vice versa. Management and
+            // the storekeeper still see the branch.
+            const mine = await sectionsForUser(req.user.role, req.locationId);
+            if (req.query.sectionId !== undefined) {
+                await assertSectionAllowed(req.user.role, req.locationId, req.query.sectionId);
+            }
+            const sectionFilter = <Q extends { where: any }>(query: Q): Q => {
+                if (req.query.sectionId !== undefined) {
+                    return (query as any).where('wastage.section_id', '=', req.query.sectionId);
+                }
+                return (query as any).where('wastage.section_id', 'in', mine);
+            };
+
             let q = db
                 .selectFrom('wastage')
                 .innerJoin('items', 'items.id', 'wastage.item_id')
@@ -130,10 +148,23 @@ export async function documentRoutes(app: FastifyInstance) {
                 .where('wastage.location_id', '=', req.locationId);
 
             if (req.query.pendingOnly) q = q.where('wastage.approved_by', 'is', null);
+            q = sectionFilter(q);
 
-            const rows = await q.orderBy('wastage.logged_at', 'desc').limit(req.query.limit).execute();
+            let countQ = db
+                .selectFrom('wastage')
+                .select(({ fn }) => fn.countAll().as('total'))
+                .where('wastage.location_id', '=', req.locationId);
+            if (req.query.pendingOnly) countQ = countQ.where('wastage.approved_by', 'is', null);
+            countQ = sectionFilter(countQ);
+            const counted = await countQ.executeTakeFirst();
 
-            return rows.map((row) => ({
+            const rows = await q
+                .orderBy('wastage.logged_at', 'desc')
+                .limit(req.query.limit)
+                .offset(offsetOf(req.query))
+                .execute();
+
+            const items = rows.map((row) => ({
                 id: String(row.id),
                 itemName: row.itemName,
                 sectionCode: row.sectionCode,
@@ -145,6 +176,8 @@ export async function documentRoutes(app: FastifyInstance) {
                 loggedAt: new Date(row.loggedAt as unknown as string).toISOString(),
                 approved: row.approvedBy !== null
             }));
+
+            return toPage(items, counted?.total, req.query);
         }
     );
 
@@ -165,6 +198,7 @@ export async function documentRoutes(app: FastifyInstance) {
             }
         },
         async (req, reply) => {
+            await assertSectionOpen(req.body.fromSectionId, req.body.toSectionId);
             const result = await transfer({ ...req.body, sentBy: req.user.sub });
             return reply.status(201).send(result);
         }
@@ -197,7 +231,7 @@ export async function documentRoutes(app: FastifyInstance) {
     r.post(
         '/counts/open',
         {
-            preHandler: app.requireRole('management', 'storekeeper', 'kitchen'),
+            preHandler: app.requireRole('management', 'storekeeper', 'kitchen', 'cleaning'),
             schema: {
                 body: z.object({
                     sectionId: z.number().int().positive(),
@@ -207,6 +241,8 @@ export async function documentRoutes(app: FastifyInstance) {
             }
         },
         async (req, reply) => {
+            await assertSectionAllowed(req.user.role, req.locationId, req.body.sectionId);
+            await assertSectionOpen(req.body.sectionId);
             const result = await openCount({
                 locationId: req.locationId,
                 sectionId: req.body.sectionId,
@@ -225,7 +261,12 @@ export async function documentRoutes(app: FastifyInstance) {
                 params: z.object({ id: z.string() }),
                 body: z.object({
                     lines: z
-                        .array(z.object({ lineId: z.string(), qtyCounted: z.number().nonnegative() }))
+                        .array(
+                            z.object({
+                                lineId: z.string(),
+                                qtyCounted: z.number().nonnegative().nullable()
+                            })
+                        )
                         .min(1)
                 }),
                 response: { 200: z.object({ ok: z.literal(true) }) }
@@ -240,13 +281,15 @@ export async function documentRoutes(app: FastifyInstance) {
     r.post(
         '/counts/:id/close',
         {
-            preHandler: app.requireRole('management', 'storekeeper', 'kitchen'),
+            preHandler: app.requireRole('management', 'storekeeper', 'kitchen', 'cleaning'),
             schema: {
                 params: z.object({ id: z.string() }),
                 response: {
                     200: z.object({
                         id: z.string(),
                         adjustments: z.number(),
+                        counted: z.number(),
+                        skipped: z.number(),
                         varianceValue: z.number(),
                         biggest: z.array(
                             z.object({
@@ -335,7 +378,7 @@ export async function documentRoutes(app: FastifyInstance) {
                     name: l.name,
                     stockUnit: l.stockUnit,
                     qtyExpected: Number(l.qtyExpected),
-                    qtyCounted: Number(l.qtyCounted)
+                    qtyCounted: l.qtyCounted === null ? null : Number(l.qtyCounted)
                 }))
             };
         }
@@ -346,12 +389,12 @@ export async function documentRoutes(app: FastifyInstance) {
         {
             preHandler: app.authenticate,
             schema: {
-                querystring: z.object({
+                querystring: pageQuery.extend({
                     openOnly: z.coerce.boolean().optional(),
-                    limit: z.coerce.number().int().min(1).max(100).default(30)
+                    sectionId: z.coerce.number().int().positive().optional()
                 }),
                 response: {
-                    200: z.array(
+                    200: pageOf(
                         z.object({
                             id: z.string(),
                             countType: z.string(),
@@ -366,6 +409,17 @@ export async function documentRoutes(app: FastifyInstance) {
             }
         },
         async (req) => {
+            const mine = await sectionsForUser(req.user.role, req.locationId);
+            if (req.query.sectionId !== undefined) {
+                await assertSectionAllowed(req.user.role, req.locationId, req.query.sectionId);
+            }
+            const sectionFilter = <Q extends { where: any }>(query: Q): Q => {
+                if (req.query.sectionId !== undefined) {
+                    return (query as any).where('stock_counts.section_id', '=', req.query.sectionId);
+                }
+                return (query as any).where('stock_counts.section_id', 'in', mine);
+            };
+
             let q = db
                 .selectFrom('stock_counts')
                 .innerJoin('sections', 'sections.id', 'stock_counts.section_id')
@@ -382,14 +436,24 @@ export async function documentRoutes(app: FastifyInstance) {
                 .where('stock_counts.location_id', '=', req.locationId);
 
             if (req.query.openOnly) q = q.where('stock_counts.closed_at', 'is', null);
+            q = sectionFilter(q);
+
+            let countQ = db
+                .selectFrom('stock_counts')
+                .select(({ fn }) => fn.countAll().as('total'))
+                .where('stock_counts.location_id', '=', req.locationId);
+            if (req.query.openOnly) countQ = countQ.where('stock_counts.closed_at', 'is', null);
+            countQ = sectionFilter(countQ);
+            const counted = await countQ.executeTakeFirst();
 
             const rows = await q
                 .orderBy('stock_counts.business_date', 'desc')
                 .orderBy('stock_counts.id', 'desc')
                 .limit(req.query.limit)
+                .offset(offsetOf(req.query))
                 .execute();
 
-            return rows.map((row) => ({
+            const items = rows.map((row) => ({
                 id: String(row.id),
                 countType: row.countType,
                 sectionCode: row.sectionCode,
@@ -398,6 +462,8 @@ export async function documentRoutes(app: FastifyInstance) {
                 closed: row.closedAt !== null,
                 verified: row.verifiedBy !== null
             }));
+
+            return toPage(items, counted?.total, req.query);
         }
     );
 
@@ -417,7 +483,20 @@ export async function documentRoutes(app: FastifyInstance) {
             preHandler: app.requireRole('management'),
             schema: {
                 params: z.object({
-                    doc: z.enum(['grn', 'market', 'issue', 'wastage', 'transfer', 'count']),
+                    doc: z.enum([
+                        'grn',
+                        'issue',
+                        'wastage',
+                        'transfer',
+                        'count',
+                        // An opening balance typed wrong used to be
+                        // permanent: not reversible here, and the section
+                        // could never be opened again. That left a stock
+                        // count as the only instrument, which values a
+                        // never-received item at zero and quietly poisons
+                        // every report that reads cost.
+                        'opening'
+                    ]),
                     id: z.string()
                 }),
                 body: z.object({ reason: z.string().min(5).max(500) }),

@@ -169,9 +169,12 @@ describe('POST /grn', () => {
     it('replaying an Idempotency-Key creates exactly one GRN', async () => {
         const pack = await oilPack();
         const key = randomUUID();
+        // Unique per run: a GRN cannot be deleted afterwards, so a fixed
+        // invoice number made this test pass exactly once per database.
+        const invoiceNo = `INV-REPLAY-${randomUUID().slice(0, 8)}`;
         const payload = {
             supplierId: 1,
-            invoiceNo: 'INV-REPLAY',
+            invoiceNo,
             lines: [{ itemPackId: pack.packId, qtyPacks: 1, packPrice: 44000 }],
         };
 
@@ -195,7 +198,7 @@ describe('POST /grn', () => {
         const count = await db
             .selectFrom('grn')
             .select(({ fn }) => fn.countAll().as('n'))
-            .where('invoice_no', '=', 'INV-REPLAY')
+            .where('invoice_no', '=', invoiceNo)
             .executeTakeFirstOrThrow();
         expect(Number(count.n)).toBe(1);
 
@@ -267,10 +270,10 @@ describe('GET /stock', () => {
         expect(res.statusCode).toBe(200);
 
         const body = res.json();
-        expect(body.rows.length).toBeGreaterThan(0);
+        expect(body.items.length).toBeGreaterThan(0);
         expect(body.totalValue).toBeGreaterThan(0);
 
-        const row = body.rows[0];
+        const row = body.items[0];
         expect(row).toHaveProperty('belowReorder');
         expect(Math.abs(row.value - row.qtyBase * row.avgCost)).toBeLessThan(1);
     });
@@ -282,8 +285,81 @@ describe('GET /stock', () => {
             headers,
         });
         expect(res.statusCode).toBe(200);
-        for (const row of res.json().rows) {
+        for (const row of res.json().items) {
             expect(row.qtyBase).toBeLessThan(row.reorderPoint);
         }
+    });
+});
+
+describe('reading a delivery back', () => {
+    /**
+     * A delivery is a document the business keeps, so it has to be findable
+     * after the fact. Until the Deliveries screen existed the only route back
+     * to one was the picker inside the supplier-return form.
+     */
+    it('lists a delivery and reads it back line by line', async () => {
+        const pack = await oilPack();
+
+        const created = await app.inject({
+            method: 'POST',
+            url: '/api/v1/grn',
+            headers: { ...headers, 'idempotency-key': randomUUID() },
+            payload: {
+                supplierId: 1,
+                invoiceNo: `INV-READBACK-${Date.now().toString().slice(-6)}`,
+                lines: [{ itemPackId: pack.packId, qtyPacks: 3, packPrice: 1500 }],
+            },
+        });
+        expect(created.statusCode).toBe(201);
+        const id = created.json().id;
+
+        const detail = await app.inject({
+            method: 'GET',
+            url: `/api/v1/grn/${id}`,
+            headers,
+        });
+        expect(detail.statusCode).toBe(200);
+
+        const body = detail.json();
+        expect(body.id).toBe(String(id));
+        expect(body.receivedBy).toBeTruthy();
+        expect(body.total).toBe(4500);
+        expect(body.lines).toHaveLength(1);
+
+        const line = body.lines[0];
+        expect(line.qtyPacks).toBe(3);
+        expect(line.packPrice).toBe(1500);
+        expect(line.lineTotal).toBe(4500);
+        // The conversion the storekeeper never types: 3 x 20 L can.
+        expect(line.qtyBase).toBe(3 * Number(pack.qtyInStockUnit));
+        // Nothing has gone back against a delivery made a moment ago.
+        expect(line.qtyPacksReturned).toBe(0);
+
+        // And it is on the list, findable by its invoice number.
+        const found = await app.inject({
+            method: 'GET',
+            url: `/api/v1/grn?search=${encodeURIComponent(body.invoiceNo)}`,
+            headers,
+        });
+        expect(found.statusCode).toBe(200);
+        expect(found.json().items.some((r: { id: string }) => r.id === String(id))).toBe(true);
+    });
+
+    it('will not read a delivery from another branch', async () => {
+        const other = await db
+            .selectFrom('grn')
+            .select('id')
+            .where('location_id', '!=', locationId)
+            .executeTakeFirst();
+
+        // Only meaningful when another branch actually has one.
+        if (!other) return;
+
+        const res = await app.inject({
+            method: 'GET',
+            url: `/api/v1/grn/${other.id}`,
+            headers,
+        });
+        expect(res.statusCode).toBe(404);
     });
 });

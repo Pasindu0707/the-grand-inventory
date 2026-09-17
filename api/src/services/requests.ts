@@ -1,5 +1,5 @@
 /**
- * The request flow — the thing the whole app is for.
+ * The request flow - the thing the whole app is for.
  *
  *   1. ASK       Kitchen or Cleaning asks for stock, and says when they need it
  *   2. RELEASE   Management OR the storekeeper approves and hands it over
@@ -7,7 +7,7 @@
  *
  * Stock moves at step 2, not step 3: that is when it physically leaves the
  * store. Step 3 is an acknowledgement, so stock released but not yet confirmed
- * still counts as the section's — which is right, because it is sitting in
+ * still counts as the section's - which is right, because it is sitting in
  * their room. What confirmation gives you is a list of handovers nobody
  * acknowledged, which is where things go missing between two rooms.
  *
@@ -100,6 +100,16 @@ export interface Shortage {
     requested: number;
     inStore: number;
     short: number;
+    /**
+     * The pack this would be ordered in, and how many of them cover the gap.
+     * Purchase orders are raised in packs, so the shortage has to arrive
+     * knowing which pack -- otherwise the screen that offers "and buy the
+     * rest" has to go and look it up before it can offer anything.
+     */
+    itemPackId: number | null;
+    packName: string | null;
+    qtyInStockUnit: number | null;
+    shortPacks: number;
 }
 
 /** What the store cannot cover right now. Drives the purchase-order prompt. */
@@ -122,7 +132,21 @@ export async function shortagesFor(
         .leftJoin('current_stock as cs', (join) =>
             join.onRef('cs.item_id', '=', 'items.id').on('cs.section_id', '=', store.id)
         )
-        .select(['items.id', 'items.name', 'items.stock_unit as stockUnit', 'cs.qty_base as qty'])
+        .leftJoin('item_packs as p', (join) =>
+            join
+                .onRef('p.item_id', '=', 'items.id')
+                .on('p.is_default_purchase', '=', true)
+                .on('p.is_active', '=', true)
+        )
+        .select([
+            'items.id',
+            'items.name',
+            'items.stock_unit as stockUnit',
+            'cs.qty_base as qty',
+            'p.id as itemPackId',
+            'p.pack_name as packName',
+            'p.qty_in_stock_unit as qtyInStockUnit'
+        ])
         .where(
             'items.id',
             'in',
@@ -138,13 +162,21 @@ export async function shortagesFor(
         if (!item) continue;
         const inStore = Math.max(0, Number(item.qty ?? 0));
         if (inStore < line.qtyRequested) {
+            const short = Math.round((line.qtyRequested - inStore) * 1000) / 1000;
+            const packSize =
+                item.qtyInStockUnit === null ? null : Number(item.qtyInStockUnit);
             out.push({
                 itemId: item.id,
                 name: item.name,
                 stockUnit: item.stockUnit,
                 requested: line.qtyRequested,
                 inStore,
-                short: Math.round((line.qtyRequested - inStore) * 1000) / 1000
+                short,
+                itemPackId: item.itemPackId,
+                packName: item.packName,
+                qtyInStockUnit: packSize,
+                // Rounded up: you cannot buy two thirds of a sack.
+                shortPacks: packSize && packSize > 0 ? Math.ceil(short / packSize) : 0
             });
         }
     }
@@ -167,7 +199,7 @@ export interface ReleaseResult {
     shortfalls: { itemName: string; requested: number; released: number; available: number }[];
     /**
      * Set when the handover happened outside the agreed windows
-     * (06:00 / 11:00 / 17:00). Advisory only — it never blocks, because a
+     * (06:00 / 11:00 / 17:00). Advisory only - it never blocks, because a
      * handover that happened at 14:00 happened, and refusing to record it would
      * only make the stock figure wrong as well as the process.
      */
@@ -276,7 +308,7 @@ export async function release(input: ReleaseInput): Promise<ReleaseResult> {
         }
 
         if (ledgerLines.length === 0) {
-            throw badRequest('Nothing could be released — the store has none of these items');
+            throw badRequest('Nothing could be released - the store has none of these items');
         }
 
         await postDocument(trx, {
@@ -367,124 +399,27 @@ export async function confirmReceived(
 export async function cancelRequest(
     issueId: string,
     locationId: number,
-    userId: number
+    userId: number,
+    userSectionIds: number[]
 ): Promise<void> {
     const issue = await db
         .selectFrom('issues')
-        .select(['id', 'status'])
+        .select(['id', 'status', 'to_section_id'])
         .where('id', '=', issueId)
         .where('location_id', '=', locationId)
         .executeTakeFirst();
     if (!issue) throw notFound('That request');
     if (issue.status !== 'requested') {
-        throw conflict('Stock has already moved — this needs a reversal, not a cancellation');
+        throw conflict('Stock has already moved - this needs a reversal, not a cancellation');
+    }
+    // Anyone signed in could cancel anyone's request, from any section. It is
+    // the one step in the flow that had no check on it at all.
+    if (!userSectionIds.includes(issue.to_section_id)) {
+        throw forbidden('Only the section that asked for it can cancel it');
     }
 
     await db.transaction().execute(async (trx) => {
         await trx.updateTable('issues').set({ status: 'cancelled' }).where('id', '=', issueId).execute();
         await audit(trx, { userId, action: 'request.cancel', entity: 'issues', entityId: issueId });
-    });
-}
-
-// ── Purchase orders ─────────────────────────────────────────────────────────
-
-export interface RaisePoInput {
-    locationId: number;
-    raisedBy: number;
-    issueId?: string | null;
-    neededBy?: string | null;
-    reason?: string | null;
-    lines: { itemId: number; qtyBase: number; estPrice?: number | null }[];
-}
-
-export async function raisePurchaseOrder(input: RaisePoInput): Promise<{ id: string }> {
-    if (input.lines.length === 0) throw badRequest('Add at least one item');
-
-    // Record what the store had at the time, so management can see how short it
-    // was without having to reconstruct the moment.
-    const shortages = await shortagesFor(
-        input.locationId,
-        input.lines.map((l) => ({ itemId: l.itemId, qtyRequested: l.qtyBase }))
-    );
-    const inStore = new Map(shortages.map((s) => [s.itemId, s.inStore]));
-
-    return db.transaction().execute(async (trx) => {
-        const po = await trx
-            .insertInto('purchase_orders')
-            .values({
-                location_id: input.locationId,
-                issue_id: input.issueId ?? null,
-                raised_by: input.raisedBy,
-                needed_by: input.neededBy ?? null,
-                reason: input.reason ?? null,
-                status: 'requested',
-                is_demo: false
-            })
-            .returning('id')
-            .executeTakeFirstOrThrow();
-
-        for (const line of input.lines) {
-            if (line.qtyBase <= 0) throw badRequest('Quantity must be more than zero');
-            await trx
-                .insertInto('purchase_order_lines')
-                .values({
-                    po_id: po.id,
-                    item_id: line.itemId,
-                    qty_base: line.qtyBase,
-                    qty_in_store: inStore.get(line.itemId) ?? 0,
-                    est_price: line.estPrice ?? null,
-                    is_demo: false
-                })
-                .execute();
-        }
-
-        await audit(trx, {
-            userId: input.raisedBy,
-            action: 'po.raise',
-            entity: 'purchase_orders',
-            entityId: po.id,
-            after: { lines: input.lines.length, issueId: input.issueId ?? null }
-        });
-
-        return { id: String(po.id) };
-    });
-}
-
-export async function decidePurchaseOrder(
-    poId: string,
-    locationId: number,
-    decidedBy: number,
-    decision: 'approved' | 'rejected' | 'ordered' | 'done',
-    note?: string | null
-): Promise<void> {
-    const po = await db
-        .selectFrom('purchase_orders')
-        .select(['id', 'status'])
-        .where('id', '=', poId)
-        .where('location_id', '=', locationId)
-        .executeTakeFirst();
-    if (!po) throw notFound('That purchase order');
-    if (po.status === 'rejected' || po.status === 'done') {
-        throw conflict(`That purchase order is already ${po.status}`);
-    }
-
-    await db.transaction().execute(async (trx) => {
-        await trx
-            .updateTable('purchase_orders')
-            .set({
-                status: decision,
-                decided_by: decidedBy,
-                decided_at: new Date(),
-                decision_note: note ?? null
-            })
-            .where('id', '=', poId)
-            .execute();
-        await audit(trx, {
-            userId: decidedBy,
-            action: `po.${decision}`,
-            entity: 'purchase_orders',
-            entityId: poId,
-            after: { note: note ?? null }
-        });
     });
 }

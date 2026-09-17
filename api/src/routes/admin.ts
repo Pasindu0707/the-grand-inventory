@@ -2,7 +2,7 @@
  * Admin: creating and managing logins.
  *
  * The admin does exactly this and nothing else. They cannot receive stock,
- * release a request or approve a purchase — which is the point of having the
+ * release a request or approve a purchase - which is the point of having the
  * role at all. Someone has to be able to hand out logins without that also
  * granting them the run of the inventory.
  */
@@ -11,6 +11,7 @@ import type { ZodTypeProvider } from 'fastify-type-provider-zod';
 import { z } from 'zod';
 import bcrypt from 'bcryptjs';
 import { db } from '../db/index.js';
+import { offsetOf, pageOf, pageQuery, toPage } from '../services/pagination.js';
 import { badRequest, conflict, notFound } from '../errors.js';
 
 const ROLE = z.enum(['admin', 'management', 'storekeeper', 'kitchen', 'cleaning']);
@@ -57,8 +58,10 @@ export async function adminRoutes(app: FastifyInstance) {
         {
             preHandler: adminOnly(),
             schema: {
-                querystring: z.object({ includeInactive: z.coerce.boolean().default(true) }),
-                response: { 200: z.array(userRow) }
+                querystring: pageQuery.extend({
+                    includeInactive: z.coerce.boolean().default(true)
+                }),
+                response: { 200: pageOf(userRow) }
             }
         },
         async (req) => {
@@ -79,9 +82,21 @@ export async function adminRoutes(app: FastifyInstance) {
 
             if (!req.query.includeInactive) q = q.where('u.is_active', '=', true);
 
-            const rows = await q.orderBy('u.role').orderBy('u.name').execute();
+            let countQ = db.selectFrom('users as u').select(({ fn }) => fn.countAll().as('total'));
+            if (!req.query.includeInactive) countQ = countQ.where('u.is_active', '=', true);
+            const counted = await countQ.executeTakeFirst();
 
-            return rows.map((u) => ({
+            // Ordered by role then name, so a page is a contiguous slice of that
+            // ordering and the role cards on the admin's home still group
+            // cleanly - only the boundary role is split across two pages.
+            const rows = await q
+                .orderBy('u.role')
+                .orderBy('u.name')
+                .limit(req.query.limit)
+                .offset(offsetOf(req.query))
+                .execute();
+
+            const items = rows.map((u) => ({
                 id: u.id,
                 name: u.name,
                 role: u.role,
@@ -91,6 +106,8 @@ export async function adminRoutes(app: FastifyInstance) {
                 isActive: u.isActive,
                 isLocked: u.lockedUntil !== null && new Date(u.lockedUntil) > new Date()
             }));
+
+            return toPage(items, counted?.total, req.query);
         }
     );
 
@@ -241,7 +258,7 @@ export async function adminRoutes(app: FastifyInstance) {
         }
     );
 
-    /** Clear a lockout without changing the PIN — the common support call. */
+    /** Clear a lockout without changing the PIN - the common support call. */
     r.post(
         '/admin/users/:id/unlock',
         {

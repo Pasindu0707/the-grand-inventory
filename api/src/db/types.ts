@@ -39,6 +39,9 @@ export type StorageType =
 
 export type DocType =
     | 'grn'
+    // 'market' has no writer left -- the cash-purchase document was removed in
+    // migration 0006 -- but stays in the enum because stock_ledger rows that
+    // recorded one cannot be deleted. See that migration for the reasoning.
     | 'market'
     | 'issue'
     | 'return'
@@ -48,7 +51,15 @@ export type DocType =
     | 'production'
     | 'opening';
 
-export type CleaningFrequency = 'daily' | 'weekly' | 'monthly';
+export type SupplierReturnStatus =
+    | 'raised'
+    | 'approved'
+    | 'rejected'
+    | 'sent'
+    | 'settled';
+
+/** What the supplier did about it. Null until settled. */
+export type SupplierReturnOutcome = 'credit' | 'replacement' | 'written_off';
 
 export interface LocationsTable {
     id: Generated<number>;
@@ -64,7 +75,15 @@ export interface SectionsTable {
     location_id: number;
     code: string;
     name: string;
+    /**
+     * What kind of place this is, and therefore who may use it. Kept apart
+     * from `code` so a branch can hold two kitchens -- a pastry room is of
+     * kind KITCHEN without having to be called KITCHEN. The permitted values
+     * live in plugins/auth.ts, SECTION_KINDS, and nowhere else.
+     */
+    kind: string;
     is_store: Generated<boolean>;
+    is_active: Generated<boolean>;
     is_demo: Generated<boolean>;
 }
 
@@ -83,7 +102,6 @@ export interface SuppliersTable {
     id: Generated<number>;
     name: string;
     phone: string | null;
-    is_cash_market: Generated<boolean>;
     vat_no: string | null;
     payment_terms: string | null;
     is_active: Generated<boolean>;
@@ -94,6 +112,7 @@ export interface ItemCategoriesTable {
     id: Generated<number>;
     name: string;
     storage: StorageType;
+    is_active: Generated<boolean>;
 }
 
 export interface ItemsTable {
@@ -117,6 +136,7 @@ export interface ItemPacksTable {
     pack_name: string;
     qty_in_stock_unit: number;
     is_default_purchase: Generated<boolean>;
+    is_active: Generated<boolean>;
     is_demo: Generated<boolean>;
 }
 
@@ -173,6 +193,8 @@ export interface GrnTable {
     received_by: number;
     photo_url: string | null;
     total: number | null;
+    /** Set when this delivery was entered against a purchase order. */
+    po_id: string | null;
     is_demo: Generated<boolean>;
 }
 
@@ -183,27 +205,6 @@ export interface GrnLinesTable {
     qty_packs: number;
     pack_price: number;
     expiry_date: DateOnly | null;
-    is_demo: Generated<boolean>;
-}
-
-export interface MarketPurchaseTable {
-    id: Generated<string>;
-    location_id: number;
-    supplier_id: number | null;
-    bought_at: Generated<Ts>;
-    bought_by: number;
-    cash_given: number | null;
-    cash_returned: number | null;
-    photo_url: string | null;
-    is_demo: Generated<boolean>;
-}
-
-export interface MarketPurchaseLinesTable {
-    id: Generated<string>;
-    market_id: string | number;
-    item_id: number;
-    qty_base: number;
-    total_price: number;
     is_demo: Generated<boolean>;
 }
 
@@ -234,12 +235,16 @@ export interface PurchaseOrdersTable {
     issue_id: string | null;
     raised_by: number;
     raised_at: Generated<Ts>;
+    /** Who it is being bought from. Often unknown when the order is raised. */
+    supplier_id: number | null;
     needed_by: DateOnly | null;
     reason: string | null;
     status: Generated<PoStatus>;
     decided_by: number | null;
     decided_at: ColumnType<Date | null, Date | null | undefined, Date | null>;
     decision_note: string | null;
+    /** Every line received, or closed short by management. */
+    closed_at: ColumnType<Date | null, Date | null | undefined, Date | null>;
     is_demo: Generated<boolean>;
 }
 
@@ -249,7 +254,36 @@ export interface PurchaseOrderLinesTable {
     item_id: number;
     qty_base: number;
     qty_in_store: Generated<number>;
+    /**
+     * The pack it is ordered in, and how many. Null only on orders raised
+     * before packs existed on this table; the API requires both on new ones.
+     */
+    item_pack_id: number | null;
+    qty_packs: number | null;
+    /** Estimated price for ONE pack, matching grn_lines.pack_price. */
     est_price: number | null;
+    /** Accumulated across deliveries, in stock units. */
+    qty_received_base: Generated<number>;
+    is_demo: Generated<boolean>;
+}
+
+export interface OpeningStockTable {
+    id: Generated<string>;
+    location_id: number;
+    section_id: number;
+    business_date: DateOnly;
+    entered_by: number;
+    entered_at: Generated<Ts>;
+    note: string | null;
+    is_demo: Generated<boolean>;
+}
+
+export interface OpeningStockLinesTable {
+    id: Generated<string>;
+    opening_id: string | number;
+    item_id: number;
+    qty_base: number;
+    unit_cost: number;
     is_demo: Generated<boolean>;
 }
 
@@ -306,7 +340,8 @@ export interface StockCountLinesTable {
     count_id: string | number;
     item_id: number;
     qty_expected: number;
-    qty_counted: number;
+    /** Null until counted - see migration 0004. Close skips null lines. */
+    qty_counted: number | null;
     variance_value: number;
     is_demo: Generated<boolean>;
 }
@@ -338,37 +373,6 @@ export interface ProductionLogTable {
     product_id: number;
     qty_made: number;
     logged_by: number;
-    is_demo: Generated<boolean>;
-}
-
-export interface CleaningAreasTable {
-    id: Generated<number>;
-    location_id: number;
-    code: string;
-    name: string;
-    is_active: Generated<boolean>;
-    is_demo: Generated<boolean>;
-}
-
-export interface CleaningTasksTable {
-    id: Generated<number>;
-    area_id: number;
-    name: string;
-    frequency: Generated<CleaningFrequency>;
-    is_active: Generated<boolean>;
-    is_demo: Generated<boolean>;
-}
-
-export interface CleaningLogTable {
-    id: Generated<string>;
-    location_id: number;
-    task_id: number;
-    business_date: DateOnly;
-    done_by: number;
-    done_at: Generated<Ts>;
-    photo_url: string | null;
-    note: string | null;
-    verified_by: number | null;
     is_demo: Generated<boolean>;
 }
 
@@ -439,6 +443,71 @@ export interface UsageVarianceView {
     variance_pct: number | null;
 }
 
+export interface SectionReturnsTable {
+    id: Generated<string>;
+    location_id: number;
+    from_section_id: number;
+    to_section_id: number;
+    item_id: number;
+    qty_base: number;
+    reason_code: string;
+    note: string | null;
+    photo_url: string | null;
+    issue_id: string | number | null;
+    returned_by: number;
+    returned_at: Generated<Ts>;
+    approved_by: number | null;
+    approved_at: Ts | null;
+    is_demo: Generated<boolean>;
+}
+
+export interface SupplierReturnsTable {
+    id: Generated<string>;
+    location_id: number;
+    supplier_id: number;
+    grn_id: string | number;
+    status: Generated<SupplierReturnStatus>;
+    reason_code: string;
+    note: string | null;
+    raised_by: number;
+    raised_at: Generated<Ts>;
+    decided_by: number | null;
+    decided_at: Ts | null;
+    decision_note: string | null;
+    sent_by: number | null;
+    sent_at: Ts | null;
+    outcome: SupplierReturnOutcome | null;
+    credit_note_no: string | null;
+    credit_value: number | null;
+    settled_by: number | null;
+    settled_at: Ts | null;
+    settle_note: string | null;
+    is_demo: Generated<boolean>;
+}
+
+/** What management answered for one line: claim it, or bin it. */
+export type DisposalDecision = 'vendor' | 'waste';
+
+export interface SupplierReturnLinesTable {
+    id: Generated<string>;
+    return_id: string | number;
+    grn_line_id: string | number;
+    item_id: number;
+    qty_packs: number;
+    qty_base: number;
+    pack_price: number;
+    line_credit: number;
+    section_return_id: string | number | null;
+    /**
+     * Null until management has answered. See migration 0008: the store asks
+     * one question about bad stock and management answers it line by line.
+     */
+    decision: DisposalDecision | null;
+    /** The wastage document this line was binned under, once it has been. */
+    wastage_id: string | number | null;
+    is_demo: Generated<boolean>;
+}
+
 export interface Database {
     locations: LocationsTable;
     sections: SectionsTable;
@@ -453,8 +522,6 @@ export interface Database {
     item_cost_state: ItemCostStateTable;
     grn: GrnTable;
     grn_lines: GrnLinesTable;
-    market_purchase: MarketPurchaseTable;
-    market_purchase_lines: MarketPurchaseLinesTable;
     issues: IssuesTable;
     issue_lines: IssueLinesTable;
     wastage: WastageTable;
@@ -464,13 +531,15 @@ export interface Database {
     products: ProductsTable;
     recipe_lines: RecipeLinesTable;
     production_log: ProductionLogTable;
-    cleaning_areas: CleaningAreasTable;
-    cleaning_tasks: CleaningTasksTable;
-    cleaning_log: CleaningLogTable;
     idempotency_keys: IdempotencyKeysTable;
     login_attempts: LoginAttemptsTable;
     purchase_orders: PurchaseOrdersTable;
     purchase_order_lines: PurchaseOrderLinesTable;
+    section_returns: SectionReturnsTable;
+    supplier_returns: SupplierReturnsTable;
+    supplier_return_lines: SupplierReturnLinesTable;
+    opening_stock: OpeningStockTable;
+    opening_stock_lines: OpeningStockLinesTable;
     settings: SettingsTable;
     audit_log: AuditLogTable;
     current_stock: CurrentStockView;
