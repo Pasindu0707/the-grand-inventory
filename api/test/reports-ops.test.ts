@@ -23,10 +23,12 @@ const REPORTS = [
     'open-purchase-orders',
     'service-level',
     'supplier-performance',
-    'valuation',
+    'stock-on-hand',
     'dead-stock',
     'consumption',
-    'count-accuracy'
+    'count-accuracy',
+    'returns',
+    'open-returns'
 ] as const;
 
 let app: FastifyInstance;
@@ -75,6 +77,14 @@ describe('the operating reports', () => {
             expect(body.from).toBe(RANGE.from);
             expect(body.to).toBe(RANGE.to);
             expect(Array.isArray(body.rows)).toBe(true);
+
+            // Nothing in this system is priced any more (migration 0009).
+            for (const row of body.rows) {
+                const money = Object.keys(row).filter((k) =>
+                    /value|price|cost|spend|total/i.test(k)
+                );
+                expect(money, `${path} still answers in money`).toEqual([]);
+            }
         });
     }
 
@@ -92,7 +102,7 @@ describe('the operating reports', () => {
 
         const res = await app.inject({
             method: 'GET',
-            url: '/api/v1/reports/valuation',
+            url: '/api/v1/reports/stock-on-hand',
             headers: {
                 authorization: `Bearer ${body.accessToken}`,
                 'x-location-id': String(locationId)

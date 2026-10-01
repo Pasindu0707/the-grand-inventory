@@ -16,7 +16,7 @@ import type {
     OpenPoRow,
     ServiceLevelRow,
     SupplierPerformanceRow,
-    ValuationRow,
+    StockOnHandRow,
     CloseCountResult,
     CountDetail,
     CountLine,
@@ -28,7 +28,6 @@ import type {
     GrnDetail,
     GrnListRow,
     GrnResult,
-    LastPrice,
     IssueDetail,
     IssueWindow,
     Item,
@@ -40,7 +39,6 @@ import type {
     RequestRow,
     Role,
     Shortage,
-    PriceMovementRow,
     OpeningResult,
     OpeningSection,
     ReasonCode,
@@ -62,7 +60,6 @@ import type {
     SetupItem,
     SetupSupplier,
     SuggestedOrderLine,
-    SupplierPrice,
     ShrinkageRow,
     StockOutRow,
     StockResponse,
@@ -142,16 +139,6 @@ export class GrandService {
             this.http.post<GrnResult>(`${API_BASE}/grn`, input, {
                 headers: new HttpHeaders({ 'Idempotency-Key': idempotencyKey })
             })
-        );
-    }
-
-    /**
-     * What this supplier charged last time, per pack, so the price field can
-     * say so while it is being typed rather than after the delivery is saved.
-     */
-    lastPrices(supplierId: number): Promise<LastPrice[]> {
-        return firstValueFrom(
-            this.http.get<LastPrice[]>(`${API_BASE}/suppliers/${supplierId}/last-prices`)
         );
     }
 
@@ -262,7 +249,7 @@ export class GrandService {
         supplierId?: number | null;
         neededBy?: string | null;
         reason?: string | null;
-        lines: { itemPackId: number; qtyPacks: number; estPrice?: number | null }[];
+        lines: { itemPackId: number; qtyPacks: number }[];
     }): Promise<{ id: string }> {
         return firstValueFrom(
             this.http.post<{ id: string }>(`${API_BASE}/purchase-orders`, body)
@@ -307,7 +294,7 @@ export class GrandService {
         body: {
             sectionId: number;
             note?: string | null;
-            lines: { itemId: number; qtyBase: number; unitCost: number }[];
+            lines: { itemId: number; qtyBase: number }[];
         },
         idempotencyKey: string
     ): Promise<OpeningResult> {
@@ -434,21 +421,6 @@ export class GrandService {
     ): Promise<{ ok: true }> {
         return firstValueFrom(
             this.http.patch<{ ok: true }>(`${API_BASE}/setup/suppliers/${id}`, body)
-        );
-    }
-
-    supplierPrices(id: number): Promise<SupplierPrice[]> {
-        return firstValueFrom(
-            this.http.get<SupplierPrice[]>(`${API_BASE}/setup/suppliers/${id}/prices`)
-        );
-    }
-
-    addSupplierPrice(
-        id: number,
-        body: { itemPackId: number; price: number; effectiveFrom: string }
-    ): Promise<{ id: number }> {
-        return firstValueFrom(
-            this.http.post<{ id: number }>(`${API_BASE}/setup/suppliers/${id}/prices`, body)
         );
     }
 
@@ -700,13 +672,12 @@ export class GrandService {
         reasonCode: string;
         note?: string | null;
         lines: { grnLineId: string; qtyPacks: number; sectionReturnId?: string | null }[];
-    }): Promise<{ id: string; supplierId: number; lineCount: number; creditValue: number }> {
+    }): Promise<{ id: string; supplierId: number; lineCount: number }> {
         return firstValueFrom(
             this.http.post<{
                 id: string;
                 supplierId: number;
                 lineCount: number;
-                creditValue: number;
             }>(`${API_BASE}/supplier-returns`, body)
         );
     }
@@ -733,13 +704,12 @@ export class GrandService {
         id: string,
         lines: { lineId: string; decision: DisposalDecision }[],
         note?: string | null
-    ): Promise<{ id: string; toVendor: number; toWaste: number; creditValue: number }> {
+    ): Promise<{ id: string; toVendor: number; toWaste: number }> {
         return firstValueFrom(
             this.http.post<{
                 id: string;
                 toVendor: number;
                 toWaste: number;
-                creditValue: number;
             }>(`${API_BASE}/supplier-returns/${id}/decide`, { lines, note: note ?? null })
         );
     }
@@ -775,7 +745,6 @@ export class GrandService {
         body: {
             outcome: SupplierReturnOutcome;
             creditNoteNo?: string | null;
-            creditValue?: number | null;
             note?: string | null;
         }
     ): Promise<{ ok: true }> {
@@ -820,20 +789,11 @@ export class GrandService {
         );
     }
 
-    shrinkage(range: DateRange): Promise<DateRange & { rows: ShrinkageRow[]; totalValue: number }> {
+    shrinkage(range: DateRange): Promise<DateRange & { rows: ShrinkageRow[] }> {
         return firstValueFrom(
-            this.http.get<DateRange & { rows: ShrinkageRow[]; totalValue: number }>(
+            this.http.get<DateRange & { rows: ShrinkageRow[] }>(
                 `${API_BASE}/reports/shrinkage`,
                 { params: { ...range } }
-            )
-        );
-    }
-
-    priceMovement(range: DateRange, minPct = 5): Promise<DateRange & { rows: PriceMovementRow[] }> {
-        return firstValueFrom(
-            this.http.get<DateRange & { rows: PriceMovementRow[] }>(
-                `${API_BASE}/reports/price-movement`,
-                { params: { ...range, minPct: String(minPct) } }
             )
         );
     }
@@ -860,7 +820,7 @@ export class GrandService {
      *
      * One method each rather than one generic `report(path)`, so the row type
      * is known at the call site and a screen cannot render an open-order table
-     * against a valuation. The Reports screen picks between them by key.
+     * against a stock sheet. The Reports screen picks between them by key.
      */
     openPurchaseOrdersReport(range: DateRange): Promise<DateRange & { rows: OpenPoRow[] }> {
         return this.rangeReport<OpenPoRow>('open-purchase-orders', range);
@@ -876,8 +836,8 @@ export class GrandService {
         return this.rangeReport<SupplierPerformanceRow>('supplier-performance', range);
     }
 
-    valuationReport(range: DateRange): Promise<DateRange & { rows: ValuationRow[] }> {
-        return this.rangeReport<ValuationRow>('valuation', range);
+    stockOnHandReport(range: DateRange): Promise<DateRange & { rows: StockOnHandRow[] }> {
+        return this.rangeReport<StockOnHandRow>('stock-on-hand', range);
     }
 
     deadStockReport(range: DateRange): Promise<DateRange & { rows: DeadStockRow[] }> {

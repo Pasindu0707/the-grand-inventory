@@ -144,7 +144,6 @@ export async function openCount(input: OpenCountInput): Promise<{ id: string; li
                     // "counted, and the shelf was empty", and close could not
                     // tell them apart.
                     qty_counted: null,
-                    variance_value: 0,
                     is_demo: false
                 })
                 .returning('id')
@@ -207,19 +206,22 @@ export async function saveCountLines(
 export interface CloseCountResult {
     id: string;
     adjustments: number;
-    varianceValue: number;
     /** Lines somebody actually entered. */
     counted: number;
     /** Lines left blank, and therefore left alone. */
     skipped: number;
-    biggest: { name: string; varianceQty: number; varianceValue: number }[];
+    /**
+     * The largest gaps, judged against what the shelf was expected to hold.
+     * A percentage rather than a raw quantity: 500 g of flour and 2 bottles of
+     * gin are not comparable numbers.
+     */
+    biggest: { name: string; stockUnit: string; varianceQty: number; variancePct: number }[];
 }
 
 /**
  * Closing writes the adjustment rows that make the ledger agree with the shelf.
  *
- * Every non-zero variance becomes a COUNTADJ ledger row, valued at the current
- * weighted average. Those rows are what the shrinkage report reads: a gap with
+ * Every non-zero variance becomes a COUNTADJ ledger row. Those rows are what the shrinkage report reads: a gap with
  * no wastage document behind it is exactly the signature of anomaly B.
  */
 export async function closeCount(
@@ -239,18 +241,13 @@ export async function closeCount(
     const lines = await db
         .selectFrom('stock_count_lines')
         .innerJoin('items', 'items.id', 'stock_count_lines.item_id')
-        .leftJoin('item_cost_state as ics', (join) =>
-            join
-                .onRef('ics.item_id', '=', 'stock_count_lines.item_id')
-                .on('ics.location_id', '=', locationId)
-        )
         .select([
             'stock_count_lines.id as lineId',
             'stock_count_lines.item_id as itemId',
             'stock_count_lines.qty_expected as qtyExpected',
             'stock_count_lines.qty_counted as qtyCounted',
             'items.name',
-            'ics.avg_cost as avgCost'
+            'items.stock_unit as stockUnit'
         ])
         .where('stock_count_lines.count_id', '=', countId)
         .execute();
@@ -258,7 +255,6 @@ export async function closeCount(
     return db.transaction().execute(async (trx) => {
         const ledgerLines: LedgerLine[] = [];
         const biggest: CloseCountResult['biggest'] = [];
-        let totalVariance = 0;
         let docLine = 0;
 
         let counted = 0;
@@ -276,21 +272,16 @@ export async function closeCount(
             counted += 1;
 
             const varianceQty = Number(line.qtyCounted) - Number(line.qtyExpected);
-            const varianceValue = varianceQty * Number(line.avgCost ?? 0);
-
-            await trx
-                .updateTable('stock_count_lines')
-                .set({ variance_value: Math.round(varianceValue * 100) / 100 })
-                .where('id', '=', line.lineId)
-                .execute();
-
             if (varianceQty === 0) continue;
 
-            totalVariance += varianceValue;
+            const expected = Number(line.qtyExpected);
             biggest.push({
                 name: line.name,
+                stockUnit: line.stockUnit,
                 varianceQty,
-                varianceValue: Math.round(varianceValue * 100) / 100
+                // Nothing expected and something found is the whole shelf.
+                variancePct:
+                    expected === 0 ? 100 : Math.round((10000 * varianceQty) / expected) / 100
             });
 
             docLine += 1;
@@ -327,18 +318,16 @@ export async function closeCount(
             entityId: countId,
             after: {
                 adjustments: ledgerLines.length,
-                varianceValue: totalVariance,
                 counted,
                 skipped
             }
         });
 
-        biggest.sort((a, b) => Math.abs(b.varianceValue) - Math.abs(a.varianceValue));
+        biggest.sort((a, b) => Math.abs(b.variancePct) - Math.abs(a.variancePct));
 
         return {
             id: String(countId),
             adjustments: ledgerLines.length,
-            varianceValue: Math.round(totalVariance * 100) / 100,
             counted,
             skipped,
             biggest: biggest.slice(0, 5)

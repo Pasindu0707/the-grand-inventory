@@ -41,8 +41,6 @@ const RECEIVABLE: readonly PoStatus[] = ['approved', 'ordered'];
 export interface RaisePoLine {
     itemPackId: number;
     qtyPacks: number;
-    /** Estimated price for one pack. */
-    estPrice?: number | null;
 }
 
 export interface RaisePoInput {
@@ -146,7 +144,6 @@ export async function raisePurchaseOrder(input: RaisePoInput): Promise<{ id: str
                     // it -- which is normal for an order raised off reorder
                     // points, before anyone has gone short.
                     qty_in_store: inStore.get(line.itemId) ?? 0,
-                    est_price: line.estPrice ?? null,
                     is_demo: false
                 })
                 .execute();
@@ -400,7 +397,6 @@ export interface SuggestedLine {
     qtyInStockUnit: number | null;
     /** Whole packs needed to get back up to par. */
     suggestedPacks: number;
-    lastPrice: number | null;
 }
 
 /**
@@ -410,7 +406,7 @@ export interface SuggestedLine {
  * first migration, feeding a report that told you the shelf was empty and left
  * you to do something about it somewhere else. This is the "something about
  * it": everything at or below its reorder point, with the quantity that would
- * bring it back to par, in whole packs, at the price it was last bought for.
+ * bring it back to par, in whole packs.
  *
  * Rounded up, because you cannot buy two thirds of a sack.
  */
@@ -455,22 +451,6 @@ export async function suggestedOrder(locationId: number): Promise<SuggestedLine[
     );
     if (low.length === 0) return [];
 
-    // Last price paid per pack, so the estimate is a real number rather than
-    // a guess typed in by whoever is raising the order.
-    const packIds = low.map((r) => r.itemPackId).filter((id): id is number => id !== null);
-    const lastPrice = new Map<number, number>();
-    if (packIds.length > 0) {
-        const prices = await db
-            .selectFrom('supplier_prices')
-            .select(['item_pack_id', 'price', 'effective_from'])
-            .where('item_pack_id', 'in', packIds)
-            .orderBy('effective_from', 'desc')
-            .execute();
-        for (const p of prices) {
-            if (!lastPrice.has(p.item_pack_id)) lastPrice.set(p.item_pack_id, Number(p.price));
-        }
-    }
-
     return low
         .map((r) => {
             const inStore = Math.max(0, Number(r.qty ?? 0));
@@ -491,8 +471,7 @@ export async function suggestedOrder(locationId: number): Promise<SuggestedLine[
                 packName: r.packName,
                 qtyInStockUnit: packSize,
                 suggestedPacks:
-                    packSize && packSize > 0 ? Math.max(1, Math.ceil(shortfall / packSize)) : 0,
-                lastPrice: r.itemPackId === null ? null : lastPrice.get(r.itemPackId) ?? null
+                    packSize && packSize > 0 ? Math.max(1, Math.ceil(shortfall / packSize)) : 0
             };
         })
         .sort((a, b) => a.name.localeCompare(b.name));

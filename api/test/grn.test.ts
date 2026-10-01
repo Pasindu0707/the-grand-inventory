@@ -65,13 +65,12 @@ describe('POST /grn', () => {
             payload: {
                 supplierId: 1,
                 invoiceNo: 'INV-TEST-1',
-                lines: [{ itemPackId: pack.packId, qtyPacks: 3, packPrice: 46000 }],
+                lines: [{ itemPackId: pack.packId, qtyPacks: 3 }],
             },
         });
 
         expect(res.statusCode).toBe(201);
         const body = res.json();
-        expect(body.total).toBe(138000);
 
         const after = await stockOf(pack.itemId, store.id);
         // 3 packs x 20,000 ml. The user typed "3", never "60000".
@@ -81,89 +80,6 @@ describe('POST /grn', () => {
         expect(rows).toHaveLength(1);
         expect(rows[0]!.section_id).toBe(store.id);
         expect(Number(rows[0]!.qty_base)).toBe(60000);
-        // 46,000 per 20,000 ml = 2.30 per ml.
-        expect(Number(rows[0]!.unit_cost)).toBeCloseTo(2.3, 4);
-    });
-
-    it('moves the weighted average toward the new price, not to it', async () => {
-        const pack = await oilPack();
-
-        const before = await db
-            .selectFrom('item_cost_state')
-            .select(['qty_on_hand', 'avg_cost'])
-            .where('item_id', '=', pack.itemId)
-            .where('location_id', '=', locationId)
-            .executeTakeFirstOrThrow();
-
-        const qtyIn = 2 * Number(pack.qtyInStockUnit);
-        const newUnitCost = 5; // deliberately far from the seeded average
-
-        await app.inject({
-            method: 'POST',
-            url: '/api/v1/grn',
-            headers: { ...headers, 'idempotency-key': randomUUID() },
-            payload: {
-                supplierId: 1,
-                lines: [
-                    {
-                        itemPackId: pack.packId,
-                        qtyPacks: 2,
-                        packPrice: newUnitCost * Number(pack.qtyInStockUnit),
-                    },
-                ],
-            },
-        });
-
-        const after = await db
-            .selectFrom('item_cost_state')
-            .select(['qty_on_hand', 'avg_cost'])
-            .where('item_id', '=', pack.itemId)
-            .where('location_id', '=', locationId)
-            .executeTakeFirstOrThrow();
-
-        const expected =
-            (Number(before.qty_on_hand) * Number(before.avg_cost) + qtyIn * newUnitCost) /
-            (Number(before.qty_on_hand) + qtyIn);
-
-        expect(Number(after.avg_cost)).toBeCloseTo(expected, 4);
-
-        // The average must sit strictly between the old and the new cost --
-        // if it jumped straight to the receipt price, every existing unit
-        // would have been silently revalued.
-        const lo = Math.min(Number(before.avg_cost), newUnitCost);
-        const hi = Math.max(Number(before.avg_cost), newUnitCost);
-        expect(Number(after.avg_cost)).toBeGreaterThan(lo);
-        expect(Number(after.avg_cost)).toBeLessThan(hi);
-    });
-
-    it('warns when a pack price jumps, without blocking the delivery', async () => {
-        const pack = await oilPack();
-
-        const last = await db
-            .selectFrom('supplier_prices')
-            .select('price')
-            .where('supplier_id', '=', 1)
-            .where('item_pack_id', '=', pack.packId)
-            .orderBy('effective_from', 'desc')
-            .orderBy('id', 'desc')
-            .executeTakeFirstOrThrow();
-
-        const res = await app.inject({
-            method: 'POST',
-            url: '/api/v1/grn',
-            headers: { ...headers, 'idempotency-key': randomUUID() },
-            payload: {
-                supplierId: 1,
-                lines: [
-                    { itemPackId: pack.packId, qtyPacks: 1, packPrice: Number(last.price) * 1.4 },
-                ],
-            },
-        });
-
-        expect(res.statusCode).toBe(201);
-        const warnings = res.json().priceWarnings;
-        expect(warnings).toHaveLength(1);
-        expect(warnings[0].changePct).toBeGreaterThan(30);
     });
 
     it('replaying an Idempotency-Key creates exactly one GRN', async () => {
@@ -175,7 +91,7 @@ describe('POST /grn', () => {
         const payload = {
             supplierId: 1,
             invoiceNo,
-            lines: [{ itemPackId: pack.packId, qtyPacks: 1, packPrice: 44000 }],
+            lines: [{ itemPackId: pack.packId, qtyPacks: 1 }],
         };
 
         const first = await app.inject({
@@ -216,7 +132,7 @@ describe('POST /grn', () => {
             headers: { ...headers, 'idempotency-key': key },
             payload: {
                 supplierId: 1,
-                lines: [{ itemPackId: pack.packId, qtyPacks: 1, packPrice: 100 }],
+                lines: [{ itemPackId: pack.packId, qtyPacks: 1 }],
             },
         });
 
@@ -226,7 +142,7 @@ describe('POST /grn', () => {
             headers: { ...headers, 'idempotency-key': key },
             payload: {
                 supplierId: 1,
-                lines: [{ itemPackId: pack.packId, qtyPacks: 99, packPrice: 100 }],
+                lines: [{ itemPackId: pack.packId, qtyPacks: 99 }],
             },
         });
 
@@ -257,7 +173,7 @@ describe('POST /grn', () => {
                 'x-location-id': String(cleaner.location_id ?? 1),
                 'idempotency-key': randomUUID(),
             },
-            payload: { supplierId: 1, lines: [{ itemPackId: 1, qtyPacks: 1, packPrice: 1 }] },
+            payload: { supplierId: 1, lines: [{ itemPackId: 1, qtyPacks: 1 }] },
         });
 
         expect(grn.statusCode).toBe(403);
@@ -265,17 +181,16 @@ describe('POST /grn', () => {
 });
 
 describe('GET /stock', () => {
-    it('derives quantities from the ledger and values them', async () => {
+    it('derives quantities from the ledger', async () => {
         const res = await app.inject({ method: 'GET', url: '/api/v1/stock', headers });
         expect(res.statusCode).toBe(200);
 
         const body = res.json();
         expect(body.items.length).toBeGreaterThan(0);
-        expect(body.totalValue).toBeGreaterThan(0);
 
         const row = body.items[0];
         expect(row).toHaveProperty('belowReorder');
-        expect(Math.abs(row.value - row.qtyBase * row.avgCost)).toBeLessThan(1);
+        expect(row).not.toHaveProperty('value');
     });
 
     it('filters to items below their reorder point', async () => {
@@ -307,7 +222,7 @@ describe('reading a delivery back', () => {
             payload: {
                 supplierId: 1,
                 invoiceNo: `INV-READBACK-${Date.now().toString().slice(-6)}`,
-                lines: [{ itemPackId: pack.packId, qtyPacks: 3, packPrice: 1500 }],
+                lines: [{ itemPackId: pack.packId, qtyPacks: 3 }],
             },
         });
         expect(created.statusCode).toBe(201);
@@ -323,13 +238,10 @@ describe('reading a delivery back', () => {
         const body = detail.json();
         expect(body.id).toBe(String(id));
         expect(body.receivedBy).toBeTruthy();
-        expect(body.total).toBe(4500);
         expect(body.lines).toHaveLength(1);
 
         const line = body.lines[0];
         expect(line.qtyPacks).toBe(3);
-        expect(line.packPrice).toBe(1500);
-        expect(line.lineTotal).toBe(4500);
         // The conversion the storekeeper never types: 3 x 20 L can.
         expect(line.qtyBase).toBe(3 * Number(pack.qtyInStockUnit));
         // Nothing has gone back against a delivery made a moment ago.

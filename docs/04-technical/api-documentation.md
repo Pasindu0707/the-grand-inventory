@@ -19,7 +19,7 @@
 | Idempotency | `Idempotency-Key: <uuid>` on every document POST |
 | Dates | `YYYY-MM-DD` |
 | Timestamps | ISO 8601 with offset |
-| Money | Number, two decimal places, LKR |
+| Money | None. The API accepts and returns no prices, costs or values (migration 0009) |
 | Quantities | Number, three decimal places, in the item's stock unit |
 
 **Validation.** Every request and response is validated against a Zod schema at
@@ -84,8 +84,7 @@ A refresh token presented as an access token is rejected.
 Enforced per route by `app.requireRole(...)`. See the SRS permission matrix
 (§4.2) for the authoritative mapping.
 
-**Read endpoints are not role-restricted** (SRS FR-ROL-11) except for money and
-reports. This is a deliberate, documented trade for a shared store-room tablet.
+**Read endpoints are not role-restricted** (SRS FR-ROL-11) except for reports. This is a deliberate, documented trade for a shared store-room tablet.
 
 ## 3. Idempotency
 
@@ -162,7 +161,7 @@ List endpoints take `page` and `pageSize` and return:
 
 | Method | Path | Roles | Notes |
 |---|---|---|---|
-| GET | `/stock` | any (scoped) | Filters: `sectionId`, `categoryId`, `belowReorder`, `search`. Value shown to management only |
+| GET | `/stock` | any (scoped) | Filters: `sectionId`, `categoryId`, `belowReorder`, `search`. Quantities only |
 
 Quantities are computed from the ledger on every call. Nothing is cached.
 
@@ -185,27 +184,20 @@ Idempotency-Key: 8b1e…
   "invoiceDate": "2026-07-30",
   "photoUrl": null,
   "lines": [
-    { "itemPackId": 12, "qtyPacks": 2, "packPrice": 24500, "expiryDate": null }
+    { "itemPackId": 12, "qtyPacks": 2, "expiryDate": null }
   ]
 }
 ```
 ```json
 {
   "id": "412",
-  "total": 49000,
   "businessDate": "2026-07-30",
-  "lineCount": 1,
-  "priceWarnings": [
-    {
-      "itemPackId": 12, "itemName": "Sunflower oil", "packName": "20 L can",
-      "previousPrice": 45880, "newPrice": 60561.60, "changePct": 32
-    }
-  ]
+  "lineCount": 1
 }
 ```
 
-**`priceWarnings` is informational.** The delivery is already recorded. The
-lorry has gone; refusing the record would not undo the delivery.
+**No price is taken.** The invoice number links the delivery to the paper;
+what it cost is for accounts.
 
 Quantities go in as **packs**. Conversion to stock units happens once,
 server-side. There is no endpoint that accepts a quantity in grams.
@@ -330,18 +322,16 @@ invoice, and one the screen presents as such.
 
 `/grn/:id/returnable` is the data source once a delivery is chosen: each line of that
 delivery with what it brought, what has already gone back, what quarantine
-holds, and the pack price. Returnable is computed from the return lines
+holds. Returnable is computed from the return lines
 themselves rather than a stored counter.
 
-Lines are entered **in packs** and priced from the pack price on the original
-GRN line, copied at raise. A later change to the supplier's price list does not
-alter what is owed for goods already invoiced.
+Lines are entered **in packs**, against a line of the original delivery, which
+carries the pack and the conversion. No amount is attached to a return.
 
 **Status is the whole document:** `raised` → `approved` → `sent` → `settled`,
 or `rejected`. **`POST /send` is the only call that writes stock**, and it is a
 409 until management has approved. Settling before sending is a 409. A credit
-outcome requires the note number and the amount actually allowed, which may be
-less than was asked for.
+outcome requires the credit note number; the amount is not recorded.
 
 ### 6.12 Purchase orders
 
@@ -387,31 +377,32 @@ Reversing the same document twice is 409.
 | GET | `/reports/usage-variance` | Did we use more than we should have? |
 | GET | `/reports/usage-variance/:itemId` | For this item, over time |
 | GET | `/reports/shrinkage` | What has gone with no explanation? |
-| GET | `/reports/price-movement` | Which supplier prices moved? |
 | GET | `/reports/wastage` | What are we throwing away, and why? |
 | GET | `/reports/wastage/:itemId` | For this item |
 | GET | `/reports/stock-outs` | What ran out, and what is about to? |
 | GET | `/reports/open-purchase-orders` | What have we ordered and not received? |
 | GET | `/reports/service-level` | How much of what was asked for did we give? |
-| GET | `/reports/supplier-performance` | Which suppliers deliver short or dear? |
-| GET | `/reports/valuation` | What is the stock worth? |
+| GET | `/reports/supplier-performance` | Which suppliers deliver short, late, or get sent back? |
+| GET | `/reports/stock-on-hand` | What was on every shelf on a given date? |
 | GET | `/reports/dead-stock` | What has not moved? |
 | GET | `/reports/consumption` | What did each room use? |
 | GET | `/reports/count-accuracy` | Whose counts agree with the system? |
+| GET | `/reports/returns` | Why is stock coming back, and has the supplier answered? |
+| GET | `/reports/open-returns` | Which supplier returns are still to chase? |
 
-All take `from` and `to` and are scoped to the branch.
+All take `from` and `to` and are scoped to the branch. Every row is in
+quantities, counts or percentages - no report answers in money.
 
-**`/reports/shrinkage` takes two floors**, both defaulting from
-`DEFAULT_SHRINKAGE_FLOOR_LKR` (100) and `DEFAULT_SHRINKAGE_FLOOR_PCT` (2):
+**`/reports/shrinkage` takes a floor**, defaulting from
+`DEFAULT_SHRINKAGE_FLOOR_PCT` (2):
 
 ```
-GET /reports/shrinkage?from=2026-06-10&to=2026-08-08&minValue=100&minPct=2
+GET /reports/shrinkage?from=2026-06-10&to=2026-08-08&minPct=2
 ```
 
-Two thresholds, because one is not enough. Ordinary 0.5% counting noise in the
-store is worth Rs 100-175 a day, so a money floor alone produces fifteen false
-alarms on expensive gin that bury the two real bottles. Noise is proportional to
-what is on the shelf; theft is not.
+A gap is reported only if it is at least that share of what the count expected
+to find. Ordinary 0.5% counting noise on gin is below it; two missing bottles
+are far above it. Noise is proportional to what is on the shelf; theft is not.
 
 **Documented wastage is excluded from shrinkage by construction**, in the SQL,
 not by a parameter a caller could omit. An owner accused of theft over a crate
@@ -443,7 +434,6 @@ refused.
 | Items | `GET/POST /setup/items`, `PATCH /setup/items/:id` |
 | Packs | `POST /setup/items/:id/packs`, `PATCH /setup/packs/:id` |
 | Suppliers | `GET/POST /setup/suppliers`, `PATCH /setup/suppliers/:id` |
-| Prices | `GET/POST /setup/suppliers/:id/prices` |
 | Section kinds | `GET /setup/section-kinds` |
 | Branches | `GET/POST /setup/branches`, `PATCH /setup/branches/:id` |
 | Sections | `POST /setup/sections`, `PATCH /setup/sections/:id` |
@@ -473,5 +463,5 @@ redacted.** A PIN in a log file is a PIN in a backup, forever.
 | 2 | Authenticate as a named service user, so integration actions carry a name like everyone else's |
 | 3 | Send an `Idempotency-Key` on every document POST. Retries are your problem otherwise |
 | 4 | Never attempt to write the ledger directly. The database will refuse, and it should |
-| 5 | Read-only reporting is better served by a read-only database role against `current_stock_valued` |
+| 5 | Read-only reporting is better served by a read-only database role against `current_stock` |
 | 6 | Treat a 409 as information, not an error to retry. It means the thing already happened |

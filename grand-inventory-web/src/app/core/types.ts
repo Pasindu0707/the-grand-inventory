@@ -138,8 +138,6 @@ export interface PurchaseOrderLine {
     itemPackId: number | null;
     packName: string | null;
     qtyPacks: number | null;
-    /** Estimated price for one pack. */
-    estPrice: number | null;
     qtyReceivedBase: number;
     qtyOutstandingBase: number;
 }
@@ -158,7 +156,6 @@ export interface PurchaseOrder {
     closedAt: string | null;
     /** Something has arrived, but not everything. */
     partReceived: boolean;
-    estimatedTotal: number | null;
     lines: PurchaseOrderLine[];
 }
 
@@ -174,7 +171,6 @@ export interface SuggestedOrderLine {
     packName: string | null;
     qtyInStockUnit: number | null;
     suggestedPacks: number;
-    lastPrice: number | null;
 }
 
 // ── Admin ───────────────────────────────────────────────────────────────────
@@ -283,8 +279,6 @@ export interface StockRow {
     sectionId: number;
     sectionCode: string;
     qtyBase: number;
-    avgCost: number;
-    value: number;
     reorderPoint: number;
     parLevel: number;
     isCritical: boolean;
@@ -318,15 +312,13 @@ export function emptyPage<T>(limit = DEFAULT_PAGE_SIZE): Page<T> {
     return { items: [], total: 0, page: 1, limit, pageCount: 1 };
 }
 
-/** Stock carries the value of everything matched, not just the page shown. */
-export type StockResponse = Page<StockRow> & { totalValue: number };
+export type StockResponse = Page<StockRow>;
 
 // ── GRN ─────────────────────────────────────────────────────────────────────
 export interface GrnLineInput {
     itemPackId: number;
     /** Packs, never stock units. The conversion happens server-side, once. */
     qtyPacks: number;
-    packPrice: number;
     expiryDate?: string | null;
 }
 
@@ -340,21 +332,10 @@ export interface GrnInput {
     lines: GrnLineInput[];
 }
 
-export interface PriceWarning {
-    itemPackId: number;
-    itemName: string;
-    packName: string;
-    previousPrice: number;
-    newPrice: number;
-    changePct: number;
-}
-
 export interface GrnResult {
     id: string;
-    total: number;
     businessDate: string;
     lineCount: number;
-    priceWarnings: PriceWarning[];
 }
 
 export interface GrnListRow {
@@ -366,7 +347,6 @@ export interface GrnListRow {
     receivedBy: string;
     /** Set when this delivery filled a purchase order. */
     poId: string | null;
-    total: number | null;
     lineCount: number;
 }
 
@@ -380,10 +360,8 @@ export interface GrnDetailLine {
     packName: string;
     qtyInStockUnit: number;
     qtyPacks: number;
-    packPrice: number;
     /** What it put on the shelf, in stock units. */
     qtyBase: number;
-    lineTotal: number;
     /** Packs already sent back to the supplier against this line. */
     qtyPacksReturned: number;
 }
@@ -398,7 +376,6 @@ export interface GrnDetail {
     receivedBy: string;
     poId: string | null;
     photoUrl: string | null;
-    total: number;
     lines: GrnDetailLine[];
 }
 
@@ -511,7 +488,6 @@ export interface ReturnableLine {
     packId: number;
     packName: string;
     qtyInStockUnit: number;
-    packPrice: number;
     qtyPacksDelivered: number;
     qtyPacksReturned: number;
     qtyPacksReturnable: number;
@@ -537,7 +513,6 @@ export interface QuarantineRow {
     name: string;
     stockUnit: string;
     qtyBase: number;
-    value: number;
     /** Already on an ask that has not been sent or binned yet. */
     qtyOnOpenAsk: number;
     /** Still to be asked about. */
@@ -552,11 +527,9 @@ export interface SuggestedReturnLine {
     stockUnit: string;
     packName: string;
     qtyInStockUnit: number;
-    packPrice: number;
     qtyInQuarantine: number;
     qtyPacksReturnable: number;
     suggestedPacks: number;
-    suggestedCredit: number;
 }
 
 export interface SuggestedReturn {
@@ -569,7 +542,6 @@ export interface SuggestedReturn {
     reasonCode: string | null;
     reasonLabel: string | null;
     lines: SuggestedReturnLine[];
-    totalCredit: number;
 }
 
 export type SupplierReturnStatus = 'raised' | 'approved' | 'rejected' | 'sent' | 'settled';
@@ -606,8 +578,6 @@ export interface SupplierReturnLine {
     packName: string;
     qtyPacks: number;
     qtyBase: number;
-    packPrice: number;
-    lineCredit: number;
     /** Null until management has answered. */
     decision: DisposalDecision | null;
     /** A waste line the store has actually binned. */
@@ -631,15 +601,7 @@ export interface SupplierReturnRow {
     sentAt: string | null;
     outcome: SupplierReturnOutcome | null;
     creditNoteNo: string | null;
-    creditValue: number | null;
     settledAt: string | null;
-    /**
-     * What is being claimed from the supplier. Before a decision that is every
-     * line; afterwards only the lines management said to claim.
-     */
-    expectedCredit: number;
-    /** The other half: what was decided into the bin, at invoice value. */
-    writtenOffValue: number;
     lines: SupplierReturnLine[];
 }
 
@@ -649,10 +611,9 @@ export interface ReturnsSummaryRow {
     reasonCode: string;
     reasonLabel: string;
     sectionReturns: number;
-    sectionQtyValue: number;
     supplierReturns: number;
-    supplierValue: number;
-    creditedValue: number;
+    /** Of the supplier returns, how many a credit note has come back for. */
+    credited: number;
 }
 
 export interface OpenReturnRow {
@@ -665,7 +626,6 @@ export interface OpenReturnRow {
     raisedAt: string;
     sentAt: string | null;
     daysWaiting: number;
-    expectedCredit: number;
     lines: number;
 }
 
@@ -726,12 +686,12 @@ export interface CountListRow {
 export interface CloseCountResult {
     id: string;
     adjustments: number;
-    varianceValue: number;
     /** Lines somebody entered a figure for. */
     counted: number;
     /** Lines left blank, and therefore left untouched. */
     skipped: number;
-    biggest: { name: string; varianceQty: number; varianceValue: number }[];
+    /** The largest gaps as a share of what was expected on the shelf. */
+    biggest: { name: string; stockUnit: string; varianceQty: number; variancePct: number }[];
 }
 
 // ── Uploads ─────────────────────────────────────────────────────────────────
@@ -757,7 +717,6 @@ export interface UsageVarianceRow {
     actualQty: number;
     varianceQty: number;
     variancePct: number;
-    varianceValue: number;
 }
 
 export interface ShrinkageRow {
@@ -768,21 +727,9 @@ export interface ShrinkageRow {
     sectionCode: string;
     businessDate: string;
     varianceQty: number;
-    varianceValue: number;
     variancePct: number | null;
     /** A gap with a document behind it is explained; it is not shrinkage. */
     hasWastageDoc: boolean;
-}
-
-export interface PriceMovementRow {
-    itemPackId: number;
-    itemName: string;
-    packName: string;
-    supplierName: string;
-    effectiveFrom: string;
-    previousPrice: number;
-    newPrice: number;
-    changePct: number;
 }
 
 export interface WastageReportRow {
@@ -795,13 +742,12 @@ export interface WastageReportRow {
     sectionCode: string;
     events: number;
     qtyBase: number;
-    value: number;
 }
 
 export interface WastageReport extends DateRange {
     rows: WastageReportRow[];
-    byReason: { reasonCode: string; reasonLabel: string; events: number; value: number }[];
-    totalValue: number;
+    byReason: { reasonCode: string; reasonLabel: string; events: number }[];
+    totalEvents: number;
 }
 
 export interface StockOutRow {
@@ -898,27 +844,6 @@ export interface SetupSupplier {
     deliveries: number;
 }
 
-/**
- * The last price a supplier charged for one pack.
- *
- * Read while a delivery is being typed, so a jump is questioned at the door
- * rather than found in a report. Same table the server warns from.
- */
-export interface LastPrice {
-    itemPackId: number;
-    price: number;
-    effectiveFrom: string;
-}
-
-export interface SupplierPrice {
-    id: number;
-    itemPackId: number;
-    itemName: string;
-    packName: string;
-    price: number;
-    effectiveFrom: string;
-}
-
 export interface SectionKind {
     kind: string;
     label: string;
@@ -970,7 +895,6 @@ export interface OpeningResult {
     id: string;
     businessDate: string;
     lineCount: number;
-    totalValue: number;
 }
 
 // ── The operating reports ───────────────────────────────────────────────────
@@ -990,8 +914,8 @@ export interface OpenPoRow {
     lineCount: number;
     daysOpen: number;
     daysLate: number;
-    estimatedValue: number;
-    outstandingValue: number;
+    /** Lines where something has still not turned up. */
+    linesOutstanding: number;
 }
 
 /** How well the store served one section. */
@@ -1016,16 +940,16 @@ export interface SupplierPerformanceRow {
     fillRatePct: number | null;
     lateOrders: number;
     avgDaysToClose: number | null;
-    spend: number;
+    deliveryLines: number;
     returns: number;
-    returnedValue: number;
-    creditedValue: number;
-    netSpend: number;
+    /** Returns the supplier has settled with a credit note. */
+    credited: number;
+    /** Share of delivered lines that had something sent back. */
     returnRatePct: number | null;
 }
 
-/** Value on hand for one item in one section, as at the end of the range. */
-export interface ValuationRow {
+/** Stock on hand for one item in one section, as at the end of the range. */
+export interface StockOnHandRow {
     sectionId: number;
     sectionName: string;
     itemId: number;
@@ -1033,8 +957,6 @@ export interface ValuationRow {
     name: string;
     stockUnit: string;
     qtyBase: number;
-    avgCost: number;
-    value: number;
 }
 
 /** Stock on the shelf that nothing was issued from during the range. */
@@ -1045,12 +967,11 @@ export interface DeadStockRow {
     stockUnit: string;
     sectionName: string;
     qtyBase: number;
-    value: number;
     lastMovedOn: string | null;
     daysSinceMoved: number | null;
 }
 
-/** What one section drew from the store, at what it cost. */
+/** What one section drew from the store. */
 export interface ConsumptionRow {
     sectionId: number;
     sectionName: string;
@@ -1059,7 +980,6 @@ export interface ConsumptionRow {
     name: string;
     stockUnit: string;
     qtyBase: number;
-    value: number;
 }
 
 export interface CountAccuracyRow {
@@ -1069,5 +989,4 @@ export interface CountAccuracyRow {
     lines: number;
     linesOff: number;
     accuracyPct: number | null;
-    absVarianceValue: number;
 }

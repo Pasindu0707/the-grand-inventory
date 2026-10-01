@@ -90,7 +90,7 @@ describe('raising a purchase order', () => {
             payload: {
                 reason: 'running low on the shelf',
                 neededBy: '2026-09-01',
-                lines: [{ itemPackId: item.packId, qtyPacks: 4, estPrice: 1200 }]
+                lines: [{ itemPackId: item.packId, qtyPacks: 4 }]
             }
         });
         expect(raised.statusCode).toBe(201);
@@ -100,7 +100,6 @@ describe('raising a purchase order', () => {
         // Ordered in packs, held in stock units: the conversion happens once.
         expect(po.lines[0].qtyPacks).toBe(4);
         expect(po.lines[0].qtyBase).toBe(4 * item.packSize);
-        expect(po.estimatedTotal).toBe(4800);
     });
 
     it('refuses to mark an order "ordered" without saying who it went to', async () => {
@@ -137,7 +136,7 @@ describe('a short delivery', () => {
             method: 'POST',
             url: '/api/v1/purchase-orders',
             headers: H['storekeeper']!,
-            payload: { lines: [{ itemPackId: item.packId, qtyPacks: 10, estPrice: 1000 }] }
+            payload: { lines: [{ itemPackId: item.packId, qtyPacks: 10 }] }
         });
         const poId = raised.json().id;
 
@@ -149,7 +148,7 @@ describe('a short delivery', () => {
             payload: {
                 supplierId: supplier.id,
                 poId,
-                lines: [{ itemPackId: item.packId, qtyPacks: 1, packPrice: 1000 }]
+                lines: [{ itemPackId: item.packId, qtyPacks: 1 }]
             }
         });
         expect(tooEarly.statusCode).toBe(409);
@@ -171,7 +170,7 @@ describe('a short delivery', () => {
                 supplierId: supplier.id,
                 poId,
                 invoiceNo: `INV-${tag()}`,
-                lines: [{ itemPackId: item.packId, qtyPacks: 6, packPrice: 1000 }]
+                lines: [{ itemPackId: item.packId, qtyPacks: 6 }]
             }
         });
         expect(part.statusCode).toBe(201);
@@ -199,7 +198,7 @@ describe('a short delivery', () => {
             payload: {
                 supplierId: supplier.id,
                 poId,
-                lines: [{ itemPackId: item.packId, qtyPacks: 4, packPrice: 1000 }]
+                lines: [{ itemPackId: item.packId, qtyPacks: 4 }]
             }
         });
         expect(rest.statusCode).toBe(201);
@@ -243,7 +242,7 @@ describe('a short delivery', () => {
             payload: {
                 supplierId: b!.id,
                 poId,
-                lines: [{ itemPackId: item.packId, qtyPacks: 2, packPrice: 900 }]
+                lines: [{ itemPackId: item.packId, qtyPacks: 2 }]
             }
         });
 
@@ -341,8 +340,8 @@ describe('a short delivery', () => {
                 supplierId: supplier.id,
                 poId,
                 lines: [
-                    { itemPackId: small!.id, qtyPacks: 2, packPrice: 500 },
-                    { itemPackId: large!.id, qtyPacks: 1, packPrice: 900 }
+                    { itemPackId: small!.id, qtyPacks: 2 },
+                    { itemPackId: large!.id, qtyPacks: 1 }
                 ]
             }
         });
@@ -417,21 +416,19 @@ describe('opening stock', () => {
             payload: {
                 sectionId: storeSectionId,
                 note: 'counted at handover',
-                lines: [{ itemId: item.itemId, qtyBase: 5000, unitCost: 0.42 }]
+                lines: [{ itemId: item.itemId, qtyBase: 5000 }]
             }
         });
         expect(opened.statusCode).toBe(201);
-        expect(opened.json().totalValue).toBe(2100);
 
-        // The stock is really there, valued at what was entered.
-        const valued = await db
-            .selectFrom('current_stock_valued')
-            .select(['qty_base', 'avg_cost'])
+        // The stock is really there.
+        const onShelf = await db
+            .selectFrom('current_stock')
+            .select('qty_base')
             .where('section_id', '=', storeSectionId)
             .where('item_id', '=', item.itemId)
             .executeTakeFirstOrThrow();
-        expect(Number(valued.qty_base)).toBe(5000);
-        expect(Number(valued.avg_cost)).toBe(0.42);
+        expect(Number(onShelf.qty_base)).toBe(5000);
 
         // Second time is a stock count's job, not an opening balance's.
         const again = await app.inject({
@@ -440,7 +437,7 @@ describe('opening stock', () => {
             headers: { ...mgmt, ...idem() },
             payload: {
                 sectionId: storeSectionId,
-                lines: [{ itemId: item.itemId, qtyBase: 100, unitCost: 1 }]
+                lines: [{ itemId: item.itemId, qtyBase: 100 }]
             }
         });
         expect(again.statusCode).toBe(409);
@@ -452,7 +449,7 @@ describe('opening stock', () => {
             method: 'POST',
             url: '/api/v1/opening-stock',
             headers: { ...H['admin']!, ...idem() },
-            payload: { sectionId: 1, lines: [{ itemId: 1, qtyBase: 1, unitCost: 1 }] }
+            payload: { sectionId: 1, lines: [{ itemId: 1, qtyBase: 1 }] }
         });
         expect(res.statusCode).toBe(403);
     });

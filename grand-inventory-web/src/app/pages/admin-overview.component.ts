@@ -392,7 +392,7 @@ export class AdminOverviewComponent implements OnInit {
     /**
      * Opening balances are the store's business, not the admin's - the endpoint
      * is management and storekeeper only, because entering one writes real
-     * quantities and real money. So an admin signed in here gets a refusal
+     * quantities into the ledger. So an admin signed in here gets a refusal
      * rather than a list, and that is correct.
      *
      * A refusal must not take the rest of the page down with it. The line stays

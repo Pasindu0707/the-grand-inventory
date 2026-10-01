@@ -601,7 +601,7 @@ export async function setupRoutes(app: FastifyInstance) {
             ) {
                 if (await packHasBeenUsed(req.params.id)) {
                     throw conflict(
-                        `"${before.pack_name}" has already been bought at ${before.qty_in_stock_unit} per pack. Add a new pack size rather than changing this one, or the price history stops comparing like with like.`
+                        `"${before.pack_name}" has already been bought at ${before.qty_in_stock_unit} per pack. Add a new pack size rather than changing this one, or every delivery already booked in it would be read at the wrong size.`
                     );
                 }
             }
@@ -846,105 +846,6 @@ export async function setupRoutes(app: FastifyInstance) {
                 after: req.body
             });
             return { ok: true as const };
-        }
-    );
-
-    /**
-     * An agreed price for a pack from a supplier.
-     *
-     * This is what the price-movement report has to compare the first delivery
-     * against. Without one, the first surprise price looks exactly like the
-     * normal price, and the report only wakes up on the second.
-     */
-    r.get(
-        '/setup/suppliers/:id/prices',
-        {
-            preHandler: adminOnly(),
-            schema: {
-                params: z.object({ id: z.coerce.number().int().positive() }),
-                response: {
-                    200: z.array(
-                        z.object({
-                            id: z.number(),
-                            itemPackId: z.number(),
-                            itemName: z.string(),
-                            packName: z.string(),
-                            price: z.number(),
-                            effectiveFrom: z.string()
-                        })
-                    )
-                }
-            }
-        },
-        async (req) => {
-            const rows = await db
-                .selectFrom('supplier_prices as sp')
-                .innerJoin('item_packs as p', 'p.id', 'sp.item_pack_id')
-                .innerJoin('items as i', 'i.id', 'p.item_id')
-                .select([
-                    'sp.id',
-                    'sp.item_pack_id as itemPackId',
-                    'i.name as itemName',
-                    'p.pack_name as packName',
-                    'sp.price',
-                    'sp.effective_from as effectiveFrom'
-                ])
-                .where('sp.supplier_id', '=', req.params.id)
-                .orderBy('i.name')
-                .orderBy('sp.effective_from', 'desc')
-                .execute();
-            return rows.map((p) => ({ ...p, price: Number(p.price) }));
-        }
-    );
-
-    r.post(
-        '/setup/suppliers/:id/prices',
-        {
-            preHandler: adminOnly(),
-            schema: {
-                params: z.object({ id: z.coerce.number().int().positive() }),
-                body: z.object({
-                    itemPackId: z.number().int().positive(),
-                    price: z.number().nonnegative(),
-                    effectiveFrom: z.string().regex(/^\d{4}-\d{2}-\d{2}$/)
-                }),
-                response: { 201: z.object({ id: z.number() }) }
-            }
-        },
-        async (req, reply) => {
-            const supplier = await db
-                .selectFrom('suppliers')
-                .select('id')
-                .where('id', '=', req.params.id)
-                .executeTakeFirst();
-            if (!supplier) throw notFound('That supplier');
-
-            const pack = await db
-                .selectFrom('item_packs')
-                .select('id')
-                .where('id', '=', req.body.itemPackId)
-                .executeTakeFirst();
-            if (!pack) throw notFound('That pack');
-
-            const row = await db
-                .insertInto('supplier_prices')
-                .values({
-                    supplier_id: req.params.id,
-                    item_pack_id: req.body.itemPackId,
-                    price: req.body.price,
-                    effective_from: req.body.effectiveFrom,
-                    is_demo: false
-                })
-                .returning('id')
-                .executeTakeFirstOrThrow();
-
-            await logged(req.user.sub, {
-                action: 'setup.price.create',
-                entity: 'supplier_prices',
-                entityId: row.id,
-                after: { supplierId: req.params.id, ...req.body }
-            });
-            return reply.status(201).send({ id: row.id });
         }
     );
 

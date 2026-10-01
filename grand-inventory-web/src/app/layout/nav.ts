@@ -112,7 +112,7 @@ export const NAV: NavGroup[] = [
                 icon: 'pi pi-briefcase',
                 path: '/setup/suppliers',
                 routeKey: 'setupSuppliers',
-                hint: 'Who you buy from, and at what price'
+                hint: 'Who you buy from'
             },
             {
                 label: 'Branches',

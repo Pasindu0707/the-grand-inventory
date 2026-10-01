@@ -134,18 +134,42 @@ describe('schema drift', () => {
         // is to fail loudly when the schema and these types diverge.
         const declared: Array<keyof Database> = [
             'locations', 'sections', 'users', 'suppliers', 'item_categories', 'items',
-            'item_packs', 'supplier_prices', 'reason_codes', 'stock_ledger',
-            'item_cost_state', 'grn', 'grn_lines',
+            'item_packs', 'reason_codes', 'stock_ledger', 'grn', 'grn_lines',
             'issues', 'issue_lines', 'wastage', 'transfers',
             'stock_counts', 'stock_count_lines', 'products', 'recipe_lines',
             'production_log',
             'idempotency_keys', 'login_attempts', 'settings', 'audit_log',
             'purchase_orders', 'purchase_order_lines', 'opening_stock',
             'opening_stock_lines',
-            'current_stock', 'current_stock_valued', 'usage_variance',
+            'current_stock', 'usage_variance',
         ];
 
         const missing = declared.filter((t) => !actual.has(t as string));
         expect(missing).toEqual([]);
+    });
+
+    /**
+     * Migration 0009 took costing out. This is the tripwire that stops a price
+     * column quietly coming back in a later migration.
+     */
+    it('keeps no prices, costs or values anywhere in the schema', async () => {
+        const { rows } = await sql<{ table_name: string; column_name: string }>`
+            select table_name, column_name
+            from information_schema.columns
+            where table_schema = 'public'
+              and column_name ~ '(price|cost|value|total|spend)'
+              -- settings.value is a JSON settings blob, not money.
+              and not (table_name = 'settings' and column_name = 'value')
+        `.execute(db);
+
+        expect(rows).toEqual([]);
+
+        const { rows: gone } = await sql<{ table_name: string }>`
+            select table_name
+            from information_schema.tables
+            where table_schema = 'public'
+              and table_name in ('supplier_prices', 'item_cost_state', 'current_stock_valued')
+        `.execute(db);
+        expect(gone).toEqual([]);
     });
 });

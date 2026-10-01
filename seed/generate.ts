@@ -38,7 +38,7 @@ const q = (s: unknown) =>
 type Item = {
   id: number; code: string; name: string; category: string; storage: string;
   stock_unit: string; pack_name: string; pack_qty: number; par: number;
-  reorder: number; shelf: string; critical: boolean; cost: number;
+  reorder: number; shelf: string; critical: boolean;
 };
 
 // ---------------------------------------------------------------------------
@@ -47,22 +47,12 @@ type Item = {
 
 const rows = readFileSync(join(HERE, "items.csv"), "utf8").trim().split("\n").slice(1);
 
-// rough LKR cost per stock unit, by category - enough to make values realistic
-const COST: Record<string, [number, number]> = {
-  "Dry goods": [0.3, 3.5], Dairy: [0.6, 4], Meat: [1.4, 4.5], Seafood: [1.8, 6],
-  Vegetables: [0.2, 1.2], Fruit: [0.4, 2.5], Beverages: [110, 190],
-  "Bar spirits": [4, 12], "Bar beer": [380, 520], "Bar wine": [3, 8],
-  Packaging: [4, 30], Cleaning: [0.6, 3], Gas: [4600, 4900],
-};
-
 const items: Item[] = rows.map((line, i) => {
   const c = line.split(",");
-  const [lo, hi] = COST[c[2]] ?? [1, 3];
   return {
     id: i + 1, code: c[0], name: c[1], category: c[2], storage: c[3],
     stock_unit: c[4], pack_name: c[5], pack_qty: +c[6], par: +c[7],
     reorder: +c[8], shelf: c[9], critical: c[10] === "TRUE",
-    cost: +between(lo, hi).toFixed(3),
   };
 });
 
@@ -165,8 +155,7 @@ const PRODUCTS = [
              ["DAI-004", 40], ["DRY-023", 20]] },
   // DRY-022 (sunflower oil) is the kitchen's bulk frying oil. It must appear in
   // a recipe or it is never issued, never falls below its reorder point, and is
-  // therefore never purchased -- which would leave anomaly C (the day-35 price
-  // rise) with no GRN to hide in and nothing for the report to detect.
+  // therefore never purchased.
   { id: 7, code: "RICE-SEAF", name: "Seafood fried rice", sec: 2, baked: false, yield: 1,
     recipe: [["DRY-001", 200], ["SEA-001", 90], ["SEA-002", 60], ["DAI-008", 1],
              ["VEG-006", 50], ["DRY-021", 30], ["DRY-022", 30]] },
@@ -254,7 +243,7 @@ w(PRODUCTS.flatMap((p) => p.recipe.map(([code, qty]) =>
 // movement generation
 // ---------------------------------------------------------------------------
 
-type Led = { date: string; sec: number; item: number; qty: number; cost: number;
+type Led = { date: string; sec: number; item: number; qty: number;
              doc: string; docId: number; reason: string | null; by: number };
 const ledger: Led[] = [];
 const stock = new Map<string, number>();          // `${sec}:${item}` -> ledger qty
@@ -265,7 +254,7 @@ const get = (s: number, i: number) => stock.get(key(s, i)) ?? 0;
 const move = (d: string, sec: number, it: Item, qty: number, doc: string,
               docId: number, by: number, reason: string | null = null) => {
   stock.set(key(sec, it.id), get(sec, it.id) + qty);
-  ledger.push({ date: d, sec, item: it.id, qty, cost: it.cost, doc, docId, reason, by });
+  ledger.push({ date: d, sec, item: it.id, qty, doc, docId, reason, by });
 };
 
 const dates: string[] = [];
@@ -283,11 +272,11 @@ for (const it of items.filter((i) => i.category.startsWith("Bar")))
 const grn: string[] = [], grnL: string[] = [];
 // Returns. Deliberately built from fixed days and fixed fractions rather than
 // the PRNG: any random draw here would shift the whole downstream sequence and
-// move the five planted anomalies with it.
+// move the planted anomalies with it.
 const secRet: string[] = [], supRet: string[] = [], supRetL: string[] = [];
 let secRetId = 0, supRetId = 0, supRetLineId = 0;
 /** The most recent delivery line per item, so a return can point at one. */
-const lastGrnLine = new Map<number, { grnId: number; supplierId: number; lineId: number; packPrice: number }>();
+const lastGrnLine = new Map<number, { grnId: number; supplierId: number; lineId: number }>();
 /**
  * The most recent release per section and item, so a return can point at one.
  *
@@ -300,24 +289,10 @@ const iss: string[] = [], issL: string[] = [], wst: string[] = [];
 const cnt: string[] = [], cntL: string[] = [], prod: string[] = [];
 let grnId = 0, issId = 0, wstId = 0, cntId = 0, prodId = 0, lineId = 0;
 
-// A5: supplier price history. Without this table populated, the price-movement
-// report has to reverse-engineer history out of grn_lines. A row is written the
-// first time a supplier quotes a pack and every time that price then changes --
-// which is exactly what makes anomaly C (oil +32% on day 35) a first-class row.
-const supPrice: string[] = [];
-const lastPrice = new Map<string, number>();
-let supPriceId = 0;
-const recordPrice = (sup: number, packId: number, price: number, date: string) => {
-  const k = `${sup}:${packId}`;
-  if (lastPrice.get(k) === price) return;
-  lastPrice.set(k, price);
-  supPrice.push(`  (${++supPriceId},${sup},${packId},${price.toFixed(2)},'${date}',true)`);
-};
-
 // ---- planted anomalies -----------------------------------------------------
 // A. chicken breast over-issued by ~18% from day 20  -> negative count variance
 // B. two gin bottles vanish (day 28, day 44)         -> shrinkage, no wastage doc
-// C. sunflower oil price +32% on day 35              -> price-increase alert
+// (C, a supplier price rise, was withdrawn with costing -- see migration 0009.)
 // D. lettuce spoilage spike in week 6                -> genuine waste, not theft
 // E. prawns hit zero on day 41                       -> stock-out alert
 // ---------------------------------------------------------------------------
@@ -326,9 +301,6 @@ for (let d = 0; d < DAYS; d++) {
   const date = dates[d];
   const dow = new Date(date).getUTCDay();
   const busy = dow === 0 || dow === 5 || dow === 6 ? 1.45 : 1;
-
-  // --- C: price change
-  if (d === 35) byCode.get("DRY-022")!.cost *= 1.32;
 
   // --- deliveries: restock anything below reorder point
   const low = items.filter((i) => get(1, i.id) < i.reorder);
@@ -345,10 +317,8 @@ for (let d = 0; d < DAYS; d++) {
     grn.push(`  (${grnId},1,${sup},'INV-${1000 + grnId}','${date}','${date} 08:00+05:30',3,true)`);
     for (const it of list) {
       const packs = Math.ceil((it.par - get(1, it.id)) / it.pack_qty);
-      const packPrice = it.pack_qty * it.cost;
-      grnL.push(`  (${++lineId},${grnId},${it.id},${packs},${packPrice.toFixed(2)},true)`);
-      lastGrnLine.set(it.id, { grnId, supplierId: sup, lineId, packPrice });
-      recordPrice(sup, it.id, packPrice, date);
+      grnL.push(`  (${++lineId},${grnId},${it.id},${packs},true)`);
+      lastGrnLine.set(it.id, { grnId, supplierId: sup, lineId });
       move(date, 1, it, packs * it.pack_qty, "grn", grnId, 3);
     }
   }
@@ -534,7 +504,6 @@ for (let d = 0; d < DAYS; d++) {
 
     const packs = Math.round((qty / it.pack_qty) * 100) / 100;
     if (packs <= 0) continue;
-    const credit = packs * src.packPrice;
 
     supRetId++;
     const sent = r.supplier === 'credited' || r.supplier === 'sent';
@@ -547,12 +516,11 @@ for (let d = 0; d < DAYS; d++) {
       `2,'${date} 18:00+05:30',null,` +
       (sent ? `3,'${date} 18:30+05:30',` : `null,null,`) +
       (settled
-        ? `'credit',${q("CN-" + (5000 + supRetId))},${credit.toFixed(2)},2,'${dates[Math.min(d + 9, DAYS - 1)]} 12:00+05:30',null,true)`
-        : `null,null,null,null,null,null,true)`));
+        ? `'credit',${q("CN-" + (5000 + supRetId))},2,'${dates[Math.min(d + 9, DAYS - 1)]} 12:00+05:30',null,true)`
+        : `null,null,null,null,null,true)`));
 
     supRetL.push(
-      `  (${++supRetLineId},${supRetId},${src.lineId},${it.id},${packs},${qty},` +
-      `${src.packPrice.toFixed(2)},${credit.toFixed(2)},${secRetId},true)`);
+      `  (${++supRetLineId},${supRetId},${src.lineId},${it.id},${packs},${qty},${secRetId},true)`);
 
     // Stock leaves quarantine only when the goods physically go.
     if (sent) move(date, 6, it, -qty, "return", supRetId, 3, r.reason);
@@ -567,7 +535,7 @@ for (let d = 0; d < DAYS; d++) {
     // small honest counting noise; shrinkage shows up as a real gap
     const counted = Math.max(0, Math.round(expected * between(0.995, 1.002)));
     const diff = counted - expected;
-    cntL.push(`  (${++lineId},${cntId},${it.id},${expected.toFixed(3)},${counted},${(diff * it.cost).toFixed(2)},true)`);
+    cntL.push(`  (${++lineId},${cntId},${it.id},${expected.toFixed(3)},${counted},true)`);
     if (diff !== 0) move(date, 1, it, diff, "count", cntId, 3, "COUNTADJ");
   }
   // Sunday: the drinks shelf is counted bottle by bottle. It is a count of the
@@ -584,7 +552,7 @@ for (let d = 0; d < DAYS; d++) {
       phantom.delete(key(2, it.id));
       const counted = Math.max(0, Math.round(expected - lost));
       const diff = counted - expected;
-      cntL.push(`  (${++lineId},${cntId},${it.id},${expected.toFixed(3)},${counted},${(diff * it.cost).toFixed(2)},true)`);
+      cntL.push(`  (${++lineId},${cntId},${it.id},${expected.toFixed(3)},${counted},true)`);
       if (diff !== 0) move(date, 2, it, diff, "count", cntId, 6, "COUNTADJ");
     }
   }
@@ -606,32 +574,21 @@ w(`insert into reason_codes (code,doc,label) values
 on conflict (code) do nothing;`);
 
 block("insert into grn (id,location_id,supplier_id,invoice_no,invoice_date,received_at,received_by,is_demo) values", grn);
-block("insert into grn_lines (id,grn_id,item_pack_id,qty_packs,pack_price,is_demo) values", grnL);
+block("insert into grn_lines (id,grn_id,item_pack_id,qty_packs,is_demo) values", grnL);
 block("insert into issues (id,location_id,to_section_id,requested_by,issued_by,requested_at,issued_at,status,received_by,received_at,is_demo) values", iss);
 block("insert into issue_lines (id,issue_id,item_id,qty_requested,qty_issued,is_demo) values", issL);
 block("insert into wastage (id,location_id,section_id,item_id,qty_base,reason_code,logged_by,logged_at,approved_by,is_demo) values", wst);
 block("insert into section_returns (id,location_id,from_section_id,to_section_id,item_id,qty_base,reason_code,note,issue_id,returned_by,returned_at,approved_by,approved_at,is_demo) values", secRet);
-block("insert into supplier_returns (id,location_id,supplier_id,grn_id,status,reason_code,note,raised_by,raised_at,decided_by,decided_at,decision_note,sent_by,sent_at,outcome,credit_note_no,credit_value,settled_by,settled_at,settle_note,is_demo) values", supRet);
-block("insert into supplier_return_lines (id,return_id,grn_line_id,item_id,qty_packs,qty_base,pack_price,line_credit,section_return_id,is_demo) values", supRetL);
+block("insert into supplier_returns (id,location_id,supplier_id,grn_id,status,reason_code,note,raised_by,raised_at,decided_by,decided_at,decision_note,sent_by,sent_at,outcome,credit_note_no,settled_by,settled_at,settle_note,is_demo) values", supRet);
+block("insert into supplier_return_lines (id,return_id,grn_line_id,item_id,qty_packs,qty_base,section_return_id,is_demo) values", supRetL);
 block("insert into stock_counts (id,location_id,section_id,count_type,business_date,counted_by,verified_by,closed_at,is_demo) values", cnt);
-block("insert into stock_count_lines (id,count_id,item_id,qty_expected,qty_counted,variance_value,is_demo) values", cntL);
+block("insert into stock_count_lines (id,count_id,item_id,qty_expected,qty_counted,is_demo) values", cntL);
 block("insert into production_log (id,location_id,section_id,business_date,product_id,qty_made,logged_by,is_demo) values", prod);
-block("insert into supplier_prices (id,supplier_id,item_pack_id,price,effective_from,is_demo) values", supPrice);
 
-w("insert into stock_ledger (business_date,location_id,section_id,item_id,qty_base,unit_cost,doc,doc_id,reason_code,created_by,is_demo) values");
+w("insert into stock_ledger (business_date,location_id,section_id,item_id,qty_base,doc,doc_id,reason_code,created_by,is_demo) values");
 w(ledger.map((l) =>
-  `  ('${l.date}',1,${l.sec},${l.item},${l.qty.toFixed(3)},${l.cost},'${l.doc}',${l.docId},${l.reason ? q(l.reason) : "null"},${l.by},true)`
+  `  ('${l.date}',1,${l.sec},${l.item},${l.qty.toFixed(3)},'${l.doc}',${l.docId},${l.reason ? q(l.reason) : "null"},${l.by},true)`
 ).join(",\n") + ";");
-
-// A3: seed the weighted-average cost state so valuation is not zero on day one.
-// The demo generator uses a flat per-item cost, so the average is that cost;
-// the real receipt service recomputes it properly on every GRN.
-w(`insert into item_cost_state (item_id,location_id,qty_on_hand,avg_cost)
-select l.item_id, l.location_id, sum(l.qty_base), max(l.unit_cost)
-from stock_ledger l
-group by l.item_id, l.location_id
-on conflict (item_id,location_id) do update
-  set qty_on_hand = excluded.qty_on_hand, avg_cost = excluded.avg_cost;`);
 
 // A2: every table above was inserted with explicit ids while its sequence sat
 // at 1, so the first real insert after seeding would collide on the primary
@@ -663,5 +620,5 @@ process.stderr.write(
   `-- generated: ${items.length} items, ${ledger.length} ledger rows, ` +
   `${grnId} GRNs, ${issId} issues, ${wstId} wastage, ` +
   `${secRetId} section returns, ${supRetId} supplier returns, ` +
-  `${cntId} counts, ${supPriceId} price points\n`
+  `${cntId} counts\n`
 );

@@ -1,11 +1,11 @@
 /**
  * The operating reports.
  *
- * The five in reports.ts all ask the same question from different angles: is
+ * The four in reports.ts all ask the same question from different angles: is
  * the stock figure true? These ask a different one - is the operation working?
  * Orders that nobody chased, sections the store keeps letting down, suppliers
- * who send eight of the ten sacks, money asleep on a shelf. None of it is
- * visible in a stock balance, and all of it costs money.
+ * who send eight of the ten sacks, stock asleep on a shelf. None of it is
+ * visible in a stock balance, and all of it costs the business.
  *
  * They are deliberately in their own file. A report that measures people is a
  * different kind of thing from a report that measures stock, it gets read by a
@@ -13,7 +13,7 @@
  * machinery beyond the date range.
  *
  * Every one of them takes a range and honours it, including the two that are
- * really point-in-time questions: valuation is answered as at the end date
+ * really point-in-time questions: stock on hand is answered as at the end date
  * rather than as at now, and dead stock is measured against movement inside
  * the window. A date box that silently does nothing is worse than no date box.
  */
@@ -35,9 +35,8 @@ export interface OpenPoRow {
     daysOpen: number;
     /** Days past the date somebody said they needed it. Zero if not yet due. */
     daysLate: number;
-    estimatedValue: number;
-    /** Value of what has still not turned up. */
-    outstandingValue: number;
+    /** Lines where something has still not turned up. */
+    linesOutstanding: number;
 }
 
 /**
@@ -66,21 +65,13 @@ export async function openPurchaseOrders(
             0,
             coalesce(current_date - po.needed_by, 0)
           )::int                                         as "daysLate",
-          round(coalesce(sum(
-            coalesce(l.qty_packs, 0) * coalesce(l.est_price, 0)
-          ), 0)::numeric, 2)                             as "estimatedValue",
-          -- What is still to come, priced at the estimate. Converted back out
-          -- of stock units through the pack, because est_price is per pack.
-          round(coalesce(sum(
-            greatest(l.qty_base - l.qty_received_base, 0)
-              / nullif(p.qty_in_stock_unit, 0)
-              * coalesce(l.est_price, 0)
-          ), 0)::numeric, 2)                             as "outstandingValue"
+          (count(l.id) filter (
+            where l.qty_base > l.qty_received_base
+          ))::int                                        as "linesOutstanding"
         from purchase_orders po
         join users u on u.id = po.raised_by
         left join suppliers s on s.id = po.supplier_id
         left join purchase_order_lines l on l.po_id = po.id
-        left join item_packs p on p.id = l.item_pack_id
         where po.location_id = ${locationId}
           and po.status in ('requested', 'approved', 'ordered')
           and po.raised_at::date between ${range.from}::date and ${range.to}::date
@@ -179,25 +170,25 @@ export interface SupplierPerformanceRow {
     lateOrders: number;
     /** Days from raising the order to it closing. Null while none have closed. */
     avgDaysToClose: number | null;
-    /** What was actually invoiced in the period. */
-    spend: number;
+    /** Lines delivered in the period, across every delivery. */
+    deliveryLines: number;
     /** Returns raised against this supplier's deliveries, excluding rejected. */
     returns: number;
-    /** What those returns were worth at the price paid. */
-    returnedValue: number;
-    /** The part of it a credit note has actually been received for. */
-    creditedValue: number;
-    /** Spend less credits actually allowed. What the supplier really cost. */
-    netSpend: number;
-    /** Returned value as a share of spend. The number worth sorting on. */
+    /** Returns the supplier has settled with a credit note. */
+    credited: number;
+    /**
+     * Share of delivered lines that had something sent back. Lines rather than
+     * quantities, because a sack and a bottle do not add up to anything. The
+     * number worth sorting on.
+     */
     returnRatePct: number | null;
 }
 
 /**
  * Who is worth ordering from.
  *
- * Fill rate comes from the order (ordered against received); spend comes from
- * the deliveries, because that is what was actually invoiced. They are counted
+ * Fill rate comes from the order (ordered against received); deliveries come
+ * from the goods received notes. They are counted
  * separately on purpose - a delivery can arrive with no order behind it, and an
  * order can be placed and never filled, and averaging the two together would
  * hide both.
@@ -206,10 +197,9 @@ export interface SupplierPerformanceRow {
  * in the window.
  *
  * Returns are counted twice over, and the difference between the two numbers is
- * the point: `returnedValue` is what was sent back at the price paid, and
- * `creditedValue` is what a credit note has since been received for. A supplier
- * who agrees to everything and credits nothing shows up as a wide gap between
- * them, which no other report in this system would reveal.
+ * the point: `returns` is how many claims were raised, and `credited` is how
+ * many a credit note has since been received for. A supplier who agrees to
+ * everything and credits nothing shows up as a wide gap between them.
  */
 export async function supplierPerformance(
     locationId: number,
@@ -241,34 +231,29 @@ export async function supplierPerformance(
           select
             g.supplier_id,
             count(distinct g.id)                        as deliveries,
-            sum(gl.qty_packs * gl.pack_price)           as spend
+            count(gl.id)                                as delivery_lines
           from grn g
           join grn_lines gl on gl.grn_id = g.id
           where g.location_id = ${locationId}
             and g.received_at::date between ${range.from}::date and ${range.to}::date
           group by g.supplier_id
         ),
-        -- What went back, and what it was worth. Spend that came back is not
-        -- spend, and a supplier whose deliveries keep returning is exactly what
-        -- this report exists to make visible. Rejected returns are excluded:
-        -- the goods never left.
+        -- What went back. A supplier whose deliveries keep returning is
+        -- exactly what this report exists to make visible. Rejected returns
+        -- are excluded: the goods never left.
         return_agg as (
           select
             sr.supplier_id,
             count(*)                                    as returns,
-            sum(rl.asked)                               as returned_value,
-            -- What the supplier ALLOWED, off the return header -- not the sum
-            -- of the lines, which is what was asked for. They differ whenever a
-            -- supplier settles short, and that difference is the whole reason
-            -- this column exists.
-            sum(sr.credit_value) filter (
+            count(*) filter (
               where sr.status = 'settled' and sr.outcome = 'credit'
-            )                                           as credited_value
+            )                                           as credited,
+            sum(rl.lines)                               as returned_lines
           from supplier_returns sr
-          -- One row per return, so the header value is not multiplied by the
-          -- number of lines under it.
+          -- One row per return, so the header is not multiplied by the number
+          -- of lines under it.
           join lateral (
-            select coalesce(sum(l.line_credit), 0) as asked
+            select count(distinct l.grn_line_id) as lines
             from supplier_return_lines l
             where l.return_id = sr.id
           ) rl on true
@@ -287,15 +272,11 @@ export async function supplierPerformance(
           , 1)                                          as "fillRatePct",
           coalesce(p.late_orders, 0)::int               as "lateOrders",
           round(p.avg_days::numeric, 1)                 as "avgDaysToClose",
-          round(coalesce(gr.spend, 0)::numeric, 2)      as spend,
-          coalesce(rt.returns, 0)::int                   as returns,
-          round(coalesce(rt.returned_value, 0)::numeric, 2) as "returnedValue",
-          round(coalesce(rt.credited_value, 0)::numeric, 2) as "creditedValue",
+          coalesce(gr.delivery_lines, 0)::int           as "deliveryLines",
+          coalesce(rt.returns, 0)::int                  as returns,
+          coalesce(rt.credited, 0)::int                 as credited,
           round(
-            (coalesce(gr.spend, 0) - coalesce(rt.credited_value, 0))::numeric
-          , 2)                                          as "netSpend",
-          round(
-            100.0 * rt.returned_value / nullif(gr.spend, 0)
+            100.0 * rt.returned_lines / nullif(gr.delivery_lines, 0)
           , 1)                                          as "returnRatePct"
         from suppliers s
         left join po_agg p on p.supplier_id = s.id
@@ -304,15 +285,15 @@ export async function supplierPerformance(
         where coalesce(p.orders, 0) > 0
            or coalesce(gr.deliveries, 0) > 0
            or coalesce(rt.returns, 0) > 0
-        order by coalesce(gr.spend, 0) desc, s.name
+        order by coalesce(gr.deliveries, 0) desc, s.name
     `.execute(db);
 
     return rows.map(numeric);
 }
 
-// ── I. What the stock is worth ──────────────────────────────────────────────
+// ── I. What was on the shelf ────────────────────────────────────────────────
 
-export interface ValuationRow {
+export interface StockOnHandRow {
     sectionId: number;
     sectionName: string;
     itemId: number;
@@ -320,28 +301,22 @@ export interface ValuationRow {
     name: string;
     stockUnit: string;
     qtyBase: number;
-    avgCost: number;
-    value: number;
 }
 
 /**
- * Value on hand, as at the end of the range.
+ * Stock on hand, as at the end of the range.
  *
  * The balance is rebuilt from the ledger up to the end date, which is the only
- * way to answer "what was it worth on the 31st" after the fact. The cost is not
- * - `item_cost_state` holds one current average per item, so a valuation of a
- * past date prices yesterday's quantity at today's cost. For month-end on a
- * range that ends today, which is what this is for, the two agree. Backdate it
- * far and the number drifts, and the screen says so rather than pretending.
+ * way to answer "what was on the shelf on the 31st" after the fact.
  *
  * Sections with a zero balance are dropped: a list of everything the branch has
- * ever held, mostly reading 0.00, is not a valuation.
+ * ever held, mostly reading 0, is not a stock sheet.
  */
-export async function stockValuation(
+export async function stockOnHand(
     locationId: number,
     range: DateRange
-): Promise<ValuationRow[]> {
-    const { rows } = await sql<ValuationRow>`
+): Promise<StockOnHandRow[]> {
+    const { rows } = await sql<StockOnHandRow>`
         with balances as (
           select
             l.section_id,
@@ -359,25 +334,18 @@ export async function stockValuation(
           i.code,
           i.name,
           i.stock_unit                                  as "stockUnit",
-          round(b.qty_base::numeric, 3)                 as "qtyBase",
-          -- Four places, not two: a cost per gram or per ml is a fraction of
-          -- a rupee, and rounding it to 0.00 next to a value of 1,500.00 reads
-          -- as a broken report rather than as a small unit.
-          round(coalesce(ics.avg_cost, 0)::numeric, 4)  as "avgCost",
-          round((b.qty_base * coalesce(ics.avg_cost, 0))::numeric, 2) as value
+          round(b.qty_base::numeric, 3)                 as "qtyBase"
         from balances b
         join sections sec on sec.id = b.section_id
         join items i on i.id = b.item_id
-        left join item_cost_state ics
-          on ics.item_id = b.item_id and ics.location_id = ${locationId}
         where b.qty_base <> 0
-        order by sec.name, (b.qty_base * coalesce(ics.avg_cost, 0)) desc
+        order by sec.name, i.name
     `.execute(db);
 
     return rows.map(numeric);
 }
 
-// ── J. Money asleep on a shelf ──────────────────────────────────────────────
+// ── J. Stock asleep on a shelf ──────────────────────────────────────────────
 
 export interface DeadStockRow {
     itemId: number;
@@ -386,7 +354,6 @@ export interface DeadStockRow {
     stockUnit: string;
     sectionName: string;
     qtyBase: number;
-    value: number;
     /** Last time anything moved, in or out. Null if it has never moved. */
     lastMovedOn: string | null;
     daysSinceMoved: number | null;
@@ -396,8 +363,8 @@ export interface DeadStockRow {
  * Stock that is sitting there and nobody is using.
  *
  * Nothing issued out of it in the window, and a balance still on the shelf.
- * Two things at once: cash tied up, and - for anything perishable - a spoilage
- * bill that has not been written yet. The last movement date is what separates
+ * Two things at once: shelf space tied up, and - for anything perishable -
+ * spoilage that has not been logged yet. The last movement date is what separates
  * "slow" from "forgotten".
  */
 export async function deadStock(
@@ -426,14 +393,11 @@ export async function deadStock(
           i.stock_unit                                  as "stockUnit",
           sec.name                                      as "sectionName",
           round(cs.qty_base::numeric, 3)                as "qtyBase",
-          round((cs.qty_base * coalesce(ics.avg_cost, 0))::numeric, 2) as value,
           lm.last_date::text                            as "lastMovedOn",
           (current_date - lm.last_date)::int            as "daysSinceMoved"
         from current_stock cs
         join sections sec on sec.id = cs.section_id
         join items i on i.id = cs.item_id
-        left join item_cost_state ics
-          on ics.item_id = cs.item_id and ics.location_id = ${locationId}
         left join last_move lm
           on lm.item_id = cs.item_id and lm.section_id = cs.section_id
         where cs.location_id = ${locationId}
@@ -443,7 +407,8 @@ export async function deadStock(
             select 1 from moved m
             where m.item_id = cs.item_id and m.section_id = cs.section_id
           )
-        order by (cs.qty_base * coalesce(ics.avg_cost, 0)) desc
+        -- Longest asleep first; never moved at all is the longest of all.
+        order by (current_date - lm.last_date) desc nulls first, i.name
     `.execute(db);
 
     return rows.map(numeric);
@@ -459,19 +424,13 @@ export interface ConsumptionRow {
     name: string;
     stockUnit: string;
     qtyBase: number;
-    value: number;
 }
 
 /**
- * What each section drew from the store, at what it cost.
+ * What each section drew from the store.
  *
  * The positive half of every issue: the store's side is a matching negative and
- * counting both would net to nothing. Valued at the ledger's own `unit_cost`,
- * which is the cost at the moment it moved - not today's average - so a period
- * total does not shift under you when the next delivery lands at a new price.
- *
- * This is the base for section-level food cost. What it is not, yet, is food
- * cost: there is no sales figure in this system to divide it by.
+ * counting both would net to nothing.
  */
 export async function consumptionBySection(
     locationId: number,
@@ -485,8 +444,7 @@ export async function consumptionBySection(
           i.code,
           i.name,
           i.stock_unit                                  as "stockUnit",
-          round(sum(l.qty_base)::numeric, 3)            as "qtyBase",
-          round(sum(l.qty_base * l.unit_cost)::numeric, 2) as value
+          round(sum(l.qty_base)::numeric, 3)            as "qtyBase"
         from stock_ledger l
         join sections sec on sec.id = l.section_id
         join items i on i.id = l.item_id
@@ -502,7 +460,7 @@ export async function consumptionBySection(
           and l.business_date between ${range.from}::date and ${range.to}::date
         group by sec.id, sec.name, i.id, i.code, i.name, i.stock_unit
         having sum(l.qty_base) > 0
-        order by sec.name, sum(l.qty_base * l.unit_cost) desc
+        order by sec.name, i.name
     `.execute(db);
 
     return rows.map(numeric);
@@ -518,8 +476,6 @@ export interface CountAccuracyRow {
     /** Lines where what was counted did not match what was expected. */
     linesOff: number;
     accuracyPct: number | null;
-    /** Total value of the discrepancies, ignoring direction. */
-    absVarianceValue: number;
 }
 
 /**
@@ -550,8 +506,7 @@ export async function countAccuracy(
             100.0 * count(l.id) filter (
               where abs(l.qty_counted - l.qty_expected) <= 0.001
             ) / nullif(count(l.id), 0)
-          , 1)                                          as "accuracyPct",
-          round(coalesce(sum(abs(l.variance_value)), 0)::numeric, 2) as "absVarianceValue"
+          , 1)                                          as "accuracyPct"
         from stock_counts c
         join stock_count_lines l on l.count_id = c.id
         join users u on u.id = c.counted_by
@@ -578,25 +533,22 @@ export interface ReturnsSummaryRow {
     reasonLabel: string;
     /** Handed back by a section into quarantine. */
     sectionReturns: number;
-    sectionQtyValue: number;
     /** Raised against a supplier, excluding rejected ones. */
     supplierReturns: number;
-    supplierValue: number;
-    /** Of that, what a credit note has actually been received for. */
-    creditedValue: number;
+    /** Of those, how many a credit note has actually been received for. */
+    credited: number;
 }
 
 /**
- * Why stock is coming back, and whether anybody is getting the money.
+ * Why stock is coming back, and whether the supplier has answered for it.
  *
  * Grouped by reason rather than by supplier because the first question is which
  * of these is a supplier problem and which is ours. `RET_DAMAGED` against one
  * vendor is a delivery problem; `RET_EXPIRED` across all of them is an ordering
  * problem, and no amount of arguing with suppliers fixes it.
  *
- * The gap between `supplierValue` and `creditedValue` is money that was agreed
- * to be owed and has not arrived. It is the only place in the system that
- * number appears.
+ * The gap between `supplierReturns` and `credited` is claims that were raised
+ * and have not been settled with a credit note.
  */
 export async function returnsByReason(
     locationId: number,
@@ -606,11 +558,8 @@ export async function returnsByReason(
         with section_side as (
           select
             sr.reason_code,
-            count(*)                                          as returns,
-            sum(sr.qty_base * coalesce(cs.avg_cost, 0))       as value
+            count(*)                                          as returns
           from section_returns sr
-          left join item_cost_state cs
-            on cs.item_id = sr.item_id and cs.location_id = sr.location_id
           where sr.location_id = ${locationId}
             and sr.returned_at::date between ${range.from}::date and ${range.to}::date
           group by sr.reason_code
@@ -619,18 +568,10 @@ export async function returnsByReason(
           select
             sr.reason_code,
             count(*)                                          as returns,
-            sum(rl.asked)                                     as value,
-            -- Off the header, so this is what was allowed rather than what was
-            -- asked for. A supplier who settles short shows up as a gap.
-            sum(sr.credit_value) filter (
+            count(*) filter (
               where sr.status = 'settled' and sr.outcome = 'credit'
             )                                                 as credited
           from supplier_returns sr
-          join lateral (
-            select coalesce(sum(l.line_credit), 0) as asked
-            from supplier_return_lines l
-            where l.return_id = sr.id
-          ) rl on true
           where sr.location_id = ${locationId}
             and sr.status <> 'rejected'
             and sr.raised_at::date between ${range.from}::date and ${range.to}::date
@@ -640,16 +581,14 @@ export async function returnsByReason(
           rc.code                                             as "reasonCode",
           rc.label                                            as "reasonLabel",
           coalesce(ss.returns, 0)::int                        as "sectionReturns",
-          round(coalesce(ss.value, 0)::numeric, 2)            as "sectionQtyValue",
           coalesce(sp.returns, 0)::int                        as "supplierReturns",
-          round(coalesce(sp.value, 0)::numeric, 2)            as "supplierValue",
-          round(coalesce(sp.credited, 0)::numeric, 2)         as "creditedValue"
+          coalesce(sp.credited, 0)::int                       as credited
         from reason_codes rc
         left join section_side ss  on ss.reason_code = rc.code
         left join supplier_side sp on sp.reason_code = rc.code
         where rc.doc = 'return'
           and (coalesce(ss.returns, 0) > 0 or coalesce(sp.returns, 0) > 0)
-        order by coalesce(sp.value, 0) + coalesce(ss.value, 0) desc
+        order by coalesce(sp.returns, 0) + coalesce(ss.returns, 0) desc, rc.label
     `.execute(db);
 
     return rows.map(numeric);
@@ -666,7 +605,6 @@ export interface OpenReturnRow {
     sentAt: string | null;
     /** Days since it was raised, or since it was sent once it has gone. */
     daysWaiting: number;
-    expectedCredit: number;
     lines: number;
 }
 
@@ -674,8 +612,8 @@ export interface OpenReturnRow {
  * Returns that have not finished.
  *
  * Anything raised and undecided, approved and not yet gone, or sent and not yet
- * settled. This is the chase list: a return nobody follows up is a delivery the
- * restaurant paid for twice.
+ * settled. This is the chase list: a return nobody follows up is goods that
+ * went back and never came back as anything.
  *
  * Rejected and settled returns are done and are deliberately absent.
  */
@@ -695,7 +633,6 @@ export async function openReturns(
           to_char(sr.sent_at, 'YYYY-MM-DD')                 as "sentAt",
           (current_date - coalesce(sr.sent_at, sr.raised_at)::date)::int
                                                             as "daysWaiting",
-          round(sum(srl.line_credit)::numeric, 2)           as "expectedCredit",
           count(srl.id)::int                                as lines
         from supplier_returns sr
         join suppliers s on s.id = sr.supplier_id
@@ -718,8 +655,7 @@ const NUMERIC_KEYS = new Set([
     'lineCount',
     'daysOpen',
     'daysLate',
-    'estimatedValue',
-    'outstandingValue',
+    'linesOutstanding',
     'requests',
     'stillWaiting',
     'lines',
@@ -732,26 +668,18 @@ const NUMERIC_KEYS = new Set([
     'deliveries',
     'lateOrders',
     'avgDaysToClose',
-    'spend',
+    'deliveryLines',
+    'credited',
     'qtyBase',
-    'avgCost',
-    'value',
     'daysSinceMoved',
     'counts',
     'linesOff',
     'accuracyPct',
-    'absVarianceValue',
     'sectionReturns',
-    'sectionQtyValue',
     'supplierReturns',
-    'supplierValue',
-    'creditedValue',
-    'returnedValue',
-    'netSpend',
     'returnRatePct',
     'returns',
-    'daysWaiting',
-    'expectedCredit'
+    'daysWaiting'
 ]);
 
 function numeric<T extends object>(row: T): T {

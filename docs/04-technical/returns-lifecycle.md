@@ -32,7 +32,7 @@ chef opened the box, the fish was bad, the crate is on its way to the store
 whatever anybody approves. So the ledger moves immediately — kitchen down,
 quarantine up — and a manager reviews it afterwards. Same rule as wastage.
 
-**② A disposal** spends money whichever way it goes: a credit note and an
+**② A disposal** has consequences whichever way it goes: a credit note and an
 argument with the supplier, or a write-off. Both follow from a decision
 management should make *before* anybody moves the crate. So the store asks, the
 manager answers line by line — **back to the supplier, or into the bin** — and
@@ -61,7 +61,7 @@ otherwise is a screen that will be mistrusted the first time somebody counts the
 shelf.
 
 **Nobody does two steps in a row.** The storekeeper asks the question and
-carries out the answer; management answers it and records the money. Neither can
+carries out the answer; management answers it and records what the supplier did. Neither can
 do the other's half — the API refuses it, not just the menu — because an
 approval you can grant yourself approves nothing.
 
@@ -113,11 +113,12 @@ in words aimed at the person who can fix it.
 
 Opened from Returns (*Ask management what to do*), which carries the delivery
 across so the next screen arrives **already filled in**: the delivery, the
-reason, the packs and the credit.
+reason and the packs.
 
 It is an **ask**, not a claim. The store is not asserting that the goods go
-back — it is putting the question to management with the money already worked
-out, so the answer can be an informed one: *claim LKR 20,835, or write it off?*
+back — it is putting the question to management with the delivery and the
+quantities already worked out, so the answer can be an informed one: *claim
+these 5 kg back from the supplier, or bin them?*
 
 Three things are worth knowing about that suggestion:
 
@@ -144,21 +145,22 @@ not handed back yet, or that is still on the store's shelf, has to be returned
 to the store first. The quantity box caps itself at the lesser of what the
 invoice still has returnable and what quarantine physically holds.
 
-The credit is priced from **the pack price on the original GRN line**, not from
-today's price list. Nobody has to remember what a sack cost six weeks ago.
+The return is counted in **the packs of the original GRN line**, so nobody has
+to remember six weeks later which pack it came in. The system keeps no prices:
+what the supplier owes is for accounts, off the invoice.
 
 ### ③ Management answers, line by line
 
-This is the money decision and the only approval in the chain. Each line gets
+This is the real decision and the only approval in the chain. Each line gets
 one of two answers:
 
 | Answer | What it means | What it becomes |
 |---|---|---|
 | `vendor` | Claim a credit from the supplier | Goes on the lorry at step ④ |
-| `waste` | Write the value off | Binned at step ④, as a wastage document |
+| `waste` | Write the stock off | Binned at step ④, as a wastage document |
 
-Both are money, which is why neither is a default and neither is styled as the
-safe one.
+Both have consequences, which is why neither is a default and neither is styled
+as the safe one.
 
 **Every line must be answered.** A partial decision is refused with **400**. A
 half-answered ask is how stock ends up sitting in quarantine for a month:
@@ -202,42 +204,34 @@ decided. Three outcomes:
 
 | Outcome | What it means | What it needs |
 |---|---|---|
-| **Credit note received** | The supplier allowed money against it | The note number **and** the amount |
+| **Credit note received** | The supplier issued a credit note | The note number. The amount is for accounts |
 | **Replaced** | Fresh goods arrived | Nothing — the replacement is an ordinary delivery |
-| **Nothing back** | Written off | Nothing — it is money nobody is getting back |
+| **Nothing back** | Written off | Nothing — the goods are gone and nothing came back |
 
 A credit without its note number is refused. The point of recording a credit is
-being able to check it against the statement, and a credit you cannot find on
+that accounts can find it against the statement, and a credit you cannot find on
 the statement is a note in a diary.
-
-Where the supplier allowed **less** than was asked for, the screen shows the
-shortfall next to it. That gap is the number worth arguing about.
 
 ---
 
-## 4. Cost, and why two numbers are right
+## 4. No money, on purpose
 
-A return is not a receipt, so the ledger values it at the **running weighted
-average**, exactly like an issue: it records the cost of what left.
-
-The money the supplier owes is a **different number** — the pack price on the
-original GRN line — and it lives on `supplier_return_lines`.
-
-They can differ, and they should be allowed to. Forcing the ledger to the
-invoice price would revalue the stock that stayed on the shelf, which is a
-silent way to make every rupee figure in every variance report wrong.
+The system keeps no prices (migration 0009). A return moves **quantities** in
+the ledger, exactly like an issue. What the supplier owes, and what the credit
+note was for, are accounts' figures off the invoice and the note - the system
+records the note **number** so the two can be matched, and nothing more.
 
 ---
 
 ## 5. Known wrinkles
 
 **A part-pack remainder can stay in quarantine.** A supplier return is counted
-in packs, because that is what a credit note is written in; quarantine is
+in packs, because that is how the supplier delivered it; quarantine is
 counted in stock units. Hand back 16 ml of a 750 ml bottle and the return is
 0.021 packs — three decimal places, 15.75 ml — so 0.25 ml stays on the
-quarantine shelf. The alternative is claiming credit for a fraction of a pack no
-supplier will honour, so the residue is the right side of the trade. It is
-visible on the Returns screen and immaterial in money; it clears the next time
+quarantine shelf. The alternative is claiming a fraction of a pack no supplier
+will honour, so the residue is the right side of the trade. It is visible on the
+Returns screen and immaterial; it clears the next time
 that item goes back in a whole pack.
 
 **The delivery behind a crate is inference, not fact.** See ③. If this ever

@@ -148,7 +148,7 @@ standalone system. It does not integrate with any other software.
 | 4 | Move stock between rooms and between sites |
 | 5 | Count stock blind, and show the variance afterwards |
 | 6 | Raise and approve purchase orders |
-| 7 | Report on usage, loss, prices, waste and stock-outs |
+| 7 | Report on usage, loss, waste and stock-outs |
 | 8 | Manage logins, items, suppliers and rooms |
 
 ### 2.3 Users
@@ -176,7 +176,7 @@ large targets, and why almost nothing in the system blocks.
 | Server | Linux VPS, [FILL: region] |
 | Database | PostgreSQL 16 |
 | Language | English |
-| Currency | Sri Lankan Rupees (LKR) |
+| Currency | None. The system records quantities only; prices and costs are kept in accounts |
 | Time zone | Asia/Colombo (UTC+5:30) |
 
 ---
@@ -233,8 +233,7 @@ wrong.**
 
 ### P6 - Warn, do not block
 
-Issues outside the agreed window, price rises, cash discrepancies: all of these
-warn and record. None of them refuse.
+Issues outside the agreed window, and the like: these warn and record. None of them refuse.
 
 **Why it matters:** an issue that happened at 14:00 happened at 14:00. Refusing
 to record it does not undo it - it just makes the stock figure wrong as well as
@@ -268,22 +267,20 @@ problem. Unexplained loss is a different discussion entirely. They are separate
 reports, and documented waste is excluded from the loss report **by
 construction**, not by a filter someone might change.
 
-### P10 - Reports need a materiality floor, in money *and* proportion
+### P10 - Reports need a materiality floor, as a share of the shelf
 
-Counting is never exact. A loss report with no floor will tell you about 44
-cents of lettuce. A money floor alone lets ordinary counting noise on expensive
-spirits bury the real losses, because noise is proportional to what is on the
-shelf and theft is not.
+Counting is never exact. A loss report with no floor will tell you about a gram
+of lettuce, and ordinary counting noise on spirits buries the real losses. Noise
+is proportional to what is on the shelf and theft is not, so a gap has to be a
+material share of what the count expected to find.
 
-Both floors are therefore required. Their values are set by the Client in
-§6.2.
+The floor is set by the Client in §6.2.
 
 ### P11 - Faults surface when they are discovered, not when they happen
 
 Two bottles of gin leave on a Tuesday, but nothing reveals it until the next
-bar count. A supplier raises a price on the 5th, but you find out at the next
-delivery. A report that insists on flagging faults on the day they occur would
-miss both.
+bar count. A report that insists on flagging faults on the day they occur would
+miss it.
 
 ### P12 - Separation of duties
 
@@ -362,7 +359,7 @@ keeps every approval and every report.
 out logins without that also granting them the run of the inventory.
 
 **FR-ROL-04 (M)** **The storekeeper cannot approve purchases.** They handle
-stock, not money. The storekeeper asks for the money; management spends it.
+stock; the storekeeper asks, management decides.
 
 **FR-ROL-05 (M)** **The kitchen cannot raise a purchase.** They cannot see the
 store's shelf, so asking them to decide something needs buying invites an order
@@ -388,8 +385,8 @@ hides screens a role has no use for, but that is presentation, not security.
 
 This is a deliberate trade for a system used on a shared store-room tablet.
 Tightening it is a change to the route guards and is a Change Request.
-**Cost prices and reports are restricted** - the exposure is quantities, not
-money.
+**Reports are restricted** to management. The system holds no prices, so the
+exposure is quantities only.
 
 ---
 
@@ -427,7 +424,8 @@ browser.
 supplier, with an optional invoice number, invoice date and photograph.
 
 **FR-GRN-02 (M)** A delivery has one or more lines. Each line names an item
-pack, a **quantity in packs**, and the **price for one pack**.
+pack and a **quantity in packs**. No price is recorded; the invoice is for
+accounts.
 
 **FR-GRN-03 (M)** Quantities are entered in packs only. The system converts to
 stock units server-side and shows the converted figure beneath the line,
@@ -436,23 +434,12 @@ stock units server-side and shows the converted figure beneath the line,
 **FR-GRN-04 (M)** Fractional packs are accepted. Half a sack does get
 delivered.
 
-**FR-GRN-05 (M)** Where the pack price differs from the last price paid for
-that pack by more than **[FILL: 10]%**, the system displays a warning showing
-the previous price, the new price and the percentage change, **and records the
-delivery anyway**. It must not block: the lorry has already gone.
+**FR-GRN-05** *Withdrawn - the system keeps no prices (migration 0009).*
 
 **FR-GRN-06 (M)** Receiving a delivery increases stock in the **store** section
-of the branch, and records the price actually paid on each ledger row.
+of the branch.
 
-**FR-GRN-07 (M)** Receiving updates the item's weighted-average cost:
-
-```
-new average = (qty on hand × old average + qty received × receipt cost)
-              ÷ (qty on hand + qty received)
-```
-
-Issues, wastage and count adjustments *read* this average; they never change
-it.
+**FR-GRN-07** *Withdrawn - the system keeps no prices (migration 0009).*
 
 **FR-GRN-08 (M)** A delivery may be recorded against an open purchase order.
 Where it is, the ordered quantities are reduced by what was received. A short
@@ -463,7 +450,7 @@ request on a poor connection - creates **one** delivery. This is enforced by an
 idempotency key generated by the client and checked by the server.
 
 **FR-GRN-10 (M)** A delivery can be listed and viewed afterwards, with its
-lines, its total, who received it and when.
+lines, who received it and when.
 
 **FR-GRN-11 (M)** A delivery can be reversed by management, which writes
 mirrored reversal rows. It cannot be edited or deleted.
@@ -539,9 +526,8 @@ reason is indistinguishable from loss and teaches nobody anything.
 Client's own words. Initial list: [FILL: e.g. Spoiled / expired, Over-production,
 Preparation waste, Breakage, Customer return, Quality rejected].
 
-**FR-WST-04 (M)** Wastage reduces stock in the section that recorded it, at the
-current weighted-average cost, **at the moment it is recorded** - not when it is
-approved. The food is already in the bin (P7).
+**FR-WST-04 (M)** Wastage reduces stock in the section that recorded it, **at
+the moment it is recorded** - not when it is approved. The food is already in the bin (P7).
 
 **FR-WST-05 (M)** Management approves wastage after the fact. Approval is a
 review, not a gate.
@@ -581,7 +567,7 @@ in it, from the ledger, and **freezes it**. It is not re-read afterwards.
 touch targets, and moves to the next on entry.
 
 **FR-CNT-05 (M)** Closing the count computes, per line, the variance between
-counted and expected, in quantity and in money at the current average cost, and
+counted and expected, in quantity and as a share of what was expected, and
 displays it only then.
 
 **FR-CNT-06 (M)** Closing writes an adjustment to the ledger so that on-hand
@@ -694,9 +680,9 @@ an instruction naming the screen that fixes it.
 against **one delivery**, with one or more lines, each pointing at a line of
 that delivery and entered **in packs**.
 
-**FR-RET-08 (M)** The credit is priced from the **pack price on that delivery**,
-copied at the time it is raised. A later change to the supplier's price list
-does not alter what is owed for goods already invoiced.
+**FR-RET-08** *Withdrawn - the system keeps no prices (migration 0009).* The
+return is still tied to its delivery, which is what carries the pack and the
+conversion.
 
 **FR-RET-09 (M)** A line cannot exceed what the delivery brought, less anything
 already returned against it. Rejected returns do not count against the balance.
@@ -706,7 +692,7 @@ must be in quarantine before they can go back to a supplier.
 
 **FR-RET-11 (M)** Management, and only management, approves or rejects a
 supplier return. A rejection requires a reason. This is the same rule as a
-purchase order: it is the action that spends money.
+purchase order: the store asks, management decides.
 
 **FR-RET-12 (M)** Stock leaves quarantine when the return is marked **sent**,
 and at no other point. A return that is raised or approved has moved nothing.
@@ -716,16 +702,16 @@ and at no other point. A return that is raised or approved has moved nothing.
 **FR-RET-14 (M)** A sent return is settled with one of three outcomes: a
 **credit note**, a **replacement**, or **written off** with nothing recovered.
 
-**FR-RET-15 (M)** A credit requires its note number and the amount the supplier
-actually allowed, which may be less than was asked for. A replacement and a
-write-off require neither.
+**FR-RET-15 (M)** A credit requires its **note number**, so accounts can find
+it against the supplier's statement. The amount is not recorded - the system
+keeps no prices. A replacement and a write-off require no number.
 
 **FR-RET-16 (M)** A return cannot be settled before it has been sent.
 
 #### Seeing it from the store
 
 **FR-RET-18 (M)** The store has a **Returns** screen showing what is in
-quarantine right now - item, quantity and value - and what came back off the
+quarantine right now - item and quantity - and what came back off the
 floor, with the reason and who returned it.
 
 **FR-RET-19 (M)** That screen states the next step in words and links to it:
@@ -738,8 +724,8 @@ the storekeeper, counting what has come back and is not yet on a supplier
 return.
 
 **FR-RET-21 (M)** The supplier return form **arrives filled in**. Everything in
-quarantine is worked out into proposed returns - the delivery, the reason, the
-pack quantities and the credit - so the storekeeper reads a form rather than
+quarantine is worked out into proposed returns - the delivery, the reason and
+the pack quantities - so the storekeeper reads a form rather than
 rebuilding one. Pressing "send it back to the supplier" on the Returns screen
 carries the delivery with it.
 
@@ -756,10 +742,8 @@ error on a form they did not fill in.
 
 #### What the ledger records
 
-**FR-RET-17 (M)** Both documents post under the `return` document type. A return
-is not a receipt, so it is valued at the running weighted average - the cost of
-what left. The money owed by the supplier is recorded on the return document,
-not in the ledger, and the two may legitimately differ.
+**FR-RET-17 (M)** Both documents post under the `return` document type, in
+quantities only.
 
 ### 5.10 Purchase orders
 
@@ -773,7 +757,7 @@ their reorder point, pre-filled with a suggested quantity.
 a request (FR-REQ-06).
 
 **FR-PO-04 (M)** **Only management may approve or reject a purchase order**
-(FR-ROL-04). Every purchase goes to management, whatever its value.
+(FR-ROL-04). Every purchase goes to management.
 
 **FR-PO-05 (M)** A rejected order records the reason.
 
@@ -791,8 +775,7 @@ all (FR-ROL-05).
 ### 5.11 Opening stock
 
 **FR-OPN-01 (M)** At cutover, the storekeeper or management enters the opening
-balance for a section: for each item, the quantity on the shelf and what it is
-worth.
+balance for a section: for each item, the quantity on the shelf.
 
 **FR-OPN-02 (M)** A section can be opened **once**, and only while it has never
 held stock. After that the instrument is a stock count, because after day one a
@@ -803,8 +786,8 @@ and is visible in history.
 
 ### 5.12 Stock enquiry
 
-**FR-STK-01 (M)** A user can see current stock for their branch: item, section,
-quantity in stock units, and value at current average cost.
+**FR-STK-01 (M)** A user can see current stock for their branch: item, section
+and quantity in stock units.
 
 **FR-STK-02 (M)** Stock is filterable by section and by category, and
 searchable by item name or code.
@@ -820,7 +803,7 @@ storekeeper and management see all sections in the branch.
 ### 5.13 Documents and reversals
 
 **FR-DOC-01 (M)** Every document type can be listed and viewed with its lines,
-its total, who created it, and when.
+who created it, and when.
 
 **FR-DOC-02 (M)** **Management can reverse any document.** A reversal writes
 mirrored ledger rows marked as reversals and pointing at the originals.
@@ -894,9 +877,7 @@ many stock units it contains. One pack may be marked the default for purchase.
 **FR-SET-08 (M)** Create and edit suppliers. *Amended by CR-001:* the
 cash-market flag is withdrawn along with the market purchase.
 
-**FR-SET-09 (M)** Record agreed prices per supplier and pack, with an effective
-date. These are what the first delivery is measured against; without them the
-first surprise price looks exactly like the normal price.
+**FR-SET-09** *Withdrawn - the system keeps no prices (migration 0009).*
 
 **FR-SET-10** *Withdrawn by CR-001* - there are no cleaning areas or tasks.
 
@@ -911,7 +892,7 @@ screen for them is a Change Request.
 **FR-HOM-01 (M)** On signing in, each user lands on a screen showing what
 matters to their role - for the storekeeper, items below reorder point,
 requests waiting to be released, and open counts; for management, the same plus
-purchase orders awaiting approval and total stock value.
+purchase orders awaiting approval.
 
 ### 5.17 Phase 2 - recipes and production
 
@@ -940,61 +921,57 @@ issued, per item, over a date range.
 All reports are **management only**. All take a date range and are scoped to
 the user's branch.
 
-### 6.1 The five core reports
+### 6.1 The four core reports
 
 **FR-RPT-01 (M) - Usage variance.** Theoretical consumption against what was
-actually issued, per item, over a range. Shows quantity variance, value
-variance and percentage. Ordered by significance.
+actually issued, per item, over a range. Shows quantity variance and
+percentage. Ordered by significance.
 
 > Must list two or three items, not forty. A report that flags most of the
 > store is noise.
 
 **FR-RPT-02 (M) - Shrinkage.** Count gaps with no wastage document behind them:
 stock that has gone with no explanation. Shows item, section, date, quantity
-and value.
+and the gap as a share of what was expected.
 
-Subject to **both** materiality floors (P10), and **excludes documented
-wastage by construction** (P9).
+Subject to the materiality floor (P10), and **excludes documented wastage by
+construction** (P9).
 
-**FR-RPT-03 (M) - Supplier price movement.** Where a pack price has moved by
-more than a threshold between one purchase and the next. Shows supplier, item,
-pack, old price, new price, percentage and the date it was discovered.
+**FR-RPT-03** *Withdrawn - the system keeps no prices (migration 0009).* It was the supplier price movement report.
 
 **FR-RPT-04 (M) - Wastage by reason.** Wastage grouped by reason code, with
-quantity and value, drillable to item and to the individual document.
+quantity and number of events, drillable to item and to the individual
+document.
 
 **FR-RPT-05 (M) - Stock-outs and below-reorder.** Items that reached zero, with
 the date, and items currently at or below their reorder point.
 
-### 6.2 Materiality floors - the Client sets these
+### 6.2 Materiality floor - the Client sets this
 
 **FR-RPT-06 (M)** The shrinkage report reports a discrepancy only where it is
-material in **both** money and proportion.
+material as a **proportion of what the count expected** to find.
 
 | Floor | Default | Client's value |
 |---|---|---|
-| Minimum value | LKR 100 | **[FILL]** |
 | Minimum proportion of expected | 2% | **[FILL]** |
 
-> These defaults are informed guesses and they belong on the Phase 0 list to
-> confirm. Both were reached by watching what happened without them: with no
-> floor the report listed Rs 0.44 of lettuce; with a money floor alone,
-> ordinary counting noise on expensive gin produced fifteen false alarms that
-> buried two real bottles.
+> The default is an informed guess and belongs on the Phase 0 list to confirm.
+> It was reached by watching what happened without it: with no floor the report
+> listed one-gram gaps of lettuce, and ordinary counting noise on gin buried
+> two real bottles.
 
-**FR-RPT-07 (M)** The price movement threshold is configurable, defaulting to
-**[FILL: 10]%**.
+**FR-RPT-07** *Withdrawn - the system keeps no prices (migration 0009).*
 
 ### 6.3 Operational reports
 
-Delivered alongside the five, and less contentious.
+Delivered alongside the four, and less contentious.
 
 | ID | Report | Shows |
 |---|---|---|
 | **FR-RPT-08 (M)** | Open purchase orders | What has been ordered and not yet received, with age |
 | **FR-RPT-09 (M)** | Service level | How much of what was requested was actually released |
-| **FR-RPT-10 (M)** | Supplier performance | Delivery completeness and price behaviour by supplier |
-| **FR-RPT-11 (M)** | Stock valuation | Value on hand by section and category, at average cost |
+| **FR-RPT-10 (M)** | Supplier performance | Delivery completeness, lateness, returns and credit notes by supplier |
+| **FR-RPT-11 (M)** | Stock on hand | Quantity on hand by section, as at a date |
 | **FR-RPT-12 (M)** | Dead stock | Items with no movement in a period |
 | **FR-RPT-13 (M)** | Consumption | What each section consumed over a range |
 | **FR-RPT-14 (M)** | Count accuracy | How often counts match, by counter and by section |
@@ -1031,8 +1008,8 @@ fails the build, not by a convention.
 **NFR-INT-07 (M)** Every document POST is idempotent on a client-supplied key.
 A retried request creates one document.
 
-**NFR-INT-08 (M)** All money is stored to two decimal places, all quantities to
-three. No floating point is used for money.
+**NFR-INT-08 (M)** All quantities are stored to three decimal places. No
+floating point is used for stored quantities. No money is stored at all.
 
 ### 7.2 Performance
 
@@ -1139,7 +1116,7 @@ deleted.
 
 ### 8.3 Cutover data
 
-**FR-DAT-01 (M)** Items, packs, suppliers, prices, branches, sections and users
+**FR-DAT-01 (M)** Items, packs, suppliers, branches, sections and users
 are entered through the setup screens at cutover.
 
 **FR-DAT-02 (M)** Opening balances are entered per section by physically
@@ -1187,7 +1164,7 @@ delivery, the ledger is immutable for real.
 | ASM-02 | The Client provides devices |
 | ASM-03 | Every user gets their own login. The audit trail depends entirely on this |
 | ASM-04 | Phase 0 will confirm every item, unit and pack conversion by physically walking the store |
-| ASM-05 | The Client can supply agreed supplier prices at cutover |
+| ASM-05 | *Withdrawn - the system keeps no prices (migration 0009)* |
 | ASM-06 | Staff will be released for UAT and training |
 | ASM-07 | Up to [FILL: 25] users and [FILL: 150] items |
 
@@ -1217,7 +1194,8 @@ Stated so that neither party is in any doubt.
 | OOS-09 | Sinhala or Tamil interface | |
 | OOS-10 | Recipes, products, production log | Phase 2 |
 | OOS-11 | CSV import of the item master | |
-| OOS-12 | Approval thresholds by value | Management approves every purchase |
+| OOS-12 | Approval thresholds by value | Management approves every purchase. The system keeps no prices |
+| OOS-19 | Prices, costs, stock valuation and credit amounts | Kept in accounts, off the supplier's invoice. Removed in migration 0009 |
 | OOS-13 | Any purchase outside a supplier invoice - cash buys at the market or the pola | Withdrawn by CR-001. A purchase order is closed by a GRN |
 | OOS-14 | A transfers screen | API and tests only in Phase 1 (FR-TRF-04) |
 | OOS-15 | A screen for changing a user's role | Script only in Phase 1 |
@@ -1255,13 +1233,13 @@ Demonstrated live, in front of the Client. Each of these must **fail**:
 ### 11.3 The reports gate - the planted faults
 
 The system is delivered loaded with sixty days of generated data containing
-five deliberate faults. Each report must find its own fault.
+four deliberate faults. Each report must find its own fault. (Fault C, a
+supplier price rise, was withdrawn with costing.)
 
 | Fault | Where it hides | Report that must catch it | Correct answer |
 |---|---|---|---|
-| **A** Chicken breast over-issued from day 20 | Individual issues look normal | Usage variance | **+18.6%**, ~LKR 192,000 |
-| **B** Two gin bottles vanish, days 28 and 44 | No document at all | Shrinkage | **Exactly two rows**, −750 ml and ~LKR 5,216 each, both in the bar |
-| **C** Sunflower oil +32% at the supplier on day 35 | Buried in a routine delivery | Price movement | 45,880 → 60,561.60 |
+| **A** Chicken breast over-issued from day 20 | Individual issues look normal | Usage variance | **+17.9%**, ~46.7 kg over |
+| **B** Two gin bottles vanish, days 28 and 44 | No document at all | Shrinkage | **Exactly two rows**, −750 ml each, both on the kitchen's drinks shelf |
 | **D** Lettuce spoilage spike, days 38-44 | Genuine waste, correctly logged | Wastage by reason | Listed under *Spoiled / expired* |
 | **E** Prawns hit zero on day 41 | Store empties mid-service | Stock-outs | Balance 0 on that date |
 
@@ -1277,9 +1255,8 @@ owner accused of theft over a crate of lettuce stops opening reports by week
 three.
 
 It has already caught a real defect during development. Without a materiality
-floor, the shrinkage report was listing 44 cents of lettuce; and a money floor
-alone still let fifteen days of ordinary counting noise on expensive gin bury
-the two real bottles.
+floor, the shrinkage report was listing one-gram gaps of lettuce, and ordinary
+counting noise on gin buried the two real bottles.
 
 ### 11.5 The non-functional gate
 
@@ -1331,12 +1308,11 @@ defects must be closed. Severities are defined in SOW §8.
 | **Wastage** | Stock discarded, with a reason |
 | **Shrinkage** | Stock gone with no document to explain it |
 | **Blind count** | A count where the expected quantity is not shown |
-| **Variance** | The difference between counted and expected, in quantity and money |
+| **Variance** | The difference between counted and expected, in quantity and as a share of expected |
 | **Critical item** | An item counted daily because it is valuable or walks easily |
 | **Par level** | The quantity a section aims to hold |
 | **Reorder point** | The level at which buying more is triggered |
-| **Weighted-average cost** | The running average of what has been paid, used to value stock leaving |
-| **Materiality floor** | The threshold below which a discrepancy is not reported. Money *and* proportion |
+| **Materiality floor** | The threshold below which a discrepancy is not reported, as a share of what was expected |
 | **Business day** | The operating day, which may not start at midnight |
 | **Idempotency key** | A value that ensures a retried save creates one document |
 | **Issue window** | An agreed time for releasing stock. Warned, never enforced |
@@ -1355,9 +1331,8 @@ the system to be delivered, and agrees that:
 4. The design principles in §3 are understood and agreed, including the
    deliberate trade-offs in P6 (warn, do not block) and FR-ROL-11 (read access
    is not restricted by role).
-5. The values the Client must supply - the materiality floors in §6.2, the
-   price threshold in FR-RPT-07, the wastage reasons in FR-WST-03, the issue
-   windows in FR-REQ-07 - have been provided or are scheduled in Phase 0.
+5. The values the Client must supply - the materiality floor in §6.2, the
+   wastage reasons in FR-WST-03, the issue windows in FR-REQ-07 - have been provided or are scheduled in Phase 0.
 
 **For [FILL: client legal entity name]**
 

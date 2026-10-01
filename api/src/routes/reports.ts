@@ -3,8 +3,7 @@ import type { ZodTypeProvider } from 'fastify-type-provider-zod';
 import { z } from 'zod';
 import {
     belowReorder,
-    DEFAULT_SHRINKAGE_FLOOR_LKR,
-    priceMovement,
+    DEFAULT_SHRINKAGE_FLOOR_PCT,
     shrinkage,
     stockOuts,
     usageTrend,
@@ -20,7 +19,7 @@ import {
     openReturns,
     requestServiceLevel,
     returnsByReason,
-    stockValuation,
+    stockOnHand,
     supplierPerformance
 } from '../services/reports-ops.js';
 
@@ -68,8 +67,7 @@ export async function reportRoutes(app: FastifyInstance) {
                                 theoreticalQty: z.number(),
                                 actualQty: z.number(),
                                 varianceQty: z.number(),
-                                variancePct: z.number(),
-                                varianceValue: z.number()
+                                variancePct: z.number()
                             })
                         )
                     })
@@ -109,8 +107,9 @@ export async function reportRoutes(app: FastifyInstance) {
             preHandler: managers(),
             schema: {
                 querystring: rangeQuery.extend({
-                    // Below this, it is counting noise rather than loss.
-                    minValue: z.coerce.number().min(0).default(DEFAULT_SHRINKAGE_FLOOR_LKR),
+                    // Below this share of the shelf, it is counting noise
+                    // rather than loss.
+                    minPct: z.coerce.number().min(0).max(100).default(DEFAULT_SHRINKAGE_FLOOR_PCT),
                     unexplainedOnly: z.coerce.boolean().default(true)
                 }),
                 response: {
@@ -126,54 +125,8 @@ export async function reportRoutes(app: FastifyInstance) {
                                 sectionCode: z.string(),
                                 businessDate: z.string(),
                                 varianceQty: z.number(),
-                                varianceValue: z.number(),
                                 variancePct: z.number().nullable(),
                                 hasWastageDoc: z.boolean()
-                            })
-                        ),
-                        totalValue: z.number()
-                    })
-                }
-            }
-        },
-        async (req) => {
-            const range = resolveRange(req.query);
-            const all = await shrinkage(req.locationId, range, req.query.minValue);
-
-            // A gap with a wastage document behind it is explained. Default to
-            // hiding those, because the unexplained ones are the report.
-            const rows = req.query.unexplainedOnly ? all.filter((x) => !x.hasWastageDoc) : all;
-
-            return {
-                ...range,
-                rows,
-                totalValue: Math.round(rows.reduce((s, x) => s + x.varianceValue, 0) * 100) / 100
-            };
-        }
-    );
-
-    r.get(
-        '/reports/price-movement',
-        {
-            preHandler: managers(),
-            schema: {
-                querystring: rangeQuery.extend({
-                    minPct: z.coerce.number().min(0).max(1000).default(5)
-                }),
-                response: {
-                    200: z.object({
-                        from: z.string(),
-                        to: z.string(),
-                        rows: z.array(
-                            z.object({
-                                itemPackId: z.number(),
-                                itemName: z.string(),
-                                packName: z.string(),
-                                supplierName: z.string(),
-                                effectiveFrom: z.string(),
-                                previousPrice: z.number(),
-                                newPrice: z.number(),
-                                changePct: z.number()
                             })
                         )
                     })
@@ -182,7 +135,13 @@ export async function reportRoutes(app: FastifyInstance) {
         },
         async (req) => {
             const range = resolveRange(req.query);
-            return { ...range, rows: await priceMovement(range, req.query.minPct) };
+            const all = await shrinkage(req.locationId, range, req.query.minPct);
+
+            // A gap with a wastage document behind it is explained. Default to
+            // hiding those, because the unexplained ones are the report.
+            const rows = req.query.unexplainedOnly ? all.filter((x) => !x.hasWastageDoc) : all;
+
+            return { ...range, rows };
         }
     );
 
@@ -206,19 +165,17 @@ export async function reportRoutes(app: FastifyInstance) {
                                 stockUnit: z.string(),
                                 sectionCode: z.string(),
                                 events: z.number(),
-                                qtyBase: z.number(),
-                                value: z.number()
+                                qtyBase: z.number()
                             })
                         ),
                         byReason: z.array(
                             z.object({
                                 reasonCode: z.string(),
                                 reasonLabel: z.string(),
-                                events: z.number(),
-                                value: z.number()
+                                events: z.number()
                             })
                         ),
-                        totalValue: z.number()
+                        totalEvents: z.number()
                     })
                 }
             }
@@ -229,29 +186,25 @@ export async function reportRoutes(app: FastifyInstance) {
 
             const grouped = new Map<
                 string,
-                { reasonCode: string; reasonLabel: string; events: number; value: number }
+                { reasonCode: string; reasonLabel: string; events: number }
             >();
             for (const row of rows) {
                 const entry = grouped.get(row.reasonCode) ?? {
                     reasonCode: row.reasonCode,
                     reasonLabel: row.reasonLabel,
-                    events: 0,
-                    value: 0
+                    events: 0
                 };
                 entry.events += row.events;
-                entry.value += row.value;
                 grouped.set(row.reasonCode, entry);
             }
 
-            const byReason = [...grouped.values()]
-                .map((g) => ({ ...g, value: Math.round(g.value * 100) / 100 }))
-                .sort((a, b) => b.value - a.value);
+            const byReason = [...grouped.values()].sort((a, b) => b.events - a.events);
 
             return {
                 ...range,
                 rows,
                 byReason,
-                totalValue: Math.round(rows.reduce((s, x) => s + x.value, 0) * 100) / 100
+                totalEvents: rows.reduce((s, x) => s + x.events, 0)
             };
         }
     );
@@ -321,7 +274,7 @@ export async function reportRoutes(app: FastifyInstance) {
 
     // ── The operating reports ───────────────────────────────────────────────
     //
-    // Same shape as the five above: a range in, `{ from, to, rows }` out. The
+    // Same shape as the four above: a range in, `{ from, to, rows }` out. The
     // screen renders them from one generic runner, so a report that answered in
     // its own shape would need its own special case on the client for no gain.
 
@@ -346,8 +299,7 @@ export async function reportRoutes(app: FastifyInstance) {
                                 lineCount: z.number(),
                                 daysOpen: z.number(),
                                 daysLate: z.number(),
-                                estimatedValue: z.number(),
-                                outstandingValue: z.number()
+                                linesOutstanding: z.number()
                             })
                         )
                     })
@@ -413,11 +365,9 @@ export async function reportRoutes(app: FastifyInstance) {
                                 fillRatePct: z.number().nullable(),
                                 lateOrders: z.number(),
                                 avgDaysToClose: z.number().nullable(),
-                                spend: z.number(),
+                                deliveryLines: z.number(),
                                 returns: z.number(),
-                                returnedValue: z.number(),
-                                creditedValue: z.number(),
-                                netSpend: z.number(),
+                                credited: z.number(),
                                 returnRatePct: z.number().nullable()
                             })
                         )
@@ -432,7 +382,7 @@ export async function reportRoutes(app: FastifyInstance) {
     );
 
     r.get(
-        '/reports/valuation',
+        '/reports/stock-on-hand',
         {
             preHandler: managers(),
             schema: {
@@ -449,9 +399,7 @@ export async function reportRoutes(app: FastifyInstance) {
                                 code: z.string(),
                                 name: z.string(),
                                 stockUnit: z.string(),
-                                qtyBase: z.number(),
-                                avgCost: z.number(),
-                                value: z.number()
+                                qtyBase: z.number()
                             })
                         )
                     })
@@ -460,7 +408,7 @@ export async function reportRoutes(app: FastifyInstance) {
         },
         async (req) => {
             const range = resolveRange(req.query);
-            return { ...range, rows: await stockValuation(req.locationId, range) };
+            return { ...range, rows: await stockOnHand(req.locationId, range) };
         }
     );
 
@@ -482,7 +430,6 @@ export async function reportRoutes(app: FastifyInstance) {
                                 stockUnit: z.string(),
                                 sectionName: z.string(),
                                 qtyBase: z.number(),
-                                value: z.number(),
                                 lastMovedOn: z.string().nullable(),
                                 daysSinceMoved: z.number().nullable()
                             })
@@ -515,8 +462,7 @@ export async function reportRoutes(app: FastifyInstance) {
                                 code: z.string(),
                                 name: z.string(),
                                 stockUnit: z.string(),
-                                qtyBase: z.number(),
-                                value: z.number()
+                                qtyBase: z.number()
                             })
                         )
                     })
@@ -546,8 +492,7 @@ export async function reportRoutes(app: FastifyInstance) {
                                 counts: z.number(),
                                 lines: z.number(),
                                 linesOff: z.number(),
-                                accuracyPct: z.number().nullable(),
-                                absVarianceValue: z.number()
+                                accuracyPct: z.number().nullable()
                             })
                         )
                     })
@@ -575,10 +520,8 @@ export async function reportRoutes(app: FastifyInstance) {
                                 reasonCode: z.string(),
                                 reasonLabel: z.string(),
                                 sectionReturns: z.number(),
-                                sectionQtyValue: z.number(),
                                 supplierReturns: z.number(),
-                                supplierValue: z.number(),
-                                creditedValue: z.number()
+                                credited: z.number()
                             })
                         )
                     })
@@ -612,7 +555,6 @@ export async function reportRoutes(app: FastifyInstance) {
                                 raisedAt: z.string(),
                                 sentAt: z.string().nullable(),
                                 daysWaiting: z.number(),
-                                expectedCredit: z.number(),
                                 lines: z.number()
                             })
                         )

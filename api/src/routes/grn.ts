@@ -10,84 +10,12 @@ import { offsetOf, pageOf, pageQuery, toPage } from '../services/pagination.js';
 
 const grnResult = z.object({
     id: z.string(),
-    total: z.number(),
     businessDate: z.string(),
     lineCount: z.number(),
-    priceWarnings: z.array(
-        z.object({
-            itemPackId: z.number(),
-            itemName: z.string(),
-            packName: z.string(),
-            previousPrice: z.number(),
-            newPrice: z.number(),
-            changePct: z.number(),
-        })
-    ),
 });
 
 export async function grnRoutes(app: FastifyInstance) {
     const r = app.withTypeProvider<ZodTypeProvider>();
-
-    /**
-     * What this supplier charged last time, per pack.
-     *
-     * The build notes say a price jump is "warned inline, before the lorry
-     * leaves, not in a report a fortnight later". Until now the warning came
-     * back with the save response -- which is after the delivery is recorded
-     * and, in practice, after the driver has gone. The storekeeper's own
-     * question at the door is simpler than a report: is this the price we
-     * agreed? So the last price is readable while the line is being typed.
-     *
-     * Read from `supplier_prices`, which is the same table `createGrn`
-     * compares against when it decides whether to warn. Two sources for one
-     * number is how a screen ends up disagreeing with the document it just
-     * produced.
-     */
-    r.get(
-        '/suppliers/:id/last-prices',
-        {
-            preHandler: app.requireRole('storekeeper', 'management'),
-            schema: {
-                params: z.object({ id: z.coerce.number().int().positive() }),
-                response: {
-                    200: z.array(
-                        z.object({
-                            itemPackId: z.number(),
-                            price: z.number(),
-                            effectiveFrom: z.string(),
-                        })
-                    ),
-                },
-            },
-        },
-        async (req) => {
-            const rows = await db
-                .selectFrom('supplier_prices')
-                .select(['item_pack_id as itemPackId', 'price', 'effective_from as effectiveFrom'])
-                .where('supplier_id', '=', req.params.id)
-                .orderBy('item_pack_id')
-                .orderBy('effective_from', 'desc')
-                // Two changes on one day are ordinary, and effective_from is a
-                // date. The later row wins, the same way createGrn breaks the
-                // tie -- otherwise the screen and the document it produces can
-                // compare against different prices.
-                .orderBy('id', 'desc')
-                .execute();
-
-            // One row per pack: the most recent. Done here rather than with a
-            // distinct-on so the shape stays obvious.
-            const latest = new Map<number, { itemPackId: number; price: number; effectiveFrom: string }>();
-            for (const row of rows) {
-                if (latest.has(row.itemPackId)) continue;
-                latest.set(row.itemPackId, {
-                    itemPackId: row.itemPackId,
-                    price: Number(row.price),
-                    effectiveFrom: String(row.effectiveFrom),
-                });
-            }
-            return [...latest.values()];
-        }
-    );
 
     r.post(
         '/grn',
@@ -112,7 +40,6 @@ export async function grnRoutes(app: FastifyInstance) {
                                 // Packs, never stock units. Fractional packs are
                                 // real: half a sack gets delivered.
                                 qtyPacks: z.number().positive().max(100_000),
-                                packPrice: z.number().nonnegative().max(100_000_000),
                                 expiryDate: z
                                     .string()
                                     .regex(/^\d{4}-\d{2}-\d{2}$/)
@@ -146,7 +73,6 @@ export async function grnRoutes(app: FastifyInstance) {
                 lines: req.body.lines.map((l) => ({
                     itemPackId: l.itemPackId,
                     qtyPacks: l.qtyPacks,
-                    packPrice: l.packPrice,
                     expiryDate: l.expiryDate ?? null,
                 })),
                 receivedBy: req.user.sub,
@@ -180,7 +106,6 @@ export async function grnRoutes(app: FastifyInstance) {
                             receivedBy: z.string(),
                             /** Set when it filled a purchase order. */
                             poId: z.string().nullable(),
-                            total: z.number().nullable(),
                             lineCount: z.number(),
                         })
                     ),
@@ -216,13 +141,6 @@ export async function grnRoutes(app: FastifyInstance) {
                         'grn.received_at as receivedAt',
                         'grn.po_id as poId',
                         'users.name as receivedBy',
-                        // Derived from the lines, not read from grn.total. The
-                        // stored column is a convenience that can be null
-                        // (seeded rows never set it) or stale; the lines are
-                        // the document. Same principle as stock itself.
-                        sql<number>`coalesce(sum(grn_lines.qty_packs * grn_lines.pack_price), 0)`.as(
-                            'total'
-                        ),
                         fn.count('grn_lines.id').as('lineCount'),
                     ])
                     .groupBy(['grn.id', 'suppliers.name', 'users.name'])
@@ -241,7 +159,6 @@ export async function grnRoutes(app: FastifyInstance) {
                 receivedAt: new Date(r2.receivedAt as unknown as string).toISOString(),
                 receivedBy: r2.receivedBy,
                 poId: r2.poId === null ? null : String(r2.poId),
-                total: Number(r2.total ?? 0),
                 lineCount: Number(r2.lineCount),
             }));
 
@@ -259,8 +176,8 @@ export async function grnRoutes(app: FastifyInstance) {
      * keeps, so it has a page.
      *
      * Each line carries what has already gone back to the supplier against it,
-     * from the same query the return form uses -- so the answer to "did we get
-     * a credit for the bad half of that delivery" is on the delivery.
+     * from the same query the return form uses -- so the answer to "did the bad
+     * half of that delivery go back" is on the delivery.
      */
     r.get(
         '/grn/:id',
@@ -279,7 +196,6 @@ export async function grnRoutes(app: FastifyInstance) {
                         receivedBy: z.string(),
                         poId: z.string().nullable(),
                         photoUrl: z.string().nullable(),
-                        total: z.number(),
                         lines: z.array(
                             z.object({
                                 id: z.string(),
@@ -290,9 +206,7 @@ export async function grnRoutes(app: FastifyInstance) {
                                 packName: z.string(),
                                 qtyInStockUnit: z.number(),
                                 qtyPacks: z.number(),
-                                packPrice: z.number(),
                                 qtyBase: z.number(),
-                                lineTotal: z.number(),
                                 /** Packs already sent back to the supplier. */
                                 qtyPacksReturned: z.number(),
                             })
@@ -332,7 +246,6 @@ export async function grnRoutes(app: FastifyInstance) {
                 packName: string;
                 qtyInStockUnit: number;
                 qtyPacks: number;
-                packPrice: number;
                 qtyPacksReturned: number;
             }>`
                 select
@@ -344,7 +257,6 @@ export async function grnRoutes(app: FastifyInstance) {
                   p.pack_name              as "packName",
                   p.qty_in_stock_unit      as "qtyInStockUnit",
                   gl.qty_packs             as "qtyPacks",
-                  gl.pack_price            as "packPrice",
                   coalesce(r.returned, 0)  as "qtyPacksReturned"
                 from grn_lines gl
                 join item_packs p on p.id = gl.item_pack_id
@@ -362,7 +274,6 @@ export async function grnRoutes(app: FastifyInstance) {
 
             const lines = rows.map((l) => {
                 const qtyPacks = Number(l.qtyPacks);
-                const packPrice = Number(l.packPrice);
                 const qtyInStockUnit = Number(l.qtyInStockUnit);
                 return {
                     id: String(l.id),
@@ -373,9 +284,7 @@ export async function grnRoutes(app: FastifyInstance) {
                     packName: l.packName,
                     qtyInStockUnit,
                     qtyPacks,
-                    packPrice,
                     qtyBase: qtyPacks * qtyInStockUnit,
-                    lineTotal: qtyPacks * packPrice,
                     qtyPacksReturned: Number(l.qtyPacksReturned),
                 };
             });
@@ -390,9 +299,6 @@ export async function grnRoutes(app: FastifyInstance) {
                 receivedBy: head.receivedBy,
                 poId: head.poId === null ? null : String(head.poId),
                 photoUrl: head.photoUrl,
-                // Derived from the lines, like the list: the stored column is a
-                // convenience that can be null or stale.
-                total: lines.reduce((n, l) => n + l.lineTotal, 0),
                 lines,
             };
         }

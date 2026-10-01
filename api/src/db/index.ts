@@ -5,12 +5,12 @@ import type { Database } from './types.js';
 
 /**
  * node-postgres returns `numeric` as a string to avoid precision loss. Every
- * numeric in this schema is numeric(14,3) or numeric(14,4), so the scaled
- * integer tops out around 1e18... which is past 2^53. In practice the values
- * are stock quantities and Sri Lankan rupee amounts, nowhere near that, and
- * working with strings everywhere costs more than it buys.
+ * numeric in this schema is numeric(14,3), so the scaled integer tops out
+ * around 1e17... which is past 2^53. In practice the values are stock
+ * quantities, nowhere near that, and working with strings everywhere costs
+ * more than it buys.
  *
- * The rule that makes this safe: arithmetic on money and quantities happens in
+ * The rule that makes this safe: arithmetic on quantities happens in
  * Postgres, on `numeric`. JavaScript only ever carries values in and out.
  */
 pg.types.setTypeParser(pg.types.builtins.NUMERIC, (v: string) => Number.parseFloat(v));

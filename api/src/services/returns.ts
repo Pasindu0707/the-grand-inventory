@@ -9,22 +9,15 @@
  *   whatever anybody approves. So the ledger moves immediately -- kitchen down,
  *   quarantine up -- and a manager reviews it afterwards. Same rule as wastage.
  *
- *   A **supplier return** spends money. The credit note, the replacement, the
- *   argument with the supplier: all of it follows from a decision management
+ *   A **supplier return** is a claim on a supplier. The credit note, the
+ *   replacement, the argument with the supplier: all of it follows from a decision management
  *   should make before the goods are on the lorry. So it is written up, then
  *   approved, and the ledger moves only when it is marked sent -- which is the
  *   moment the stock actually leaves the building.
  *
- * Cost. A return is not a receipt, so `postDocument` values it at the running
- * weighted average, the same as an issue: it records the cost of what left. The
- * money the supplier owes is a different number entirely -- the pack price on
- * the original GRN line -- and it lives on `supplier_return_lines`. They can
- * differ, and they should be allowed to: forcing the ledger to the invoice
- * price would revalue the stock that stayed on the shelf.
- *
  * **One decision, two possible ends (CR-006).** The store raises the supplier
  * return as an *ask*: here is what is in quarantine, here is the delivery it
- * came in on and what it is worth -- do we claim it, or bin it? Management
+ * came in on and how much of it there is -- do we claim it, or bin it? Management
  * answers **line by line**, and that answer is the only approval in the chain.
  * A line decided `vendor` leaves on the lorry and is settled against a credit
  * note; a line decided `waste` is binned by the store and posts an ordinary
@@ -60,7 +53,7 @@ import type { DisposalDecision, SupplierReturnOutcome } from '../db/types.js';
  * it is picking a document at random to hang a loss on.
  *
  * Seven days is a guess and belongs on the Phase 0 list to confirm with the
- * owner, the same as the shrinkage floors in reports.ts.
+ * owner, the same as the shrinkage floor in reports.ts.
  */
 export const RETURN_WINDOW_DAYS = 7;
 
@@ -406,7 +399,7 @@ export async function returnToStore(
  * section handed the goods over -- and blocked nothing while it sat unapproved,
  * so in practice it was a stamp. What management now decides instead is what
  * actually becomes of the goods: claimed from the supplier, or binned. That is
- * a real decision about real money, and it is the only approval in the chain.
+ * a real decision about real stock, and it is the only approval in the chain.
  *
  * `section_returns.approved_by` stays on the table and stays readable. Sixty
  * days of demo data carry it, and dropping a column to tidy up a concept is
@@ -424,7 +417,6 @@ export interface ReturnableLine {
     packId: number;
     packName: string;
     qtyInStockUnit: number;
-    packPrice: number;
     qtyPacksDelivered: number;
     qtyPacksReturned: number;
     qtyPacksReturnable: number;
@@ -466,7 +458,6 @@ export async function returnableLines(
           p.id                                       as "packId",
           p.pack_name                                as "packName",
           p.qty_in_stock_unit                        as "qtyInStockUnit",
-          gl.pack_price                              as "packPrice",
           gl.qty_packs                               as "qtyPacksDelivered",
           coalesce(r.returned, 0)                    as "qtyPacksReturned",
           gl.qty_packs - coalesce(r.returned, 0)     as "qtyPacksReturnable",
@@ -490,7 +481,6 @@ export async function returnableLines(
     return rows.map((r) => ({
         ...r,
         qtyInStockUnit: Number(r.qtyInStockUnit),
-        packPrice: Number(r.packPrice),
         qtyPacksDelivered: Number(r.qtyPacksDelivered),
         qtyPacksReturned: Number(r.qtyPacksReturned),
         qtyPacksReturnable: Number(r.qtyPacksReturnable),
@@ -518,7 +508,6 @@ export interface QuarantineRow {
     name: string;
     stockUnit: string;
     qtyBase: number;
-    value: number;
     /** Already on an ask that has not been sent or binned yet. */
     qtyOnOpenAsk: number;
     /** Still to be asked about. */
@@ -544,10 +533,9 @@ export async function quarantineContents(locationId: number): Promise<Quarantine
           i.name,
           i.stock_unit                                as "stockUnit",
           cs.qty_base                                 as "qtyBase",
-          cs.value,
           least(coalesce(c.qty, 0), cs.qty_base)      as "qtyOnOpenAsk",
           greatest(cs.qty_base - coalesce(c.qty, 0), 0) as "qtyFree"
-        from current_stock_valued cs
+        from current_stock cs
         join items i on i.id = cs.item_id
         left join claimed c on c.item_id = cs.item_id
         where cs.section_id = ${quarantineId}
@@ -558,7 +546,6 @@ export async function quarantineContents(locationId: number): Promise<Quarantine
     return rows.map((r) => ({
         ...r,
         qtyBase: Number(r.qtyBase),
-        value: Number(r.value),
         qtyOnOpenAsk: Number(r.qtyOnOpenAsk),
         qtyFree: Number(r.qtyFree)
     }));
@@ -574,14 +561,12 @@ export interface SuggestedReturnLine {
     stockUnit: string;
     packName: string;
     qtyInStockUnit: number;
-    packPrice: number;
     /** In quarantine now, in stock units. */
     qtyInQuarantine: number;
     /** Still returnable on that delivery line, in packs. */
     qtyPacksReturnable: number;
     /** What to put in the box: the quarantine balance, capped by the line. */
     suggestedPacks: number;
-    suggestedCredit: number;
 }
 
 export interface SuggestedReturn {
@@ -594,7 +579,6 @@ export interface SuggestedReturn {
     reasonCode: string | null;
     reasonLabel: string | null;
     lines: SuggestedReturnLine[];
-    totalCredit: number;
 }
 
 /**
@@ -636,7 +620,6 @@ export async function suggestedSupplierReturns(
         stockUnit: string;
         packName: string;
         qtyInStockUnit: number;
-        packPrice: number;
         qtyInQuarantine: number;
         qtyPacksReturnable: number;
     }>`
@@ -705,7 +688,6 @@ export async function suggestedSupplierReturns(
             i.stock_unit                                as "stockUnit",
             p.pack_name                                 as "packName",
             p.qty_in_stock_unit                         as "qtyInStockUnit",
-            gl.pack_price                               as "packPrice",
             h.qty_base                                  as "qtyInQuarantine",
             gl.qty_packs - coalesce(gn.packs, 0)        as "qtyPacksReturnable",
             row_number() over (
@@ -741,8 +723,7 @@ export async function suggestedSupplierReturns(
                 supplierName: r.supplierName,
                 reasonCode: r.reasonCode,
                 reasonLabel: r.reasonLabel,
-                lines: [],
-                totalCredit: 0
+                lines: []
             };
             byGrn.set(key, group);
         }
@@ -750,7 +731,6 @@ export async function suggestedSupplierReturns(
         const packSize = Number(r.qtyInStockUnit);
         const held = Number(r.qtyInQuarantine);
         const returnable = Number(r.qtyPacksReturnable);
-        const packPrice = Number(r.packPrice);
 
         /**
          * Rounded DOWN, to the three decimals the column holds.
@@ -769,7 +749,6 @@ export async function suggestedSupplierReturns(
             : 0;
         if (suggested <= 0) continue;
 
-        const credit = Number((suggested * packPrice).toFixed(2));
         group.lines.push({
             grnLineId: String(r.grnLineId),
             itemId: r.itemId,
@@ -778,13 +757,10 @@ export async function suggestedSupplierReturns(
             stockUnit: r.stockUnit,
             packName: r.packName,
             qtyInStockUnit: packSize,
-            packPrice,
             qtyInQuarantine: held,
             qtyPacksReturnable: returnable,
-            suggestedPacks: suggested,
-            suggestedCredit: credit
+            suggestedPacks: suggested
         });
-        group.totalCredit = Number((group.totalCredit + credit).toFixed(2));
     }
 
     // A delivery whose every line rounded away to nothing is not a suggestion.
@@ -812,7 +788,6 @@ export interface SupplierReturnResult {
     id: string;
     supplierId: number;
     lineCount: number;
-    creditValue: number;
 }
 
 export async function raiseSupplierReturn(
@@ -848,8 +823,6 @@ export async function raiseSupplierReturn(
             .returning('id')
             .executeTakeFirstOrThrow();
 
-        let creditValue = 0;
-
         for (const line of input.lines) {
             const source = byLine.get(String(line.grnLineId));
             if (!source) {
@@ -879,9 +852,6 @@ export async function raiseSupplierReturn(
                 );
             }
 
-            const lineCredit = Number((line.qtyPacks * source.packPrice).toFixed(2));
-            creditValue += lineCredit;
-
             await trx
                 .insertInto('supplier_return_lines')
                 .values({
@@ -890,8 +860,6 @@ export async function raiseSupplierReturn(
                     item_id: source.itemId,
                     qty_packs: line.qtyPacks,
                     qty_base: qtyBase,
-                    pack_price: source.packPrice,
-                    line_credit: lineCredit,
                     section_return_id: line.sectionReturnId ?? null,
                     is_demo: false
                 })
@@ -903,14 +871,13 @@ export async function raiseSupplierReturn(
             action: 'return.supplier.raise',
             entity: 'supplier_returns',
             entityId: header.id,
-            after: { grnId: input.grnId, lines: input.lines.length, creditValue }
+            after: { grnId: input.grnId, lines: input.lines.length }
         });
 
         return {
             id: String(header.id),
             supplierId: grn.supplier_id,
-            lineCount: input.lines.length,
-            creditValue: Number(creditValue.toFixed(2))
+            lineCount: input.lines.length
         };
     });
 }
@@ -925,8 +892,6 @@ export interface DisposalDecisionResult {
     id: string;
     toVendor: number;
     toWaste: number;
-    /** What is still being claimed, once the binned lines are taken out. */
-    creditValue: number;
 }
 
 /**
@@ -965,7 +930,7 @@ export async function decideDisposal(
 
     const lines = await db
         .selectFrom('supplier_return_lines')
-        .select(['id', 'line_credit'])
+        .select(['id'])
         .where('return_id', '=', id)
         .execute();
     if (lines.length === 0) throw badRequest('This ask has no lines');
@@ -981,11 +946,9 @@ export async function decideDisposal(
 
     let toVendor = 0;
     let toWaste = 0;
-    let creditValue = 0;
     for (const line of lines) {
         if (answers.get(String(line.id)) === 'vendor') {
             toVendor++;
-            creditValue += Number(line.line_credit);
         } else {
             toWaste++;
         }
@@ -1016,10 +979,10 @@ export async function decideDisposal(
             action: 'return.disposal.decide',
             entity: 'supplier_returns',
             entityId: id,
-            after: { toVendor, toWaste, creditValue, note: input.note ?? null }
+            after: { toVendor, toWaste, note: input.note ?? null }
         });
 
-        return { id: String(id), toVendor, toWaste, creditValue };
+        return { id: String(id), toVendor, toWaste };
     });
 }
 
@@ -1155,7 +1118,7 @@ export async function binDecidedLines(
  * An ask that was binned in full has no vendor lines and so will never be sent
  * or settled against a credit note -- leaving it open would put it on the
  * store's list forever. One where some lines went to the supplier stays open
- * until that half is sent and settled, because the money is still outstanding.
+ * until that half is sent and settled, because the supplier still owes an answer.
  */
 async function settleIfFinished(trx: Tx, id: string, by: number): Promise<void> {
     const lines = await trx
@@ -1277,17 +1240,16 @@ export async function sendSupplierReturn(
 export interface SettleInput {
     outcome: SupplierReturnOutcome;
     creditNoteNo?: string | null;
-    creditValue?: number | null;
     note?: string | null;
 }
 
 /**
  * What the supplier did about it, recorded weeks after the goods went.
  *
- * A credit needs its note number and its value, because the point of recording
- * it is being able to check it against the statement. A replacement and a
- * write-off need neither -- one arrives as an ordinary delivery, the other is
- * money nobody is getting back.
+ * A credit needs its note number, because that is how accounts finds it against
+ * the supplier's statement. The amount on it is theirs to read; this system
+ * does not keep prices. A replacement and a write-off need no number -- one
+ * arrives as an ordinary delivery, the other is goods nobody is getting back.
  */
 export async function settleSupplierReturn(
     id: string,
@@ -1311,9 +1273,6 @@ export async function settleSupplierReturn(
         if (!input.creditNoteNo?.trim()) {
             throw badRequest('A credit needs its credit note number to be worth recording');
         }
-        if (input.creditValue === undefined || input.creditValue === null) {
-            throw badRequest('A credit needs the amount the supplier actually allowed');
-        }
     }
 
     await db.transaction().execute(async (trx) => {
@@ -1323,7 +1282,6 @@ export async function settleSupplierReturn(
                 status: 'settled',
                 outcome: input.outcome,
                 credit_note_no: input.creditNoteNo ?? null,
-                credit_value: input.creditValue ?? null,
                 settle_note: input.note ?? null,
                 settled_by: settledBy,
                 settled_at: new Date()
@@ -1335,7 +1293,7 @@ export async function settleSupplierReturn(
             action: 'return.supplier.settle',
             entity: 'supplier_returns',
             entityId: id,
-            after: { outcome: input.outcome, creditValue: input.creditValue }
+            after: { outcome: input.outcome, creditNoteNo: input.creditNoteNo ?? null }
         });
     });
 }

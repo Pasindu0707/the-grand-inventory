@@ -32,7 +32,7 @@
  * **Management see a different screen.** They decide; they do not put stock in
  * quarantine and they do not send it anywhere. So the shelf drawer and the
  * "ask management" button are not theirs - the server refuses both - and the
- * quarantine panel is information: money sitting still, which is the part of
+ * quarantine panel is information: stock sitting still, which is the part of
  * it they care about.
  */
 import { Component, computed, inject, signal, OnInit } from '@angular/core';
@@ -48,7 +48,7 @@ import { AuthStore } from '@/core/auth.store';
 import { GrandService } from '@/core/grand.service';
 import { NotifyService } from '@/core/notify.service';
 import { apiErrorMessage } from '@/core/api';
-import { formatMoney, formatQty } from '@/core/format';
+import { formatQty } from '@/core/format';
 import type {
     Item,
     MyContext,
@@ -89,7 +89,7 @@ const PAGE_MAX = 200;
                         {{
                             canPutInQuarantine()
                                 ? 'What came back off the floor, and what is waiting to go to the supplier'
-                                : 'What came back off the floor, and what it is costing while it waits'
+                                : 'What came back off the floor, and how long it has been waiting'
                         }}
                     </p>
                 </div>
@@ -134,9 +134,9 @@ const PAGE_MAX = 200;
             </div>
 
             <!-- ── 1. What is in quarantine ─────────────────────────────────
-                 Stock sitting here is money the restaurant has already paid for
-                 and is not using, and every day it sits is a day closer to the
-                 supplier saying it is too late to argue. -->
+                 Stock sitting here has been delivered and is not being used, and
+                 every day it sits is a day closer to the supplier saying it is
+                 too late to argue. -->
             <div
                 class="rounded-2xl border border-surface bg-surface-0 dark:bg-surface-900 overflow-hidden">
                 <div
@@ -149,9 +149,8 @@ const PAGE_MAX = 200;
                         </p>
                     </div>
                     <div class="text-right">
-                        <div class="text-2xl font-bold">{{ money(quarantineValue()) }}</div>
+                        <div class="text-2xl font-bold">{{ quarantine().length }}</div>
                         <div class="text-xs text-surface-500">
-                            {{ quarantine().length }}
                             {{ quarantine().length === 1 ? 'item' : 'items' }}
                         </div>
                     </div>
@@ -174,9 +173,6 @@ const PAGE_MAX = 200;
                                 <div class="text-right">
                                     <div class="font-semibold">
                                         {{ q(row.qtyBase, row.stockUnit) }}
-                                    </div>
-                                    <div class="text-xs text-surface-500">
-                                        {{ money(row.value) }}
                                     </div>
                                     <!-- Physically here is not the same as
                                          nobody dealing with it. Without this the
@@ -230,8 +226,8 @@ const PAGE_MAX = 200;
                                 <div class="app-note__title">What happens next</div>
                                 <p class="mt-1">
                                     You ask management <strong>one question</strong>: send this
-                                    back to the supplier, or bin it? The delivery, the packs and
-                                    the money are worked out for you. Management answers line by
+                                    back to the supplier, or bin it? The delivery and the packs
+                                    are worked out for you. Management answers line by
                                     line, and then you either mark it gone when the lorry takes
                                     it, or bin it - one button either way.
                                 </p>
@@ -270,7 +266,7 @@ const PAGE_MAX = 200;
                                     The storekeeper asks you one question about this:
                                     <strong>send it back to the supplier, or bin it?</strong> You
                                     answer line by line on <strong>Supplier returns</strong>.
-                                    Until you do, this is stock that has been paid for and cannot
+                                    Until you do, this is stock that has been delivered and cannot
                                     be used.
                                 </p>
                             </div>
@@ -487,11 +483,6 @@ export class ReturnsComponent implements OnInit {
         () => this.quarantine().length > 0 && this.quarantine().every((r) => r.qtyFree <= 0)
     );
 
-    /** What is waiting to go back, at what the ledger says it cost. */
-    readonly quarantineValue = computed(() =>
-        this.quarantine().reduce((n, r) => n + r.value, 0)
-    );
-
     /**
      * The store, and nothing else.
      *
@@ -670,10 +661,6 @@ export class ReturnsComponent implements OnInit {
         } finally {
             this.busy.set(false);
         }
-    }
-
-    money(v: number): string {
-        return formatMoney(v);
     }
 
     q(qty: number, unit: string): string {

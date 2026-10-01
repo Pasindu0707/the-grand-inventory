@@ -15,7 +15,7 @@ import { InputTextModule } from 'primeng/inputtext';
 import { AuthStore } from '@/core/auth.store';
 import { GrandService } from '@/core/grand.service';
 import { apiErrorMessage } from '@/core/api';
-import { formatMoney, formatQty } from '@/core/format';
+import { formatQty } from '@/core/format';
 import type { StockRow } from '@/core/types';
 import { DEFAULT_PAGE_SIZE, emptyPage, type Page, type PageRequest } from '@/core/types';
 import { AppPaginator, type PageChange } from '@/shared/paginator.component';
@@ -49,11 +49,7 @@ import { AppPaginator, type PageChange } from '@/shared/paginator.component';
                 </div>
             </div>
 
-            <div class="grid grid-cols-1 sm:grid-cols-3 gap-4">
-                <div class="rounded-2xl border border-surface bg-surface-0 dark:bg-surface-900 p-4">
-                    <div class="text-sm text-surface-500">Stock value</div>
-                    <div class="text-2xl font-bold">{{ money(totalValue()) }}</div>
-                </div>
+            <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div class="rounded-2xl border border-surface bg-surface-0 dark:bg-surface-900 p-4">
                     <div class="text-sm text-surface-500">Lines</div>
                     <div class="text-2xl font-bold">{{ rows().length }}</div>
@@ -75,8 +71,6 @@ import { AppPaginator, type PageChange } from '@/shared/paginator.component';
                             <th class="font-semibold text-sm">Item</th>
                             <th class="font-semibold text-sm">Section</th>
                             <th class="font-semibold text-sm text-right">On hand</th>
-                            <th class="font-semibold text-sm text-right">Avg cost</th>
-                            <th class="font-semibold text-sm text-right">Value</th>
                             <th class="font-semibold text-sm"></th>
                         </tr>
                     </ng-template>
@@ -88,8 +82,6 @@ import { AppPaginator, type PageChange } from '@/shared/paginator.component';
                             </td>
                             <td class="px-4 py-2 text-sm">{{ row.sectionCode }}</td>
                             <td class="px-4 py-2 text-right font-medium">{{ qty(row) }}</td>
-                            <td class="px-4 py-2 text-right text-sm">{{ money(row.avgCost) }}</td>
-                            <td class="px-4 py-2 text-right">{{ money(row.value) }}</td>
                             <td class="px-4 py-2">
                                 @if (row.belowReorder) {
                                     <p-tag severity="danger" value="Below reorder"></p-tag>
@@ -101,7 +93,7 @@ import { AppPaginator, type PageChange } from '@/shared/paginator.component';
                     </ng-template>
                     <ng-template pTemplate="emptymessage">
                         <tr>
-                            <td colspan="6" class="p-8 text-center text-surface-500">
+                            <td colspan="4" class="p-8 text-center text-surface-500">
                                 {{ loading() ? 'Loading…' : 'Nothing to show.' }}
                             </td>
                         </tr>
@@ -120,7 +112,6 @@ export class StockComponent implements OnInit {
     readonly rows = signal<StockRow[]>([]);
     readonly pageInfo = signal<Page<StockRow>>(emptyPage<StockRow>());
     readonly pageReq = signal<PageRequest>({ page: 1, limit: DEFAULT_PAGE_SIZE });
-    readonly totalValue = signal(0);
     readonly loading = signal(false);
     readonly error = signal<string | null>(null);
     readonly search = signal('');
@@ -150,7 +141,6 @@ export class StockComponent implements OnInit {
             });
             this.pageInfo.set(res);
             this.rows.set(res.items);
-            this.totalValue.set(res.totalValue);
         } catch (err) {
             this.error.set(apiErrorMessage(err));
         } finally {
@@ -173,7 +163,4 @@ export class StockComponent implements OnInit {
         return formatQty(row.qtyBase, row.stockUnit);
     }
 
-    money(n: number): string {
-        return formatMoney(n);
-    }
 }

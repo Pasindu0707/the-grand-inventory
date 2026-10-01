@@ -5,16 +5,15 @@
  * existed you could enter one and then never see it again: the only route back
  * to last Tuesday's invoice was the delivery picker inside the supplier-return
  * form, which is a strange place to keep a record and is closed to anyone who
- * cannot raise one. "What did we pay for that sack" is a question management
- * asks constantly - the price-movement report raises it by design - and the
- * answer had nowhere to live.
+ * cannot raise one. "What exactly came on that lorry" is a question management
+ * asks constantly, and the answer had nowhere to live.
  *
  * Read-only, deliberately. Nothing here edits anything: a delivery on the
  * ledger is corrected with a reversal, never an edit, and a screen with an edit
  * button on an immutable document is a promise it cannot keep.
  *
  * Each line carries what has already gone back to the supplier against it, so
- * the delivery answers "did we get a credit for the bad half of this" without
+ * the delivery answers "did the bad half of this go back" without
  * anybody cross-referencing two screens.
  */
 import { Component, inject, signal, OnInit } from '@angular/core';
@@ -27,7 +26,7 @@ import { InputTextModule } from 'primeng/inputtext';
 import { TagModule } from 'primeng/tag';
 import { GrandService } from '@/core/grand.service';
 import { apiErrorMessage } from '@/core/api';
-import { formatMoney, formatQty } from '@/core/format';
+import { formatQty } from '@/core/format';
 import {
     DEFAULT_PAGE_SIZE,
     emptyPage,
@@ -120,11 +119,8 @@ import { AppPaginator, type PageChange } from '@/shared/paginator.component';
                                             <p-tag severity="info" value="Against an order"></p-tag>
                                         }
                                         <div class="text-right">
-                                            <div class="font-semibold">
-                                                {{ money(row.total ?? 0) }}
-                                            </div>
+                                            <div class="font-semibold">{{ row.lineCount }}</div>
                                             <div class="text-xs text-surface-500">
-                                                {{ row.lineCount }}
                                                 {{ row.lineCount === 1 ? 'item' : 'items' }}
                                             </div>
                                         </div>
@@ -177,20 +173,10 @@ import { AppPaginator, type PageChange } from '@/shared/paginator.component';
                             <ul class="divide-y divide-surface">
                                 @for (line of d.lines; track line.id) {
                                     <li class="px-4 py-3">
-                                        <div class="flex flex-wrap items-start justify-between gap-3">
-                                            <div class="min-w-0">
-                                                <div class="font-medium">{{ line.itemName }}</div>
-                                                <div class="text-xs text-surface-500 font-mono mt-0.5">
-                                                    {{ line.itemCode }}
-                                                </div>
-                                            </div>
-                                            <div class="text-right">
-                                                <div class="font-semibold">
-                                                    {{ money(line.lineTotal) }}
-                                                </div>
-                                                <div class="text-xs text-surface-500">
-                                                    {{ money(line.packPrice) }} a pack
-                                                </div>
+                                        <div class="min-w-0">
+                                            <div class="font-medium">{{ line.itemName }}</div>
+                                            <div class="text-xs text-surface-500 font-mono mt-0.5">
+                                                {{ line.itemCode }}
                                             </div>
                                         </div>
                                         <div class="text-sm text-surface-500 mt-1">
@@ -209,8 +195,8 @@ import { AppPaginator, type PageChange } from '@/shared/paginator.component';
                             </ul>
                             <div
                                 class="px-4 py-3 border-t border-surface flex items-center justify-between">
-                                <span class="font-semibold">Total</span>
-                                <span class="text-lg font-bold">{{ money(d.total) }}</span>
+                                <span class="font-semibold">Lines</span>
+                                <span class="text-lg font-bold">{{ d.lines.length }}</span>
                             </div>
                         </div>
 
@@ -302,10 +288,6 @@ export class DeliveriesComponent implements OnInit {
         } finally {
             this.detailLoading.set(false);
         }
-    }
-
-    money(n: number): string {
-        return formatMoney(n);
     }
 
     q(qty: number, unit: string): string {

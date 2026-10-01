@@ -37,6 +37,8 @@ rules.
 | `0005_setup_and_purchasing.sql` | Retiring master data, section kinds, orders that can be received, `opening_stock` |
 | `0006_drop_cleaning_tasks_and_market.sql` | Withdraws the cleaning checklist and the cash market purchase (CR-001) |
 | `0007_returns.sql` | Section and supplier returns, the quarantine section kind, and usage variance netted of returns (CR-003) |
+| `0008_one_decision_disposals.sql` | One decision about bad stock: back to the vendor or into the bin, per line (CR-006) |
+| `0009_drop_costing.sql` | Removes every price, cost and value: `item_cost_state`, `current_stock_valued`, `supplier_prices`, and the money columns on the ledger and documents. The system counts stock; it does not price it |
 
 ```bash
 npm run db:reset-all   # drop, migrate, regenerate seed, load
@@ -48,9 +50,9 @@ npm run db:verify      # 12 checks: schema → seed → immutability → cutover
 ```
 locations ──┬── sections ──────────────── stock_ledger ◀── every document
             ├── users                          ▲
-            └── settings                       │  item_cost_state
+            └── settings                       │
                                                │
-item_categories ── items ──┬── item_packs ── supplier_prices ── suppliers
+item_categories ── items ──┬── item_packs          suppliers
                            └── recipe_lines ── products ── production_log
 
 Documents, each writing to the ledger:
@@ -60,7 +62,7 @@ Documents, each writing to the ledger:
   purchase_orders / _lines
 
 Support: idempotency_keys · audit_log · login_attempts · reason_codes
-Views:   current_stock · current_stock_valued · usage_variance
+Views:   current_stock · usage_variance
 ```
 
 ---
@@ -159,19 +161,6 @@ are never testing against a structure you will not ship.
 | `name` | text, unique | |
 | `storage` | `storage_type` | `dry` · `chiller` · `freezer` · `bar` · `chemical` · `packaging` · `gas` |
 
-#### `supplier_prices` - agreed prices
-
-| Column | Type | Notes |
-|---|---|---|
-| `id` | serial PK | |
-| `supplier_id` | int FK | |
-| `item_pack_id` | int FK | Price is per **pack**, not per stock unit |
-| `price` | numeric(14,2) | |
-| `effective_from` | date | |
-
-> Without these, the first surprise price at cutover looks exactly like a normal
-> price and the price-movement report has nothing to compare against.
-
 ---
 
 ### 4.2 The ledger
@@ -187,7 +176,6 @@ are never testing against a structure you will not ship.
 | `section_id` | int FK | Which room |
 | `item_id` | int FK | |
 | `qty_base` | numeric(14,3) | **Signed**, in `items.stock_unit`. Negative leaves, positive arrives |
-| `unit_cost` | numeric(14,4) | See below |
 | `doc` | `doc_type` | `grn` · `issue` · `return` · `wastage` · `transfer` · `count` · `production` · `opening`. `return` covers both return documents. `market` remains a member of the enum with no writer left - see CR-001 |
 | `doc_id` | bigint | The document this row belongs to |
 | `doc_line` | int, nullable | |
@@ -197,15 +185,9 @@ are never testing against a structure you will not ship.
 | `reverses_id` | bigint FK, nullable | Points at the row this undoes |
 | `note` | text, nullable | |
 
-**`unit_cost` carries two different meanings, and the distinction matters:**
-
-- On a **receipt** (`grn`, `opening`) it is **the price actually
-  paid**. It appears nowhere else, and it is what the price-movement report
-  reads.
-- On **every other movement** it is the **weighted average at the time it
-  happened** - the cost of what left.
-
-The running average itself lives in `item_cost_state`.
+**The ledger records quantities only.** There is no cost on a row and no
+running average anywhere: prices live in accounts, off the supplier's invoice
+(migration 0009).
 
 **Indexes**
 
@@ -261,25 +243,6 @@ session GUC is set, and only `db/reset.sql` sets it, inside its own
 transaction. Real rows are immutable under every code path, including a
 superuser at a `psql` prompt.
 
-#### `item_cost_state` - weighted-average cost
-
-| Column | Type | Notes |
-|---|---|---|
-| `item_id`, `location_id` | int, composite PK | |
-| `qty_on_hand` | numeric(14,3) | |
-| `avg_cost` | numeric(14,4) | |
-| `updated_at` | timestamptz | |
-
-Maintained by the receipt service **in the same transaction as the ledger
-write**:
-
-```
-new_avg = (qty_on_hand × old_avg + qty_received × receipt_cost)
-          ÷ (qty_on_hand + qty_received)
-```
-
-Receipts move the average. Issues, wastage and count adjustments only read it.
-
 ---
 
 ### 4.3 Documents
@@ -297,14 +260,12 @@ through it.
 | `received_at` | timestamptz | |
 | `received_by` | int FK | |
 | `photo_url` | text, nullable | A short or damaged delivery, photographed at the door |
-| `total` | numeric(14,2) | |
 
 | `grn_lines` | Type | Notes |
 |---|---|---|
 | `grn_id` | bigint FK | |
 | `item_pack_id` | int FK | **Packs, not items** |
 | `qty_packs` | numeric(14,3) | Fractional allowed - half a sack gets delivered |
-| `pack_price` | numeric(14,2) | Per pack |
 | `expiry_date` | date, nullable | |
 
 #### `section_returns` - a room hands stock back
@@ -321,17 +282,15 @@ through it.
 
 | Column | Type | Notes |
 |---|---|---|
-| `grn_id` | bigint FK | **Every line must belong to this delivery.** That is what lets the credit be priced from what was paid |
+| `grn_id` | bigint FK | **Every line must belong to this delivery.** That is what carries the pack and the conversion |
 | `status` | `supplier_return_status` | `raised` · `approved` · `rejected` · `sent` · `settled` |
 | `outcome` | `supplier_return_outcome`, nullable | `credit` · `replacement` · `written_off`. Null until settled |
-| `credit_note_no`, `credit_value` | text, numeric(14,2) | What the supplier **allowed**, which may be less than was asked |
+| `credit_note_no` | text | The note number, so accounts can find it. The amount is not kept |
 
 | `supplier_return_lines` | Type | Notes |
 |---|---|---|
-| `grn_line_id` | bigint FK | Carries the pack, the conversion and the price |
+| `grn_line_id` | bigint FK | Carries the pack and the conversion |
 | `qty_packs` / `qty_base` | numeric(14,3) | Entered in packs, converted once |
-| `pack_price` | numeric(14,2) | **Copied** from the GRN line, not joined: a price list changes, what was invoiced does not |
-| `line_credit` | numeric(14,2) | What is being asked for on this line |
 | `section_return_id` | bigint FK, nullable | The internal return it came from, when it came from one |
 
 **Stock moves on `sent` and nowhere else.** Raising and approving are paperwork;
@@ -373,8 +332,7 @@ the goods are still in quarantine and still the restaurant's.
 | `stock_count_lines` | Type | Notes |
 |---|---|---|
 | `qty_expected` | numeric(14,3) | **Frozen from the ledger at open. Never re-read** |
-| `qty_counted` | numeric(14,3) | |
-| `variance_value` | numeric(14,2) | Computed at close |
+| `qty_counted` | numeric(14,3) | Null until counted |
 
 > **Why `qty_expected` is stored rather than recomputed.** If expected were
 > re-read at close, a movement posted while someone walked the shelves would
@@ -400,7 +358,6 @@ the goods are still in quarantine and still the restaurant's.
 |---|---|
 | `qty_base` | What is wanted |
 | `qty_in_store` | **What the store had at the time**, so management can see how short it was |
-| `est_price` | |
 
 #### `opening_stock` / `opening_stock_lines`
 
@@ -442,15 +399,6 @@ group by s.location_id, l.section_id, l.item_id;
 **This is the entire stock model.** There is no quantity column anywhere in the
 database. A cached quantity is a number that eventually disagrees with the
 movements behind it, and nobody can tell you when it started lying.
-
-### `current_stock_valued`
-
-`current_stock` joined to `item_cost_state`, giving `avg_cost` and `value`.
-
-> Valuation is deliberately taken from the *current* average, not from summing
-> `qty × cost_at_time_of_move`. The latter does not return to zero when an item
-> is fully depleted at a different average, which is a bug that hides for months
-> and then makes a valuation report indefensible.
 
 ### `usage_variance`
 
@@ -520,7 +468,7 @@ suite.
 | 4 | Never delete a user, item or supplier. Deactivate |
 | 5 | Every new table gets `is_demo` |
 | 6 | Every new foreign key gets an index. Postgres does not create them |
-| 7 | Money is `numeric(14,2)`; quantities are `numeric(14,3)`; costs are `numeric(14,4)`. Never floating point |
+| 7 | Quantities are `numeric(14,3)`. Never floating point. **No money columns** - the system keeps no prices, and `ledger.test.ts` fails if a `price`, `cost`, `value`, `total` or `spend` column appears (the JSON `settings.value` aside) |
 | 8 | Migrations are forward-only. Fix a mistake with a new migration, never by editing an old one |
 | 9 | Regenerate the Kysely types with every migration, or the drift test fails |
 | 10 | A new `doc_type` value needs a service function and a reason-code set. There is no generic writer |

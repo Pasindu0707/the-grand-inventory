@@ -1,7 +1,7 @@
 /**
- * The five reports.
+ * The four reports.
  *
- *   "Test data with no faults in it teaches you nothing. Five faults are
+ *   "Test data with no faults in it teaches you nothing. Faults are
  *    planted, and each maps to a report that must catch it. If a report can't
  *    find its fault, the report is wrong."
  *
@@ -31,7 +31,6 @@ export interface UsageVarianceRow {
     actualQty: number;
     varianceQty: number;
     variancePct: number;
-    varianceValue: number;
 }
 
 /**
@@ -62,21 +61,16 @@ export async function usageVariance(
           round(sum(uv.variance_qty)::numeric, 3)        as "varianceQty",
           round(
             100.0 * sum(uv.variance_qty) / nullif(sum(uv.theoretical_qty), 0), 1
-          )                                              as "variancePct",
-          round(
-            (sum(uv.variance_qty) * coalesce(max(ics.avg_cost), 0))::numeric, 2
-          )                                              as "varianceValue"
+          )                                              as "variancePct"
         from usage_variance uv
         join items i on i.id = uv.item_id
         join sections s on s.id = uv.section_id
-        left join item_cost_state ics
-          on ics.item_id = uv.item_id and ics.location_id = uv.location_id
         where uv.location_id = ${locationId}
           and uv.business_date between ${range.from}::date and ${range.to}::date
         group by uv.item_id, i.code, i.name, i.stock_unit, s.code
         having sum(uv.theoretical_qty) > 0
            and abs(100.0 * sum(uv.variance_qty) / nullif(sum(uv.theoretical_qty), 0)) >= ${minPct}
-        order by abs(sum(uv.variance_qty) * coalesce(max(ics.avg_cost), 0)) desc
+        order by abs(sum(uv.variance_qty) / nullif(sum(uv.theoretical_qty), 0)) desc
     `.execute(db);
 
     return rows.map(numeric);
@@ -118,7 +112,6 @@ export interface ShrinkageRow {
     sectionCode: string;
     businessDate: string;
     varianceQty: number;
-    varianceValue: number;
     /** The gap as a share of what the count expected to find. */
     variancePct: number | null;
     /** True when wastage was logged for the same item and section that day. */
@@ -130,20 +123,14 @@ export interface ShrinkageRow {
  * round number, and the ledger picks up a few units of difference. Without a
  * floor this report lists every one of those.
  *
- * Two thresholds, because one is not enough:
+ * So the floor is a proportion of what the count expected to find. Gin in the
+ * store carries ordinary 0.5% counting noise every day; two whole bottles gone
+ * is a large share of the shelf. Noise is proportional to what is on the shelf; theft
+ * is not.
  *
- *  - Money, so a trivial loss never reaches a manager. Without it the seed
- *    produces Rs 0.44 "losses" of one gram of lettuce.
- *
- *  - Proportion, because a money floor alone does not scale. Gin is expensive:
- *    ordinary 0.5% counting noise in the store is worth Rs 100-175 a day and
- *    produced fifteen false positives that buried the two real bottles. Noise
- *    is proportional to what is on the shelf; theft is not.
- *
- * Both numbers are guesses for a Negombo gastrobar and belong on the Phase 0
+ * The number is a guess for a Negombo gastrobar and belongs on the Phase 0
  * list to confirm with the owner.
  */
-export const DEFAULT_SHRINKAGE_FLOOR_LKR = 100;
 export const DEFAULT_SHRINKAGE_FLOOR_PCT = 2;
 
 /**
@@ -161,7 +148,6 @@ export const DEFAULT_SHRINKAGE_FLOOR_PCT = 2;
 export async function shrinkage(
     locationId: number,
     range: DateRange,
-    minValue = DEFAULT_SHRINKAGE_FLOOR_LKR,
     minPct = DEFAULT_SHRINKAGE_FLOOR_PCT
 ): Promise<ShrinkageRow[]> {
     const { rows } = await sql<ShrinkageRow>`
@@ -173,8 +159,6 @@ export async function shrinkage(
           s.code                                           as "sectionCode",
           l.business_date::text                            as "businessDate",
           round(sum(l.qty_base)::numeric, 3)               as "varianceQty",
-          round((sum(l.qty_base) * coalesce(max(ics.avg_cost), 0))::numeric, 2)
-                                                           as "varianceValue",
           round(
             100.0 * abs(sum(l.qty_base)) / nullif(max(scl.qty_expected), 0), 2
           )                                                as "variancePct",
@@ -187,8 +171,6 @@ export async function shrinkage(
         from stock_ledger l
         join items i on i.id = l.item_id
         join sections s on s.id = l.section_id
-        left join item_cost_state ics
-          on ics.item_id = l.item_id and ics.location_id = l.location_id
         -- What the count expected to find, so a gap can be judged against the
         -- size of the shelf rather than in isolation.
         left join stock_count_lines scl
@@ -200,83 +182,21 @@ export async function shrinkage(
         group by l.item_id, i.code, i.name, i.stock_unit, s.code,
                  l.business_date, l.section_id
         having sum(l.qty_base) < 0
-           and abs(sum(l.qty_base) * coalesce(max(ics.avg_cost), 0)) >= ${minValue}
-           and (
-             -- Material as a proportion of the shelf, or material enough in
-             -- money that the proportion stops mattering.
-             coalesce(
-               100.0 * abs(sum(l.qty_base)) / nullif(max(scl.qty_expected), 0),
-               100
-             ) >= ${minPct}
-             or abs(sum(l.qty_base) * coalesce(max(ics.avg_cost), 0)) >= ${minValue} * 20
-           )
-        order by sum(l.qty_base) * coalesce(max(ics.avg_cost), 0) asc
+           -- Material as a proportion of the shelf. Nothing expected and
+           -- something missing is the whole shelf.
+           and coalesce(
+             100.0 * abs(sum(l.qty_base)) / nullif(max(scl.qty_expected), 0),
+             100
+           ) >= ${minPct}
+        order by coalesce(
+          100.0 * abs(sum(l.qty_base)) / nullif(max(scl.qty_expected), 0), 100
+        ) desc, l.business_date
     `.execute(db);
 
     return rows.map(numeric);
 }
 
-// ── C. Supplier price movement ──────────────────────────────────────────────
-
-export interface PriceMovementRow {
-    itemPackId: number;
-    itemName: string;
-    packName: string;
-    supplierName: string;
-    effectiveFrom: string;
-    previousPrice: number;
-    newPrice: number;
-    changePct: number;
-}
-
-/**
- * Every price change a supplier has made, largest first.
- *
- * Reads supplier_prices rather than reconstructing history from GRN lines,
- * which is why that table is populated on every receipt where the price moved.
- */
-export async function priceMovement(
-    range: DateRange,
-    minPct = 5
-): Promise<PriceMovementRow[]> {
-    const { rows } = await sql<PriceMovementRow>`
-        with history as (
-          select
-            sp.item_pack_id,
-            sp.supplier_id,
-            sp.price,
-            sp.effective_from,
-            lag(sp.price) over (
-              partition by sp.supplier_id, sp.item_pack_id
-              order by sp.effective_from, sp.id
-            ) as previous_price
-          from supplier_prices sp
-        )
-        select
-          h.item_pack_id                as "itemPackId",
-          i.name                        as "itemName",
-          ip.pack_name                  as "packName",
-          sup.name                      as "supplierName",
-          h.effective_from::text        as "effectiveFrom",
-          round(h.previous_price, 2)    as "previousPrice",
-          round(h.price, 2)             as "newPrice",
-          round(100.0 * (h.price - h.previous_price) / nullif(h.previous_price, 0), 1)
-                                        as "changePct"
-        from history h
-        join item_packs ip on ip.id = h.item_pack_id
-        join items i on i.id = ip.item_id
-        join suppliers sup on sup.id = h.supplier_id
-        where h.previous_price is not null
-          and h.previous_price > 0
-          and h.effective_from between ${range.from}::date and ${range.to}::date
-          and abs(100.0 * (h.price - h.previous_price) / h.previous_price) >= ${minPct}
-        order by abs(100.0 * (h.price - h.previous_price) / h.previous_price) desc
-    `.execute(db);
-
-    return rows.map(numeric);
-}
-
-// ── D. Wastage by reason ────────────────────────────────────────────────────
+// ── C. Wastage by reason ────────────────────────────────────────────────────
 
 export interface WastageByReasonRow {
     reasonCode: string;
@@ -288,7 +208,6 @@ export interface WastageByReasonRow {
     sectionCode: string;
     events: number;
     qtyBase: number;
-    value: number;
 }
 
 /**
@@ -313,19 +232,16 @@ export async function wastageByReason(
           i.stock_unit                                     as "stockUnit",
           s.code                                           as "sectionCode",
           count(*)::int                                    as events,
-          round(sum(w.qty_base)::numeric, 3)               as "qtyBase",
-          round((sum(w.qty_base) * coalesce(max(ics.avg_cost), 0))::numeric, 2) as value
+          round(sum(w.qty_base)::numeric, 3)               as "qtyBase"
         from wastage w
         join reason_codes rc on rc.code = w.reason_code
         join items i on i.id = w.item_id
         join sections s on s.id = w.section_id
-        left join item_cost_state ics
-          on ics.item_id = w.item_id and ics.location_id = w.location_id
         where w.location_id = ${locationId}
           and w.logged_at::date between ${range.from}::date and ${range.to}::date
         group by w.reason_code, rc.label, w.item_id, i.code, i.name,
                  i.stock_unit, s.code
-        order by sum(w.qty_base) * coalesce(max(ics.avg_cost), 0) desc
+        order by count(*) desc, i.name
     `.execute(db);
 
     return rows.map(numeric);
@@ -352,7 +268,7 @@ export async function wastageTrend(
     return rows.map(numeric);
 }
 
-// ── E. Stock-outs and low stock ─────────────────────────────────────────────
+// ── D. Stock-outs and low stock ─────────────────────────────────────────────
 
 export interface StockOutRow {
     itemId: number;
@@ -458,12 +374,7 @@ const NUMERIC_KEYS = new Set([
     'actualQty',
     'varianceQty',
     'variancePct',
-    'varianceValue',
-    'previousPrice',
-    'newPrice',
-    'changePct',
     'qtyBase',
-    'value',
     'events',
     'balance',
     'reorderPoint',

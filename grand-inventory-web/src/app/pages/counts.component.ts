@@ -26,7 +26,7 @@ import { AuthStore } from '@/core/auth.store';
 import { GrandService } from '@/core/grand.service';
 import { NotifyService } from '@/core/notify.service';
 import { apiErrorMessage } from '@/core/api';
-import { formatMoney, formatQty } from '@/core/format';
+import { formatQty } from '@/core/format';
 import type { CloseCountResult, CountLine, CountListRow, CountType, MyContext } from '@/core/types';
 import { DEFAULT_PAGE_SIZE, emptyPage, type Page, type PageRequest } from '@/core/types';
 import { AppPaginator, type PageChange } from '@/shared/paginator.component';
@@ -180,7 +180,7 @@ import { InputTextModule } from 'primeng/inputtext';
                         </p>
                     }
 
-                    <div class="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                    <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
                         <div class="rounded-xl border border-surface p-4">
                             <div class="text-sm text-surface-500">Counted</div>
                             <div class="text-2xl font-bold">{{ res.counted }}</div>
@@ -188,12 +188,6 @@ import { InputTextModule } from 'primeng/inputtext';
                         <div class="rounded-xl border border-surface p-4">
                             <div class="text-sm text-surface-500">Lines adjusted</div>
                             <div class="text-2xl font-bold">{{ res.adjustments }}</div>
-                        </div>
-                        <div class="rounded-xl border border-surface p-4">
-                            <div class="text-sm text-surface-500">Variance value</div>
-                            <div class="text-2xl font-bold" [class.text-red-600]="res.varianceValue < 0">
-                                {{ money(res.varianceValue) }}
-                            </div>
                         </div>
                     </div>
 
@@ -206,10 +200,10 @@ import { InputTextModule } from 'primeng/inputtext';
                                         <span>{{ b.name }}</span>
                                         <span
                                             class="font-medium"
-                                            [class.text-red-600]="b.varianceValue < 0"
-                                            [class.text-green-600]="b.varianceValue > 0">
-                                            {{ b.varianceQty > 0 ? '+' : '' }}{{ b.varianceQty }} ·
-                                            {{ money(b.varianceValue) }}
+                                            [class.text-red-600]="b.varianceQty < 0"
+                                            [class.text-green-600]="b.varianceQty > 0">
+                                            {{ b.varianceQty > 0 ? '+' : '' }}{{ qty(b.varianceQty, b.stockUnit) }} ·
+                                            {{ b.variancePct > 0 ? '+' : '' }}{{ b.variancePct }}%
                                         </span>
                                     </li>
                                 }
@@ -593,10 +587,6 @@ export class CountsComponent implements OnInit {
         } finally {
             this.busy.set(false);
         }
-    }
-
-    money(n: number): string {
-        return formatMoney(n);
     }
 
     qty(n: number, unit: string): string {

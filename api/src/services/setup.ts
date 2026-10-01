@@ -11,9 +11,9 @@
  *     a number in the old unit with nothing recording which unit that was, so
  *     switching g to ml silently reinterprets a year of history.
  *   - changing a pack's conversion after it has been bought. The ledger keeps
- *     stock units, so history survives -- but the price-movement report
- *     compares price per pack across deliveries, and a pack that changed size
- *     mid-way makes that comparison meaningless.
+ *     stock units, so history survives -- but deliveries, orders and returns
+ *     are recorded in packs and read back through the pack's size, so a pack
+ *     that changed size mid-way rewrites what every one of them says arrived.
  *   - retiring a section that still holds stock, which strands it: no screen
  *     offers the section any more, so nothing can issue, count or waste it
  *     back down to zero.

@@ -33,7 +33,7 @@ import { AuthStore } from '@/core/auth.store';
 import { GrandService } from '@/core/grand.service';
 import { NotifyService } from '@/core/notify.service';
 import { apiErrorMessage } from '@/core/api';
-import { formatMoney, formatQty } from '@/core/format';
+import { formatQty } from '@/core/format';
 import {
     DEFAULT_PAGE_SIZE,
     emptyPage,
@@ -60,7 +60,6 @@ interface DraftLine {
     packName: string;
     qtyInStockUnit: number;
     qtyPacks: number;
-    estPrice: number | null;
 }
 
 @Component({
@@ -163,9 +162,6 @@ interface DraftLine {
                                     } @else {
                                         No supplier chosen yet
                                     }
-                                    @if (po.estimatedTotal !== null) {
-                                        · about {{ money(po.estimatedTotal) }}
-                                    }
                                 </div>
                             </div>
                             <div class="flex items-center gap-2">
@@ -183,9 +179,6 @@ interface DraftLine {
                                         <div class="font-medium">{{ line.name }}</div>
                                         <div class="text-xs text-surface-500">
                                             store had {{ q(line.qtyInStore, line.stockUnit) }}
-                                            @if (line.estPrice !== null) {
-                                                · {{ money(line.estPrice) }} a pack
-                                            }
                                         </div>
                                     </div>
                                     <div class="text-right text-sm">
@@ -346,10 +339,6 @@ interface DraftLine {
                                                             {{ q(row.inStore, row.stockUnit) }} left
                                                             · reorder at
                                                             {{ q(row.reorderPoint, row.stockUnit) }}
-                                                            @if (row.lastPrice !== null) {
-                                                                · last
-                                                                {{ money(row.lastPrice) }} a pack
-                                                            }
                                                         </div>
                                                     </div>
                                                     @if (!row.itemPackId) {
@@ -439,7 +428,7 @@ interface DraftLine {
                     }
                 }
 
-                <!-- ── 2. How much, and roughly what it costs ────────────── -->
+                <!-- ── 2. How much ──────────────────────────────────────── -->
                 @if (raiseStep() === 1) {
                     <ul class="divide-y divide-surface border-y border-surface">
                         @for (line of draft(); track line.itemPackId) {
@@ -457,41 +446,13 @@ interface DraftLine {
                                             [ngModel]="line.qtyPacks"
                                             (ngModelChange)="setPacks(line.itemPackId, $event)" />
                                     </div>
-                                    <div>
-                                        <label class="block text-xs text-surface-500 mb-1">
-                                            Price a pack, near enough
-                                        </label>
-                                        <input
-                                            pInputText
-                                            class="w-28 text-right"
-                                            inputmode="decimal"
-                                            placeholder="-"
-                                            [ngModel]="line.estPrice"
-                                            (ngModelChange)="setPrice(line.itemPackId, $event)" />
-                                    </div>
                                     <div class="text-sm text-surface-500 pb-2">
                                         = {{ q(line.qtyPacks * line.qtyInStockUnit, line.stockUnit) }}
-                                        @if (line.estPrice) {
-                                            · {{ money(line.qtyPacks * line.estPrice) }}
-                                        }
                                     </div>
                                 </div>
                             </li>
                         }
                     </ul>
-
-                    <div class="flex items-center justify-between text-sm">
-                        <span class="text-surface-500">
-                            Estimated - management sees this figure
-                        </span>
-                        <span class="font-bold">{{ money(draftTotal()) }}</span>
-                    </div>
-
-                    <p class="text-xs text-surface-500">
-                        A price you are unsure of is still worth putting in. It is what management
-                        weighs the order against, and the delivery records what was really
-                        charged.
-                    </p>
                 }
 
                 <!-- ── 3. Why, and by when ──────────────────────────────── -->
@@ -559,16 +520,11 @@ interface DraftLine {
                                         </span>
                                     </span>
                                     <span class="text-surface-500">
-                                        {{ line.estPrice ? money(line.qtyPacks * line.estPrice) : '-' }}
+                                        {{ q(line.qtyPacks * line.qtyInStockUnit, line.stockUnit) }}
                                     </span>
                                 </li>
                             }
                         </ul>
-                        <div
-                            class="px-4 py-2 border-t border-surface flex items-center justify-between">
-                            <span class="text-sm text-surface-500">Estimated</span>
-                            <span class="font-bold">{{ money(draftTotal()) }}</span>
-                        </div>
                     </div>
                 }
 
@@ -642,7 +598,7 @@ export class PurchasesComponent implements OnInit {
         {
             key: 'howmuch',
             label: 'How much',
-            hint: 'In packs, and roughly what a pack costs. An estimate is fine.'
+            hint: 'In packs - what you say to a supplier.'
         },
         {
             key: 'why',
@@ -715,10 +671,6 @@ export class PurchasesComponent implements OnInit {
         }
         return null;
     });
-
-    readonly draftTotal = computed(() =>
-        this.draft().reduce((sum, l) => sum + (l.estPrice ?? 0) * l.qtyPacks, 0)
-    );
 
     async ngOnInit(): Promise<void> {
         try {
@@ -840,8 +792,7 @@ export class PurchasesComponent implements OnInit {
                         qtyInStockUnit: pack.qtyInStockUnit,
                         // Rounded up: you buy whole packs, and buying one short
                         // leaves the section short again tomorrow.
-                        qtyPacks: Math.max(1, Math.ceil(shortBase / pack.qtyInStockUnit)),
-                        estPrice: null
+                        qtyPacks: Math.max(1, Math.ceil(shortBase / pack.qtyInStockUnit))
                     }
                 ]);
             }
@@ -947,8 +898,7 @@ export class PurchasesComponent implements OnInit {
                 stockUnit: item.stockUnit,
                 packName: pack.packName,
                 qtyInStockUnit: pack.qtyInStockUnit,
-                qtyPacks: 1,
-                estPrice: null
+                qtyPacks: 1
             }
         ]);
     }
@@ -963,17 +913,6 @@ export class PurchasesComponent implements OnInit {
             this.draft().map((l) =>
                 l.itemPackId === itemPackId
                     ? { ...l, qtyPacks: isNaN(parsed) ? l.qtyPacks : parsed }
-                    : l
-            )
-        );
-    }
-
-    setPrice(itemPackId: number, value: string): void {
-        const parsed = value === '' ? null : Number(value);
-        this.draft.set(
-            this.draft().map((l) =>
-                l.itemPackId === itemPackId
-                    ? { ...l, estPrice: parsed !== null && isNaN(parsed) ? null : parsed }
                     : l
             )
         );
@@ -996,8 +935,7 @@ export class PurchasesComponent implements OnInit {
                 stockUnit: row.stockUnit,
                 packName: row.packName ?? 'pack',
                 qtyInStockUnit: row.qtyInStockUnit,
-                qtyPacks: row.suggestedPacks,
-                estPrice: row.lastPrice
+                qtyPacks: row.suggestedPacks
             }
         ]);
     }
@@ -1020,8 +958,7 @@ export class PurchasesComponent implements OnInit {
                 reason: this.reason().trim() || null,
                 lines: this.draft().map((l) => ({
                     itemPackId: l.itemPackId,
-                    qtyPacks: l.qtyPacks,
-                    estPrice: l.estPrice
+                    qtyPacks: l.qtyPacks
                 }))
             });
             this.notify.success('Sent to management');
@@ -1165,7 +1102,4 @@ export class PurchasesComponent implements OnInit {
         return formatQty(qty, unit);
     }
 
-    money(value: number): string {
-        return formatMoney(value);
-    }
 }

@@ -39,7 +39,6 @@ const poLine = z.object({
     itemPackId: z.number().nullable(),
     packName: z.string().nullable(),
     qtyPacks: z.number().nullable(),
-    estPrice: z.number().nullable(),
     qtyReceivedBase: z.number(),
     /** Still to come. Zero once the line is fully delivered. */
     qtyOutstandingBase: z.number()
@@ -59,7 +58,6 @@ const purchaseOrder = z.object({
     closedAt: z.string().nullable(),
     /** True when something has arrived but not everything. */
     partReceived: z.boolean(),
-    estimatedTotal: z.number().nullable(),
     lines: z.array(poLine)
 });
 
@@ -85,8 +83,7 @@ export async function purchasingRoutes(app: FastifyInstance) {
                                 // Packs, not stock units: what you say to a
                                 // supplier, and what comes back on the invoice.
                                 itemPackId: z.number().int().positive(),
-                                qtyPacks: z.number().positive().max(100_000),
-                                estPrice: z.number().nonnegative().max(100_000_000).nullish()
+                                qtyPacks: z.number().positive().max(100_000)
                             })
                         )
                         .min(1)
@@ -104,8 +101,7 @@ export async function purchasingRoutes(app: FastifyInstance) {
                 reason: req.body.reason ?? null,
                 lines: req.body.lines.map((l) => ({
                     itemPackId: l.itemPackId,
-                    qtyPacks: l.qtyPacks,
-                    estPrice: l.estPrice ?? null
+                    qtyPacks: l.qtyPacks
                 }))
             });
             return reply.status(201).send(result);
@@ -188,8 +184,7 @@ export async function purchasingRoutes(app: FastifyInstance) {
                             itemPackId: z.number().nullable(),
                             packName: z.string().nullable(),
                             qtyInStockUnit: z.number().nullable(),
-                            suggestedPacks: z.number(),
-                            lastPrice: z.number().nullable()
+                            suggestedPacks: z.number()
                         })
                     )
                 }
@@ -286,7 +281,6 @@ export async function purchasingRoutes(app: FastifyInstance) {
                     'l.item_pack_id as itemPackId',
                     'p.pack_name as packName',
                     'l.qty_packs as qtyPacks',
-                    'l.est_price as estPrice',
                     'l.qty_received_base as qtyReceivedBase'
                 ])
                 .where(
@@ -318,21 +312,10 @@ export async function purchasingRoutes(app: FastifyInstance) {
                         itemPackId: l.itemPackId,
                         packName: l.packName,
                         qtyPacks: l.qtyPacks === null ? null : Number(l.qtyPacks),
-                        estPrice: l.estPrice === null ? null : Number(l.estPrice),
                         qtyReceivedBase: received,
                         qtyOutstandingBase: Math.max(0, Math.round((qtyBase - received) * 1000) / 1000)
                     };
                 });
-
-                // Only worth showing when every line has a price to add up;
-                // a total missing half its lines reads as a cheap order.
-                const priced = mine.filter((l) => l.estPrice !== null && l.qtyPacks !== null);
-                const estimatedTotal =
-                    priced.length === mine.length && mine.length > 0
-                        ? Math.round(
-                              priced.reduce((sum, l) => sum + l.estPrice! * l.qtyPacks!, 0) * 100
-                          ) / 100
-                        : null;
 
                 return {
                     id: String(o.id),
@@ -349,7 +332,6 @@ export async function purchasingRoutes(app: FastifyInstance) {
                     partReceived:
                         mine.some((l) => l.qtyReceivedBase > 0) &&
                         mine.some((l) => l.qtyOutstandingBase > 0),
-                    estimatedTotal,
                     lines: mine
                 };
             });

@@ -2,10 +2,9 @@
  * Sending stock back to the supplier.
  *
  * The screen is built around the delivery rather than around the item, and that
- * is the whole design. Pick the invoice it came in on, and the pack, the
- * conversion and the price paid all come with it - so the credit is priced from
- * what was actually invoiced rather than from today's price list, and nobody
- * has to remember what a sack cost six weeks ago.
+ * is the whole design. Pick the invoice it came in on, and the pack and the
+ * conversion come with it - so the claim is made against what was actually
+ * delivered, and nobody has to remember six weeks later which pack it was.
  *
  * **One question, answered line by line (CR-006).** The store does not raise a
  * claim and hope; it asks management *what do we do with this?* and management
@@ -18,7 +17,7 @@
  * The lifecycle is deliberately visible: asked, decided, gone, settled. Each of
  * those is a different person doing a different thing, and collapsing them
  * would lose the two facts worth having - what management said, and whether
- * the money ever came back.
+ * the supplier ever answered for it.
  *
  * Stock leaves quarantine on **send** and at no other point. Raising a return
  * is paperwork; the crate is still in the building and the stock figure says
@@ -26,7 +25,7 @@
  *
  * **Two people, two screens, one list.** The storekeeper writes the return up
  * and later says the lorry has taken it; management approves it and records
- * what the supplier allowed. The server enforces that split, so the screen
+ * what the supplier did about it. The server enforces that split, so the screen
  * shows each of them only their own half: management gets no delivery form and
  * no "it has gone" button, and the storekeeper gets no approve and no credit
  * note. Both see the same list, because both need to know where a return has
@@ -49,7 +48,7 @@ import { AuthStore } from '@/core/auth.store';
 import { GrandService } from '@/core/grand.service';
 import { NotifyService } from '@/core/notify.service';
 import { apiErrorMessage } from '@/core/api';
-import { formatMoney, formatQty } from '@/core/format';
+import { formatQty } from '@/core/format';
 import {
     SUPPLIER_RETURN_OUTCOME_LABELS,
     SUPPLIER_RETURN_STATUS_LABELS,
@@ -142,9 +141,9 @@ import { AppPaginator, type PageChange } from '@/shared/paginator.component';
                     <p class="mt-1">
                         The store asks, you answer: for each line,
                         <strong>back to the supplier</strong> or <strong>into the bin</strong>.
-                        Both are money - one claims a credit, the other writes the value off -
-                        which is why it waits for you. The store then carries it out, and you
-                        record what the supplier actually allowed on anything that went back.
+                        Both have consequences - one claims from the supplier, the other writes
+                        the stock off - which is why it waits for you. The store then carries it
+                        out, and you record what the supplier did about anything that went back.
                         <strong>Until you answer, nothing leaves the building.</strong>
                     </p>
                 </div>
@@ -155,9 +154,8 @@ import { AppPaginator, type PageChange } from '@/shared/paginator.component';
                         <div class="px-5 py-4 border-b border-surface">
                             <div class="font-semibold">Waiting for your decision</div>
                             <p class="text-sm text-surface-500 mt-0.5">
-                                {{ awaitingDecision().length }} ask(s), worth
-                                {{ money(awaitingValue()) }} if it all goes back, sitting in
-                                quarantine until you answer.
+                                {{ awaitingDecision().length }} ask(s) sitting in quarantine
+                                until you answer.
                             </p>
                         </div>
                         <ul class="divide-y divide-surface">
@@ -181,18 +179,19 @@ import { AppPaginator, type PageChange } from '@/shared/paginator.component';
                                         </div>
                                         <div class="text-right">
                                             <div class="font-semibold">
-                                                {{ money(row.expectedCredit) }}
+                                                {{ row.lines.length }}
                                             </div>
                                             <div class="text-xs text-surface-500">
-                                                if it all goes back
+                                                line(s) to answer
                                             </div>
                                         </div>
                                     </div>
 
-                                    <!-- One answer per line. Both buttons are
-                                         money: one claims a credit, the other
-                                         writes the value off, so neither is the
-                                         safe default and neither is preselected. -->
+                                    <!-- One answer per line. Both buttons have
+                                         consequences: one claims from the
+                                         supplier, the other writes the stock
+                                         off, so neither is the safe default and
+                                         neither is preselected. -->
                                     <ul class="rounded-xl border border-surface divide-y divide-surface">
                                         @for (line of row.lines; track line.id) {
                                             <li
@@ -203,7 +202,7 @@ import { AppPaginator, type PageChange } from '@/shared/paginator.component';
                                                     </div>
                                                     <div class="text-xs text-surface-500">
                                                         {{ line.qtyPacks }} × {{ line.packName }}
-                                                        · worth {{ money(line.lineCredit) }}
+                                                        = {{ q(line.qtyBase, line.stockUnit) }}
                                                     </div>
                                                 </div>
                                                 <div class="app-choice" role="group">
@@ -237,8 +236,8 @@ import { AppPaginator, type PageChange } from '@/shared/paginator.component';
                                             @if (unanswered(row); as left) {
                                                 {{ left }} line(s) still to answer
                                             } @else {
-                                                Claiming {{ money(claimTotal(row)) }} ·
-                                                binning {{ money(binTotal(row)) }}
+                                                Claiming {{ claimCount(row) }} line(s) ·
+                                                binning {{ binCount(row) }}
                                             }
                                         </span>
                                         <button
@@ -299,11 +298,9 @@ import { AppPaginator, type PageChange } from '@/shared/paginator.component';
                                     </div>
                                 </div>
                                 <div class="text-right">
-                                    <div class="font-semibold">{{ money(sug.totalCredit) }}</div>
                                     <button
                                         pButton
                                         size="small"
-                                        class="mt-2"
                                         icon="pi pi-check"
                                         label="Use this"
                                         [disabled]="busy()"
@@ -352,7 +349,7 @@ import { AppPaginator, type PageChange } from '@/shared/paginator.component';
                             }
                         </select>
                         <p class="text-xs text-surface-500 mt-1">
-                            The price on that invoice is what the credit is worked out from.
+                            The goods go back against that delivery, in the packs it came in.
                         </p>
                     </div>
 
@@ -400,13 +397,12 @@ import { AppPaginator, type PageChange } from '@/shared/paginator.component';
                                         <th class="py-2 pr-3 text-right">Delivered</th>
                                         <th class="py-2 pr-3 text-right">Already back</th>
                                         <th class="py-2 pr-3 text-right">In quarantine</th>
-                                        <th class="py-2 pr-3 text-right">
+                                        <th class="py-2 text-right">
                                             Send back
                                             <span class="block text-xs font-normal">
                                                 in packs
                                             </span>
                                         </th>
-                                        <th class="py-2 text-right">Credit</th>
                                     </tr>
                                 </thead>
                                 <tbody>
@@ -429,7 +425,7 @@ import { AppPaginator, type PageChange } from '@/shared/paginator.component';
                                                 [class.text-surface-400]="l.qtyInQuarantine === 0">
                                                 {{ q(l.qtyInQuarantine, l.stockUnit) }}
                                             </td>
-                                            <td class="py-2 pr-3 text-right w-36">
+                                            <td class="py-2 text-right w-36">
                                                 @if (fullyClaimed(l)) {
                                                     <span class="text-xs text-surface-500">
                                                         already claimed in full
@@ -456,9 +452,6 @@ import { AppPaginator, type PageChange } from '@/shared/paginator.component';
                                                     </div>
                                                 }
                                             </td>
-                                            <td class="py-2 text-right font-medium">
-                                                {{ money(creditFor(l)) }}
-                                            </td>
                                         </tr>
                                     }
                                 </tbody>
@@ -469,8 +462,8 @@ import { AppPaginator, type PageChange } from '@/shared/paginator.component';
                              they hit them rather than after. -->
                         <div class="app-note">
                             <p>
-                                <strong>Send back is counted in packs</strong>, because that is what
-                                a credit note is written in. A part pack is normal: half a litre out
+                                <strong>Send back is counted in packs</strong>, because that is how
+                                the supplier delivered it. A part pack is normal: half a litre out
                                 of a 5 L can is 0.1 - the line underneath shows what it comes to on
                                 the shelf.
                             </p>
@@ -484,8 +477,8 @@ import { AppPaginator, type PageChange } from '@/shared/paginator.component';
 
                         <div class="flex flex-wrap items-center justify-between gap-3">
                             <div class="text-sm">
-                                Credit asked for:
-                                <span class="font-semibold">{{ money(totalCredit()) }}</span>
+                                Lines to send back:
+                                <span class="font-semibold">{{ entryCount() }}</span>
                             </div>
                             <button
                                 pButton
@@ -538,9 +531,6 @@ import { AppPaginator, type PageChange } from '@/shared/paginator.component';
                                         }
                                     </div>
                                     <div class="text-right">
-                                        <div class="font-semibold">
-                                            {{ money(row.expectedCredit) }}
-                                        </div>
                                         <p-tag
                                             [severity]="severity(row.status)"
                                             [value]="statusLabel(row.status)"></p-tag>
@@ -559,27 +549,12 @@ import { AppPaginator, type PageChange } from '@/shared/paginator.component';
                                         </div>
                                     }
                                 </div>
-                                @if (row.writtenOffValue > 0) {
-                                    <div class="text-xs text-surface-500">
-                                        {{ money(row.writtenOffValue) }} of this was written off
-                                        rather than claimed.
-                                    </div>
-                                }
 
                                 @if (row.status === 'settled') {
                                     <div class="text-sm">
                                         {{ outcomeLabel(row.outcome) }}
                                         @if (row.creditNoteNo) {
                                             · note {{ row.creditNoteNo }}
-                                        }
-                                        @if (row.creditValue !== null) {
-                                            · {{ money(row.creditValue) }} allowed
-                                            @if (row.creditValue < row.expectedCredit) {
-                                                <span class="text-amber-600 dark:text-amber-400">
-                                                    ({{ money(row.expectedCredit - row.creditValue) }}
-                                                    short of what was asked)
-                                                </span>
-                                            }
                                         }
                                     </div>
                                 }
@@ -708,16 +683,12 @@ export class SupplierReturnsComponent implements OnInit {
         return row.lines.filter((l) => this.answerFor(row.id, l.id) === null).length;
     }
 
-    claimTotal(row: SupplierReturnRow): number {
-        return row.lines
-            .filter((l) => this.answerFor(row.id, l.id) === 'vendor')
-            .reduce((n, l) => n + l.lineCredit, 0);
+    claimCount(row: SupplierReturnRow): number {
+        return row.lines.filter((l) => this.answerFor(row.id, l.id) === 'vendor').length;
     }
 
-    binTotal(row: SupplierReturnRow): number {
-        return row.lines
-            .filter((l) => this.answerFor(row.id, l.id) === 'waste')
-            .reduce((n, l) => n + l.lineCredit, 0);
+    binCount(row: SupplierReturnRow): number {
+        return row.lines.filter((l) => this.answerFor(row.id, l.id) === 'waste').length;
     }
 
     /** Lines management said to bin that the store has not binned yet. */
@@ -805,10 +776,6 @@ export class SupplierReturnsComponent implements OnInit {
         this.rows().filter((r) => r.status === 'raised')
     );
 
-    readonly awaitingValue = computed(() =>
-        this.awaitingDecision().reduce((n, r) => n + r.expectedCredit, 0)
-    );
-
     /**
      * The life of a supplier return, in the order it happens.
      *
@@ -821,7 +788,7 @@ export class SupplierReturnsComponent implements OnInit {
             key: 'raised',
             label: 'Asked',
             who: 'Storekeeper',
-            what: 'What is in quarantine, priced off the delivery it came in on'
+            what: 'What is in quarantine, against the delivery it came in on'
         },
         {
             key: 'approved',
@@ -903,13 +870,7 @@ export class SupplierReturnsComponent implements OnInit {
         });
     }
 
-    creditFor(line: ReturnableLine): number {
-        return (this.entries()[line.grnLineId] ?? 0) * line.packPrice;
-    }
-
-    readonly totalCredit = computed(() =>
-        this.lines().reduce((n, l) => n + (this.entries()[l.grnLineId] ?? 0) * l.packPrice, 0)
-    );
+    readonly entryCount = computed(() => Object.keys(this.entries()).length);
 
     readonly canRaise = computed(
         () => !!this.grnId() && !!this.reasonCode() && Object.keys(this.entries()).length > 0
@@ -993,7 +954,7 @@ export class SupplierReturnsComponent implements OnInit {
                 }))
             });
             this.notify.success(
-                `Sent to management. ${this.money(result.creditValue)} to decide on.`
+                `Sent to management. ${result.lineCount} line(s) to decide on.`
             );
 
             // The ask exists now, so the form that made it has no business
@@ -1040,7 +1001,7 @@ export class SupplierReturnsComponent implements OnInit {
             const result = await this.api.decideDisposal(row.id, lines);
             this.notify.success(
                 result.toWaste === 0
-                    ? `All of it goes back. ${this.money(result.creditValue)} to claim.`
+                    ? 'All of it goes back to the supplier.'
                     : result.toVendor === 0
                       ? 'All of it is to be binned. The store will do it.'
                       : `${result.toVendor} line(s) back to the supplier, ${result.toWaste} to be binned.`
@@ -1090,32 +1051,19 @@ export class SupplierReturnsComponent implements OnInit {
 
     async settle(row: SupplierReturnRow, outcome: SupplierReturnOutcome): Promise<void> {
         let creditNoteNo: string | null = null;
-        let creditValue: number | null = null;
 
         if (outcome === 'credit') {
             creditNoteNo = await this.notify.prompt(
-                'The number on the note, so it can be checked against the statement.',
+                'The number on the note, so accounts can find it against the statement.',
                 'Credit note number',
                 '',
-                'Next'
-            );
-            if (!creditNoteNo?.trim()) return;
-            const raw = await this.notify.prompt(
-                'Suppliers do not always allow the whole amount. Enter what they did.',
-                'How much did they allow?',
-                String(row.expectedCredit),
                 'Record it'
             );
-            if (raw === null) return;
-            creditValue = Number(raw);
-            if (!Number.isFinite(creditValue) || creditValue < 0) {
-                this.notify.error('That is not an amount');
-                return;
-            }
+            if (!creditNoteNo?.trim()) return;
         }
 
         try {
-            await this.api.settleSupplierReturn(row.id, { outcome, creditNoteNo, creditValue });
+            await this.api.settleSupplierReturn(row.id, { outcome, creditNoteNo });
             await this.load();
         } catch (err) {
             this.notify.error(apiErrorMessage(err));
@@ -1135,10 +1083,6 @@ export class SupplierReturnsComponent implements OnInit {
         if (status === 'rejected') return 'danger';
         if (status === 'sent') return 'info';
         return 'warn';
-    }
-
-    money(v: number): string {
-        return formatMoney(v);
     }
 
     q(qty: number, unit: string): string {
