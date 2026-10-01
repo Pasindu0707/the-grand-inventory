@@ -164,7 +164,7 @@ async function deliveredAndReturned(packs = 2) {
         payload: {
             supplierId: supplier.id,
             invoiceNo: `INV-${randomUUID().slice(0, 8)}`,
-            lines: [{ itemPackId: pack.packId, qtyPacks: packs, packPrice: 1000 }]
+            lines: [{ itemPackId: pack.packId, qtyPacks: packs }]
         }
     });
     expect(grn.statusCode).toBe(201);
@@ -639,8 +639,8 @@ describe('a section hands stock back', () => {
      * The separate hand-back approval was withdrawn by CR-006.
      *
      * It stamped a movement that had already happened and blocked nothing.
-     * What management decides now is what becomes of the goods, which is a
-     * decision about money -- see the disposal tests below.
+     * What management decides now is what becomes of the goods -- see the
+     * disposal tests below.
      */
     it('no longer has a hand-back approval to grant', async () => {
         const item = await stockedInKitchen();
@@ -671,7 +671,7 @@ describe('a section hands stock back', () => {
 
 describe('the store sends it back to the vendor', () => {
 
-    it('prices the credit from the delivery, not from today', async () => {
+    it('raises the claim against the delivery the goods came in on', async () => {
         const { grnId } = await deliveredAndReturned();
         const lines = await app.inject({
             method: 'GET',
@@ -680,8 +680,8 @@ describe('the store sends it back to the vendor', () => {
         });
         expect(lines.statusCode).toBe(200);
         const line = lines.json()[0];
-        expect(line.packPrice).toBe(1000);
         expect(line.qtyPacksReturnable).toBe(2);
+        expect(line).not.toHaveProperty('packPrice');
 
         const raised = await app.inject({
             method: 'POST',
@@ -694,7 +694,8 @@ describe('the store sends it back to the vendor', () => {
             }
         });
         expect(raised.statusCode).toBe(201);
-        expect(raised.json().creditValue).toBe(2000);
+        expect(raised.json().lineCount).toBe(1);
+        expect(raised.json()).not.toHaveProperty('creditValue');
     });
 
     it('does not move stock until the goods are sent', async () => {
@@ -928,7 +929,7 @@ describe('the store sends it back to the vendor', () => {
             method: 'POST',
             url: `/api/v1/supplier-returns/${id}/settle`,
             headers: mh,
-            payload: { outcome: 'credit', creditNoteNo: 'CN-77', creditValue: 1000 }
+            payload: { outcome: 'credit', creditNoteNo: 'CN-77' }
         });
         expect(settled.statusCode).toBe(200);
     });
@@ -973,7 +974,7 @@ describe('the store sends it back to the vendor', () => {
             method: 'POST',
             url: `/api/v1/supplier-returns/${raised.json().id}/settle`,
             headers: mh,
-            payload: { outcome: 'credit', creditNoteNo: 'CN-1', creditValue: 100 }
+            payload: { outcome: 'credit', creditNoteNo: 'CN-1' }
         });
         expect(res.statusCode).toBe(409);
         expect(res.json().message).toContain('after it has been sent');
@@ -1009,7 +1010,7 @@ describe('the store sends it back to the vendor', () => {
             method: 'POST',
             url: `/api/v1/supplier-returns/${id}/settle`,
             headers: mh,
-            payload: { outcome: 'credit', creditValue: 100 }
+            payload: { outcome: 'credit' }
         });
         expect(noNumber.statusCode).toBe(400);
 
@@ -1025,7 +1026,7 @@ describe('the store sends it back to the vendor', () => {
 });
 
 describe('the form arrives filled in', () => {
-    it('suggests a return from what is in quarantine, priced off the delivery', async () => {
+    it('suggests a return from what is in quarantine, against the delivery', async () => {
         const { grnId, itemId, size, packs } = await deliveredAndReturned(2);
 
         const suggestions = (
@@ -1042,10 +1043,7 @@ describe('the form arrives filled in', () => {
 
         const line = group.lines.find((l: { itemId: number }) => l.itemId === itemId);
         expect(line).toBeTruthy();
-        // Priced off the delivery, not off any current price list.
-        expect(line.packPrice).toBe(1000);
         expect(line.suggestedPacks).toBe(packs);
-        expect(line.suggestedCredit).toBe(packs * 1000);
         // And it carries why the goods came back.
         expect(group.reasonCode).toBeTruthy();
         void size;
@@ -1082,7 +1080,7 @@ describe('the form arrives filled in', () => {
             payload: {
                 supplierId: supplier.id,
                 invoiceNo: `INV-${randomUUID().slice(0, 8)}`,
-                lines: [{ itemPackId: pack.packId, qtyPacks: 4, packPrice: 1000 }]
+                lines: [{ itemPackId: pack.packId, qtyPacks: 4 }]
             }
         });
         expect(grn.statusCode).toBe(201);
@@ -1189,8 +1187,7 @@ describe('deciding what becomes of quarantined stock', () => {
                 supplierId: supplier.id,
                 lines: packs.map((p) => ({
                     itemPackId: p.packId,
-                    qtyPacks: 2,
-                    packPrice: 500
+                    qtyPacks: 2
                 }))
             }
         });
@@ -1297,7 +1294,7 @@ describe('deciding what becomes of quarantined stock', () => {
             headers: { ...headers, ...idem() },
             payload: {
                 supplierId: supplier.id,
-                lines: [{ itemPackId: fresh.packId, qtyPacks: 1, packPrice: 400 }]
+                lines: [{ itemPackId: fresh.packId, qtyPacks: 1 }]
             }
         });
         expect(grn.statusCode).toBe(201);
@@ -1399,8 +1396,8 @@ describe('deciding what becomes of quarantined stock', () => {
             expect(row!.qtyFree).toBeGreaterThanOrEqual(0);
         }
 
-        // And it is management's to read as well: the value sitting here is
-        // money paid for and unusable, even though acting on it is not theirs.
+        // And it is management's to read as well: stock sitting here is
+        // unusable, even though acting on it is not theirs.
         const asMgmt = await app.inject({
             method: 'GET',
             url: '/api/v1/quarantine',
@@ -1582,7 +1579,7 @@ describe('deciding what becomes of quarantined stock', () => {
         expect(sent.statusCode).toBe(409);
     });
 
-    it('counts a binned line as written off rather than as money owed', async () => {
+    it('keeps the claimed half and the binned half apart, line by line', async () => {
         const { id, lines } = await twoLinesInQuarantine();
         const mh = await headersFor('management');
 
@@ -1608,10 +1605,8 @@ describe('deciding what becomes of quarantined stock', () => {
             .json()
             .items.find((r: { id: string }) => r.id === String(id));
 
-        expect(row.expectedCredit).toBeGreaterThan(0);
-        expect(row.writtenOffValue).toBeGreaterThan(0);
-        // The claim is the vendor half only, not the whole ask.
-        expect(row.expectedCredit).toBeLessThan(row.expectedCredit + row.writtenOffValue);
+        const decisions = row.lines.map((l: { decision: string }) => l.decision).sort();
+        expect(decisions).toEqual(['vendor', 'waste']);
     });
 });
 
@@ -1681,10 +1676,7 @@ describe('returns and the reports', () => {
         expect(rows.length).toBeGreaterThan(0);
 
         // The seeded story: one return settled with a credit note.
-        const credited = rows.reduce(
-            (n: number, r: { creditedValue: number }) => n + r.creditedValue,
-            0
-        );
+        const credited = rows.reduce((n: number, r: { credited: number }) => n + r.credited, 0);
         expect(credited).toBeGreaterThan(0);
     });
 
@@ -1706,7 +1698,7 @@ describe('returns and the reports', () => {
         ).toBe(true);
     });
 
-    it('nets credits off what a supplier really cost', async () => {
+    it('never counts more credits than returns for a supplier', async () => {
         const mh = await headersFor('management');
         const rows = (
             await app.inject({
@@ -1719,15 +1711,12 @@ describe('returns and the reports', () => {
         const withReturns = rows.filter((r: { returns: number }) => r.returns > 0);
         expect(withReturns.length).toBeGreaterThan(0);
         for (const row of withReturns) {
-            expect(row.netSpend).toBe(
-                Number((row.spend - row.creditedValue).toFixed(2))
-            );
+            expect(row.credited).toBeLessThanOrEqual(row.returns);
+            expect(row).not.toHaveProperty('spend');
         }
     });
 
-    it('reports what the supplier allowed, not what was asked for', async () => {
-        // Suppliers settle short. The report has to say so, or a partial credit
-        // reads as a full one and the shortfall is never chased.
+    it('counts a settled credit note against the supplier', async () => {
         const { grnId } = await deliveredAndReturned();
         const line = (
             await app.inject({ method: 'GET', url: `/api/v1/grn/${grnId}/returnable`, headers })
@@ -1743,7 +1732,6 @@ describe('returns and the reports', () => {
             }
         });
         const id = raised.json().id;
-        const asked = raised.json().creditValue;
         const mh = await headersFor('management');
 
         await app.inject({
@@ -1754,36 +1742,34 @@ describe('returns and the reports', () => {
         });
         await app.inject({ method: 'POST', url: `/api/v1/supplier-returns/${id}/send`, headers });
 
-        // They allow half.
-        const allowed = asked / 2;
-        const settled = await app.inject({
-            method: 'POST',
-            url: `/api/v1/supplier-returns/${id}/settle`,
-            headers: mh,
-            payload: { outcome: 'credit', creditNoteNo: 'CN-SHORT', creditValue: allowed }
-        });
-        expect(settled.statusCode).toBe(200);
+        const reportRow = async (supplierId: number) =>
+            (
+                await app.inject({
+                    method: 'GET',
+                    url: '/api/v1/reports/supplier-performance?from=2026-01-01&to=2030-12-31',
+                    headers: mh
+                })
+            )
+                .json()
+                .rows.find((r: { supplierId: number }) => r.supplierId === supplierId);
 
         const supplier = await db
             .selectFrom('supplier_returns')
             .select('supplier_id')
             .where('id', '=', id)
             .executeTakeFirstOrThrow();
+        const before = await reportRow(supplier.supplier_id);
 
-        const rows = (
-            await app.inject({
-                method: 'GET',
-                url: '/api/v1/reports/supplier-performance?from=2026-01-01&to=2030-12-31',
-                headers: mh
-            })
-        ).json().rows;
-        const row = rows.find(
-            (r: { supplierId: number }) => r.supplierId === supplier.supplier_id
-        );
+        const settled = await app.inject({
+            method: 'POST',
+            url: `/api/v1/supplier-returns/${id}/settle`,
+            headers: mh,
+            payload: { outcome: 'credit', creditNoteNo: 'CN-SHORT' }
+        });
+        expect(settled.statusCode).toBe(200);
 
-        // Credited must never exceed what went back, and on this supplier the
-        // two are now different numbers.
-        expect(row.creditedValue).toBeLessThan(row.returnedValue);
+        const after = await reportRow(supplier.supplier_id);
+        expect(after.credited).toBe(before.credited + 1);
     });
 
     it('keeps a documented return out of the shrinkage report', async () => {

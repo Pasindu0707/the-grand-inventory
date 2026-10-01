@@ -50,7 +50,7 @@ try {
 
     console.log('  Will DELETE');
     console.log(`    ${String(c.ledger).padStart(6)}  ledger rows`);
-    console.log(`    ${String(c.items).padStart(6)}  items (and their packs, prices, recipes)`);
+    console.log(`    ${String(c.items).padStart(6)}  items (and their packs and recipes)`);
     console.log(`    ${String(c.suppliers).padStart(6)}  suppliers`);
     console.log(`    ${String(c.users).padStart(6)}  users`);
     console.log('            every GRN, purchase order, issue, count and wastage\n');

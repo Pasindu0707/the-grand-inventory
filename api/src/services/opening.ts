@@ -6,21 +6,17 @@
  * value since the first migration and nothing has ever written one, so the
  * only way to get real stock into a fresh system was to enter it as a delivery
  * from a supplier who never delivered it -- which puts a fictional invoice in
- * the price history and makes the first month's supplier report nonsense.
+ * the delivery history and makes the first month's supplier report nonsense.
  *
  * It is its own document because it is its own event. An opening balance is
  * stock that was already there; a count is a discrepancy found later. A report
  * that cannot tell them apart reads day one as the largest variance of the
  * year.
  *
- * Two rules make this safe to hand to the storekeeper rather than a developer:
- *
- *   - a section can only be opened while it has no history at all. Once
- *     anything has moved there, the opening balance is already established and
- *     the honest instrument is a stock count.
- *   - the cost entered becomes the section's starting weighted average, so it
- *     is asked for per line rather than assumed. Stock valued at zero quietly
- *     reports every later issue as free.
+ * One rule makes this safe to hand to the storekeeper rather than a developer:
+ * a section can only be opened while it has no history at all. Once anything
+ * has moved there, the opening balance is already established and the honest
+ * instrument is a stock count.
  */
 import { db } from '../db/index.js';
 import { badRequest, conflict, notFound } from '../errors.js';
@@ -32,7 +28,7 @@ export interface OpeningStockInput {
     sectionId: number;
     enteredBy: number;
     note?: string | null;
-    lines: { itemId: number; qtyBase: number; unitCost: number }[];
+    lines: { itemId: number; qtyBase: number }[];
     idempotency: { key: string; endpoint: string; requestHash: string };
 }
 
@@ -40,7 +36,6 @@ export interface OpeningStockResult {
     id: string;
     businessDate: string;
     lineCount: number;
-    totalValue: number;
 }
 
 /** Has anything ever happened in this section? */
@@ -68,8 +63,7 @@ export interface OpeningEligibility {
  * leaves the correcting rows behind -- that is the whole point of an append-only
  * ledger -- so under the old rule the section was locked out of ever having a
  * correct opening balance. The only remaining instrument was a stock count,
- * which values an item nothing has ever received at zero and makes every later
- * issue of it look free.
+ * which reads day one as a discrepancy rather than a starting point.
  *
  * So the door stays open while nothing has happened to the section *except*
  * opening documents that have since been fully reversed. One movement of any
@@ -148,7 +142,6 @@ export async function createOpeningStock(
         if (line.qtyBase <= 0) {
             throw badRequest(`${item.name}: leave it off rather than opening at zero`);
         }
-        if (line.unitCost < 0) throw badRequest(`${item.name}: cost cannot be negative`);
         if (seen.has(line.itemId)) throw badRequest(`${item.name} is on the list twice`);
         seen.add(line.itemId);
     }
@@ -186,7 +179,6 @@ export async function createOpeningStock(
                     opening_id: doc.id,
                     item_id: line.itemId,
                     qty_base: line.qtyBase,
-                    unit_cost: line.unitCost,
                     is_demo: false
                 })
                 .execute();
@@ -195,14 +187,10 @@ export async function createOpeningStock(
                 sectionId: input.sectionId,
                 itemId: line.itemId,
                 qtyBase: line.qtyBase,
-                unitCost: line.unitCost,
                 docLine: i + 1
             });
         }
 
-        // 'opening' is a receipt as far as the ledger is concerned: it
-        // establishes cost rather than consuming it, which is exactly what an
-        // opening balance does.
         await postDocument(trx, {
             doc: 'opening',
             docId: doc.id,
@@ -212,24 +200,18 @@ export async function createOpeningStock(
             createdBy: input.enteredBy
         });
 
-        const totalValue =
-            Math.round(
-                input.lines.reduce((sum, l) => sum + l.qtyBase * l.unitCost, 0) * 100
-            ) / 100;
-
         await audit(trx, {
             userId: input.enteredBy,
             action: 'opening.create',
             entity: 'opening_stock',
             entityId: doc.id,
-            after: { sectionId: input.sectionId, lineCount: input.lines.length, totalValue }
+            after: { sectionId: input.sectionId, lineCount: input.lines.length }
         });
 
         const result: OpeningStockResult = {
             id: String(doc.id),
             businessDate,
-            lineCount: input.lines.length,
-            totalValue
+            lineCount: input.lines.length
         };
 
         await storeResponse(trx, input.idempotency.key, result, 201);

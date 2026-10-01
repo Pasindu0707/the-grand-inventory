@@ -43,8 +43,6 @@ let step = 0;
 
 const round3 = (n) => Math.round(n * 1000) / 1000;
 
-const money = (n) => `LKR ${Number(n).toLocaleString('en-LK', { minimumFractionDigits: 2 })}`;
-
 function ok(what, detail = '') {
     console.log(`  ✓ ${what}${detail ? ` — ${detail}` : ''}`);
 }
@@ -352,7 +350,7 @@ async function main() {
     if (!sug) {
         console.log(
             '  ! No delivery of that item still has returnable packs on it, so there is\n' +
-                '    nothing to price the credit against. The chain stops here honestly:\n' +
+                '    nothing to claim it against. The chain stops here honestly:\n' +
                 '    quarantine holds the goods and a supplier return needs an invoice.'
         );
         console.log(`\n${'='.repeat(60)}\n${failures === 0 ? 'No failures.' : `${failures} failure(s).`}`);
@@ -391,7 +389,7 @@ async function main() {
         console.log(`    ${raised.body?.message ?? ''}`);
         process.exit(1);
     }
-    ok('priced off the original invoice', money(raised.body.creditValue));
+    ok('tied to the original delivery', `${raised.body.lineCount} line(s)`);
 
     const stillThere = await held(store, quarantine.id, line.itemId);
     check(
@@ -500,8 +498,8 @@ async function main() {
      * of a 750 ml bottle and the return is 0.021 packs -- three decimal places,
      * which is 15.75 ml -- so 0.25 ml stays on the quarantine shelf.
      *
-     * The alternative is claiming credit for a fraction of a pack no supplier
-     * will honour, so the residue is the right side of the trade. It is
+     * The alternative is claiming a fraction of a pack no supplier will
+     * honour, so the residue is the right side of the trade. It is
      * reported, not failed.
      */
     if (afterSend > 0 && afterSend < sugLine.qtyInStockUnit) {
@@ -530,8 +528,7 @@ async function main() {
         locationId,
         body: {
             outcome: 'credit',
-            creditNoteNo: `CN-CHECK-${Date.now().toString().slice(-6)}`,
-            creditValue: raised.body.creditValue
+            creditNoteNo: `CN-CHECK-${Date.now().toString().slice(-6)}`
         }
     });
     check(settled.status === 200, 'management records the credit note', `got ${settled.status}`);

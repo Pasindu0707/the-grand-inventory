@@ -19,12 +19,6 @@
  * that clears them, which is rebuilding the database:
  *
  *   npm run db:reset-all
- *
- * Deleting ledger rows moves stock, so `item_cost_state.qty_on_hand` -- which
- * is maintained incrementally as documents are posted -- is recomputed from the
- * ledger afterwards for every item touched. Without that the balance the
- * weighted-average cost is calculated against would drift away from the
- * movements behind it, which is the one thing this schema is built to prevent.
  */
 import { connect } from './db.mjs';
 
@@ -87,14 +81,6 @@ try {
     try {
         await db.query("set local grand.allow_demo_reset = 'on'");
 
-        // Which items are about to move, so the cost state can be put right.
-        const { rows: touched } = await db.query(`
-            select distinct item_id, location_id
-            from stock_ledger
-            where is_demo
-              and (doc = 'return' or (doc = 'wastage' and reason_code = 'BADGOODS'))
-        `);
-
         await db.query(`
             delete from stock_ledger
             where is_demo
@@ -105,23 +91,8 @@ try {
         await db.query('delete from section_returns where is_demo');
         await db.query("delete from wastage where is_demo and reason_code = 'BADGOODS'");
 
-        // Stock moved, so the balance the moving average is weighted against
-        // has to be recomputed from what the ledger now says.
-        for (const t of touched) {
-            await db.query(
-                `update item_cost_state
-                    set qty_on_hand = coalesce((
-                          select sum(qty_base) from stock_ledger
-                          where item_id = $1 and location_id = $2
-                        ), 0),
-                        updated_at = now()
-                  where item_id = $1 and location_id = $2`,
-                [t.item_id, t.location_id]
-            );
-        }
-
         await db.query('commit');
-        console.log(`\nRemoved. ${touched.length} item balance(s) recomputed from the ledger.`);
+        console.log('\nRemoved.');
     } catch (err) {
         await db.query('rollback');
         console.error(`\nNothing was removed: ${err.message}`);

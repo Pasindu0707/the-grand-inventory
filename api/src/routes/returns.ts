@@ -9,9 +9,9 @@
  * is the same judgement -- these goods are not fit to use. Approval afterwards
  * is management's, and never your own return.
  *
- * A **supplier return** is money. The storekeeper writes it up because only
- * they can see what is really in quarantine; management decides it, exactly as
- * they decide a purchase. The stock moves on send, and send is refused until
+ * A **supplier return** is a claim on a supplier. The storekeeper writes it up
+ * because only they can see what is really in quarantine; management decides
+ * it, exactly as they decide a purchase. The stock moves on send, and send is refused until
  * the decision exists.
  */
 import type { FastifyInstance } from 'fastify';
@@ -60,8 +60,6 @@ const supplierReturnLine = z.object({
     packName: z.string(),
     qtyPacks: z.number(),
     qtyBase: z.number(),
-    packPrice: z.number(),
-    lineCredit: z.number(),
     /** What management answered for this line. Null until they have. */
     decision: z.enum(['vendor', 'waste']).nullable(),
     /** A waste line that has actually been binned. */
@@ -85,16 +83,7 @@ const supplierReturnRow = z.object({
     sentAt: z.string().nullable(),
     outcome: z.enum(['credit', 'replacement', 'written_off']).nullable(),
     creditNoteNo: z.string().nullable(),
-    creditValue: z.number().nullable(),
     settledAt: z.string().nullable(),
-    /**
-     * What is being claimed from the supplier. Before a decision that is every
-     * line; afterwards only the lines management said to claim, because a
-     * binned line is money written off rather than money owed.
-     */
-    expectedCredit: z.number(),
-    /** The other half: what was decided into the bin, at invoice value. */
-    writtenOffValue: z.number(),
     lines: z.array(supplierReturnLine)
 });
 
@@ -317,7 +306,6 @@ export async function returnRoutes(app: FastifyInstance) {
                             packId: z.number(),
                             packName: z.string(),
                             qtyInStockUnit: z.number(),
-                            packPrice: z.number(),
                             qtyPacksDelivered: z.number(),
                             qtyPacksReturned: z.number(),
                             qtyPacksReturnable: z.number(),
@@ -346,9 +334,8 @@ export async function returnRoutes(app: FastifyInstance) {
     /**
      * The quarantine shelf, with how much of each line is already spoken for.
      *
-     * Open to management as well as the store: the value sitting here is money
-     * paid for and unusable, which is theirs to watch even though the acting
-     * on it is not.
+     * Open to management as well as the store: stock sitting here is unusable,
+     * which is theirs to watch even though the acting on it is not.
      */
     r.get(
         '/quarantine',
@@ -363,7 +350,6 @@ export async function returnRoutes(app: FastifyInstance) {
                             name: z.string(),
                             stockUnit: z.string(),
                             qtyBase: z.number(),
-                            value: z.number(),
                             qtyOnOpenAsk: z.number(),
                             qtyFree: z.number()
                         })
@@ -389,7 +375,6 @@ export async function returnRoutes(app: FastifyInstance) {
                             supplierName: z.string(),
                             reasonCode: z.string().nullable(),
                             reasonLabel: z.string().nullable(),
-                            totalCredit: z.number(),
                             lines: z.array(
                                 z.object({
                                     grnLineId: z.string(),
@@ -399,11 +384,9 @@ export async function returnRoutes(app: FastifyInstance) {
                                     stockUnit: z.string(),
                                     packName: z.string(),
                                     qtyInStockUnit: z.number(),
-                                    packPrice: z.number(),
                                     qtyInQuarantine: z.number(),
                                     qtyPacksReturnable: z.number(),
-                                    suggestedPacks: z.number(),
-                                    suggestedCredit: z.number()
+                                    suggestedPacks: z.number()
                                 })
                             )
                         })
@@ -439,8 +422,7 @@ export async function returnRoutes(app: FastifyInstance) {
                     201: z.object({
                         id: z.string(),
                         supplierId: z.number(),
-                        lineCount: z.number(),
-                        creditValue: z.number()
+                        lineCount: z.number()
                     })
                 }
             }
@@ -514,7 +496,6 @@ export async function returnRoutes(app: FastifyInstance) {
                     'sr.sent_at as sentAt',
                     'sr.outcome',
                     'sr.credit_note_no as creditNoteNo',
-                    'sr.credit_value as creditValue',
                     'sr.settled_at as settledAt'
                 ])
                 .orderBy('sr.raised_at', 'desc')
@@ -539,8 +520,6 @@ export async function returnRoutes(app: FastifyInstance) {
                           'p.pack_name as packName',
                           'l.qty_packs as qtyPacks',
                           'l.qty_base as qtyBase',
-                          'l.pack_price as packPrice',
-                          'l.line_credit as lineCredit',
                           'l.decision',
                           'l.wastage_id as wastageId'
                       ])
@@ -575,31 +554,9 @@ export async function returnRoutes(app: FastifyInstance) {
                     sentAt: h.sentAt ? new Date(h.sentAt as unknown as string).toISOString() : null,
                     outcome: h.outcome,
                     creditNoteNo: h.creditNoteNo,
-                    creditValue: h.creditValue === null ? null : Number(h.creditValue),
                     settledAt: h.settledAt
                         ? new Date(h.settledAt as unknown as string).toISOString()
                         : null,
-                    /*
-                     * What is actually being claimed.
-                     *
-                     * Before a decision that is every line, because the ask is
-                     * "claim all of this, or bin it". Afterwards it is only the
-                     * lines management said to claim -- a binned line is money
-                     * written off, not money owed, and counting it here would
-                     * overstate what is coming back.
-                     */
-                    expectedCredit: Number(
-                        mine
-                            .filter((l) => l.decision !== 'waste')
-                            .reduce((n, l) => n + Number(l.lineCredit), 0)
-                            .toFixed(2)
-                    ),
-                    writtenOffValue: Number(
-                        mine
-                            .filter((l) => l.decision === 'waste')
-                            .reduce((n, l) => n + Number(l.lineCredit), 0)
-                            .toFixed(2)
-                    ),
                     lines: mine.map((l) => ({
                         id: String(l.id),
                         grnLineId: String(l.grnLineId),
@@ -609,8 +566,6 @@ export async function returnRoutes(app: FastifyInstance) {
                         packName: l.packName,
                         qtyPacks: Number(l.qtyPacks),
                         qtyBase: Number(l.qtyBase),
-                        packPrice: Number(l.packPrice),
-                        lineCredit: Number(l.lineCredit),
                         decision: l.decision,
                         binned: l.wastageId !== null
                     }))
@@ -624,9 +579,9 @@ export async function returnRoutes(app: FastifyInstance) {
     /**
      * The one decision in the whole chain: for each line, claim it or bin it.
      *
-     * Reserved to management because both answers are money -- one asks a
-     * supplier for a credit, the other writes the value off -- and because the
-     * person who raised the ask must not be the one who grants it.
+     * Reserved to management because both answers have consequences -- one
+     * asks a supplier for a credit, the other writes the stock off -- and
+     * because the person who raised the ask must not be the one who grants it.
      */
     r.post(
         '/supplier-returns/:id/decide',
@@ -649,8 +604,7 @@ export async function returnRoutes(app: FastifyInstance) {
                     200: z.object({
                         id: z.string(),
                         toVendor: z.number(),
-                        toWaste: z.number(),
-                        creditValue: z.number()
+                        toWaste: z.number()
                     })
                 }
             }
@@ -719,7 +673,6 @@ export async function returnRoutes(app: FastifyInstance) {
                 body: z.object({
                     outcome: z.enum(['credit', 'replacement', 'written_off']),
                     creditNoteNo: z.string().max(64).nullish(),
-                    creditValue: z.number().nonnegative().nullish(),
                     note: z.string().max(500).nullish()
                 }),
                 response: { 200: z.object({ ok: z.literal(true) }) }
@@ -732,7 +685,6 @@ export async function returnRoutes(app: FastifyInstance) {
                 {
                     outcome: req.body.outcome,
                     creditNoteNo: req.body.creditNoteNo ?? null,
-                    creditValue: req.body.creditValue ?? null,
                     note: req.body.note ?? null
                 },
                 req.user.sub

@@ -140,15 +140,6 @@ export interface ItemPacksTable {
     is_demo: Generated<boolean>;
 }
 
-export interface SupplierPricesTable {
-    id: Generated<number>;
-    supplier_id: number;
-    item_pack_id: number;
-    price: number;
-    effective_from: DateOnly;
-    is_demo: Generated<boolean>;
-}
-
 export interface ReasonCodesTable {
     code: string;
     doc: DocType;
@@ -163,7 +154,6 @@ export interface StockLedgerTable {
     section_id: number;
     item_id: number;
     qty_base: number;
-    unit_cost: number;
     doc: DocType;
     doc_id: string | number;
     doc_line: number | null;
@@ -175,14 +165,6 @@ export interface StockLedgerTable {
     is_demo: Generated<boolean>;
 }
 
-export interface ItemCostStateTable {
-    item_id: number;
-    location_id: number;
-    qty_on_hand: Generated<number>;
-    avg_cost: Generated<number>;
-    updated_at: Generated<Ts>;
-}
-
 export interface GrnTable {
     id: Generated<string>;
     location_id: number;
@@ -192,7 +174,6 @@ export interface GrnTable {
     received_at: Generated<Ts>;
     received_by: number;
     photo_url: string | null;
-    total: number | null;
     /** Set when this delivery was entered against a purchase order. */
     po_id: string | null;
     is_demo: Generated<boolean>;
@@ -203,7 +184,6 @@ export interface GrnLinesTable {
     grn_id: string | number;
     item_pack_id: number;
     qty_packs: number;
-    pack_price: number;
     expiry_date: DateOnly | null;
     is_demo: Generated<boolean>;
 }
@@ -260,8 +240,6 @@ export interface PurchaseOrderLinesTable {
      */
     item_pack_id: number | null;
     qty_packs: number | null;
-    /** Estimated price for ONE pack, matching grn_lines.pack_price. */
-    est_price: number | null;
     /** Accumulated across deliveries, in stock units. */
     qty_received_base: Generated<number>;
     is_demo: Generated<boolean>;
@@ -283,7 +261,6 @@ export interface OpeningStockLinesTable {
     opening_id: string | number;
     item_id: number;
     qty_base: number;
-    unit_cost: number;
     is_demo: Generated<boolean>;
 }
 
@@ -342,7 +319,6 @@ export interface StockCountLinesTable {
     qty_expected: number;
     /** Null until counted - see migration 0004. Close skips null lines. */
     qty_counted: number | null;
-    variance_value: number;
     is_demo: Generated<boolean>;
 }
 
@@ -423,15 +399,6 @@ export interface CurrentStockView {
     qty_base: number;
 }
 
-export interface CurrentStockValuedView {
-    location_id: number;
-    section_id: number;
-    item_id: number;
-    qty_base: number;
-    avg_cost: number;
-    value: number;
-}
-
 export interface UsageVarianceView {
     location_id: number;
     business_date: DateOnly;
@@ -478,7 +445,6 @@ export interface SupplierReturnsTable {
     sent_at: Ts | null;
     outcome: SupplierReturnOutcome | null;
     credit_note_no: string | null;
-    credit_value: number | null;
     settled_by: number | null;
     settled_at: Ts | null;
     settle_note: string | null;
@@ -495,8 +461,6 @@ export interface SupplierReturnLinesTable {
     item_id: number;
     qty_packs: number;
     qty_base: number;
-    pack_price: number;
-    line_credit: number;
     section_return_id: string | number | null;
     /**
      * Null until management has answered. See migration 0008: the store asks
@@ -516,10 +480,8 @@ export interface Database {
     item_categories: ItemCategoriesTable;
     items: ItemsTable;
     item_packs: ItemPacksTable;
-    supplier_prices: SupplierPricesTable;
     reason_codes: ReasonCodesTable;
     stock_ledger: StockLedgerTable;
-    item_cost_state: ItemCostStateTable;
     grn: GrnTable;
     grn_lines: GrnLinesTable;
     issues: IssuesTable;
@@ -543,7 +505,6 @@ export interface Database {
     settings: SettingsTable;
     audit_log: AuditLogTable;
     current_stock: CurrentStockView;
-    current_stock_valued: CurrentStockValuedView;
     usage_variance: UsageVarianceView;
 }
 

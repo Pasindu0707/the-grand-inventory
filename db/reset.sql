@@ -15,9 +15,6 @@ set local grand.allow_demo_reset = 'on';
 
 delete from stock_ledger        where is_demo;
 
--- Derived cost state has no is_demo of its own; it follows its item.
-delete from item_cost_state     where item_id in (select id from items where is_demo);
-
 delete from stock_count_lines   where is_demo;
 delete from stock_counts        where is_demo;
 delete from opening_stock_lines where is_demo;
@@ -39,7 +36,6 @@ delete from issues              where is_demo;
 delete from transfers           where is_demo;
 delete from recipe_lines        where is_demo;
 delete from products            where is_demo;
-delete from supplier_prices     where is_demo;
 delete from item_packs          where is_demo;
 delete from items               where is_demo;
 delete from suppliers           where is_demo;

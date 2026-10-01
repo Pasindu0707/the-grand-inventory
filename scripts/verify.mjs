@@ -60,12 +60,6 @@ console.log('\nSeed data');
 const led = await one(c, 'select count(*)::int n from stock_ledger');
 led.n > 10000 ? pass(`ledger has ${led.n} rows`) : fail(`ledger has only ${led.n} rows`);
 
-const sp = await one(c, 'select count(*)::int n from supplier_prices');
-sp.n > 0 ? pass(`supplier_prices seeded (${sp.n} price points) [A5]`) : fail('supplier_prices is empty [A5]');
-
-const ics = await one(c, 'select count(*)::int n from item_cost_state where avg_cost > 0');
-ics.n > 0 ? pass(`item_cost_state populated (${ics.n} items) [A3]`) : fail('item_cost_state is empty [A3]');
-
 const pin = await one(c, "select pin_hash from users where is_demo limit 1");
 /^\$2[aby]\$\d{2}\$/.test(pin.pin_hash)
     ? pass('user PINs are real bcrypt hashes [A6]')
@@ -80,14 +74,6 @@ const cs = await one(
 cs.n > 0 && cs.locs > 0
     ? pass(`current_stock returns ${cs.n} rows and is scoped by location [A8]`)
     : fail('current_stock is empty or unscoped [A8]');
-
-const val = await one(
-    c,
-    'select round(sum(value))::bigint v from current_stock_valued where qty_base > 0'
-);
-Number(val.v) > 0
-    ? pass(`current_stock_valued totals Rs ${Number(val.v).toLocaleString('en-LK')} [A3/A8]`)
-    : fail('current_stock_valued is zero -- avg_cost is not wired up [A3/A8]');
 
 const uv = await one(c, `
   select count(*)::int n,
@@ -137,9 +123,9 @@ await mustRaise(c, 'TRUNCATE the ledger', 'truncate stock_ledger cascade');
 await c.query(`set local grand.allow_demo_reset = 'on'`);
 await c.query(`
   insert into stock_ledger
-    (business_date, location_id, section_id, item_id, qty_base, unit_cost,
+    (business_date, location_id, section_id, item_id, qty_base,
      doc, doc_id, created_by, is_demo)
-  select '2026-08-10', 1, 1, min(item_id), 1, 1, 'opening', 999999, 1, false
+  select '2026-08-10', 1, 1, min(item_id), 1, 'opening', 999999, 1, false
   from stock_ledger`);
 await mustRaise(
     c,

@@ -4,8 +4,8 @@
  * The assertions that matter here are the refusals. Creating an item is easy
  * and would work by accident; what decides whether this is safe to hand over
  * is whether it stops the three edits that quietly destroy history - changing
- * a stock unit after stock has moved in it, changing a pack size after the
- * price history has been written against it, and switching off a section with
+ * a stock unit after stock has moved in it, changing a pack size after
+ * deliveries have been booked in it, and switching off a section with
  * stock still on its shelves.
  */
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';

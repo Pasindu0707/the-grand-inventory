@@ -26,11 +26,6 @@ export async function stockRoutes(app: FastifyInstance) {
                     belowReorder: z.coerce.boolean().optional(),
                 }),
                 response: {
-                    // `totalValue` rides alongside the page envelope rather than
-                    // inside it: it is the value of everything the filter
-                    // matches, not of the twenty-five rows on this page. A stock
-                    // valuation that changed when you clicked "next" would be
-                    // worse than useless.
                     200: pageOf(
                         z.object({
                             itemId: z.number(),
@@ -40,20 +35,18 @@ export async function stockRoutes(app: FastifyInstance) {
                             sectionId: z.number(),
                             sectionCode: z.string(),
                             qtyBase: z.number(),
-                            avgCost: z.number(),
-                            value: z.number(),
                             reorderPoint: z.number(),
                             parLevel: z.number(),
                             isCritical: z.boolean(),
                             belowReorder: z.boolean(),
                         })
-                    ).extend({ totalValue: z.number() }),
+                    ),
                 },
             },
         },
         async (req) => {
             let q = db
-                .selectFrom('current_stock_valued as cs')
+                .selectFrom('current_stock as cs')
                 .innerJoin('items', 'items.id', 'cs.item_id')
                 .innerJoin('sections', 'sections.id', 'cs.section_id')
                 .select([
@@ -64,8 +57,6 @@ export async function stockRoutes(app: FastifyInstance) {
                     'cs.section_id as sectionId',
                     'sections.code as sectionCode',
                     'cs.qty_base as qtyBase',
-                    'cs.avg_cost as avgCost',
-                    'cs.value',
                     'items.reorder_point as reorderPoint',
                     'items.par_level as parLevel',
                     'items.is_critical as isCritical',
@@ -95,11 +86,11 @@ export async function stockRoutes(app: FastifyInstance) {
                 q = q.whereRef('cs.qty_base', '<', 'items.reorder_point');
             }
 
-            // Count and value the whole filtered set before slicing to a page,
-            // by reusing the same builder with a different select.
+            // Count the whole filtered set before slicing to a page, by reusing
+            // the same builder with a different select.
             const summary = await q
                 .clearSelect()
-                .select(({ fn }) => [fn.countAll().as('total'), fn.sum('cs.value').as('value')])
+                .select(({ fn }) => fn.countAll().as('total'))
                 .executeTakeFirst();
 
             const rows = await q
@@ -111,17 +102,12 @@ export async function stockRoutes(app: FastifyInstance) {
             const items = rows.map((s) => ({
                 ...s,
                 qtyBase: Number(s.qtyBase),
-                avgCost: Number(s.avgCost),
-                value: Number(s.value),
                 reorderPoint: Number(s.reorderPoint),
                 parLevel: Number(s.parLevel),
                 belowReorder: Number(s.qtyBase) < Number(s.reorderPoint),
             }));
 
-            return {
-                ...toPage(items, summary?.total, req.query),
-                totalValue: Math.round(Number(summary?.value ?? 0) * 100) / 100,
-            };
+            return toPage(items, summary?.total, req.query);
         }
     );
 }

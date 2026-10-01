@@ -1,7 +1,7 @@
 /**
  * Opening stock - the first entry a section ever gets.
  *
- * Storekeeper and management, not admin: this writes quantities and money into
+ * Storekeeper and management, not admin: this writes quantities into
  * the ledger, and the admin role exists precisely so that the person who hands
  * out logins cannot do that. The safety rail is not the role anyway, it is the
  * service: a section can only be opened while it has no history at all, which
@@ -17,8 +17,7 @@ import { createOpeningStock, openingState } from '../services/opening.js';
 const openingResult = z.object({
     id: z.string(),
     businessDate: z.string(),
-    lineCount: z.number(),
-    totalValue: z.number()
+    lineCount: z.number()
 });
 
 export async function openingRoutes(app: FastifyInstance) {
@@ -64,8 +63,7 @@ export async function openingRoutes(app: FastifyInstance) {
                                 // counted rather than a delivery being booked
                                 // in. The form converts from packs where the
                                 // person counting thinks in packs.
-                                qtyBase: z.number().positive().max(100_000_000),
-                                unitCost: z.number().nonnegative().max(1_000_000)
+                                qtyBase: z.number().positive().max(100_000_000)
                             })
                         )
                         .min(1, 'An opening balance needs at least one line')

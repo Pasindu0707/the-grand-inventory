@@ -1,11 +1,12 @@
 /**
  * The acceptance suite.
  *
- *   "Test data with no faults in it teaches you nothing. Five faults are
+ *   "Test data with no faults in it teaches you nothing. Faults are
  *    planted, and each maps to a report that must catch it. If a report can't
  *    find its fault, the report is wrong."
  *
- * One test per planted fault, run against the 60-day seed. Plus the inverse
+ * One test per planted fault, run against the 60-day seed. (C, a supplier price
+ * rise, was withdrawn along with costing in migration 0009.) Plus the inverse
  * test for D, which is the one that actually decides whether this system gets
  * used: honest spoilage must read as spoilage and must NOT appear in the
  * shrinkage report. A variance report that cries theft about lettuce is a
@@ -14,7 +15,7 @@
 import { afterAll, describe, expect, it } from 'vitest';
 import { db } from './helpers.js';
 import {
-    priceMovement,
+    DEFAULT_SHRINKAGE_FLOOR_PCT,
     shrinkage,
     stockOuts,
     usageTrend,
@@ -106,26 +107,6 @@ describe('B - two gin bottles vanish with no document', () => {
     });
 });
 
-describe('C - sunflower oil price rises 32%', () => {
-    it('is flagged by supplier price movement', async () => {
-        const rows = await priceMovement(SEED, 10);
-        const oil = rows.find((r) => r.itemName.toLowerCase().includes('sunflower'));
-
-        expect(oil, 'Sunflower oil should appear in the price movement report').toBeTruthy();
-        expect(oil!.changePct).toBeCloseTo(32, 0);
-        expect(oil!.newPrice).toBeGreaterThan(oil!.previousPrice);
-    });
-
-    it('is detected at the delivery, not on the day the supplier changed the price', async () => {
-        const rows = await priceMovement(SEED, 10);
-        const oil = rows.find((r) => r.itemName.toLowerCase().includes('sunflower'))!;
-
-        // The price moves on day 35; nobody finds out until the next GRN.
-        // A report that only looked at day 35 would miss it entirely.
-        expect(oil.effectiveFrom > day(35)).toBe(true);
-    });
-});
-
 describe('D - lettuce spoilage spike in week six', () => {
     it('reads as spoilage in the wastage report', async () => {
         const rows = await wastageByReason(LOCATION, SEED);
@@ -203,11 +184,6 @@ describe('the reports do not cry wolf', () => {
         expect(rows.length).toBeLessThan(40);
     });
 
-    it('price movement only reports genuine moves', async () => {
-        const rows = await priceMovement(SEED, 10);
-        expect(rows.every((r) => Math.abs(r.changePct) >= 10)).toBe(true);
-    });
-
     it('shrinkage reports losses, never found stock', async () => {
         const rows = await shrinkage(LOCATION, SEED);
         expect(rows.every((r) => r.varianceQty < 0)).toBe(true);
@@ -215,15 +191,20 @@ describe('the reports do not cry wolf', () => {
 
     /**
      * Found by this suite, not by reading the code: without a materiality
-     * floor the shrinkage report listed one-gram, Rs 0.44 "losses" from
-     * ordinary counting noise, and they buried the two gin bottles.
+     * floor the shrinkage report listed one-gram "losses" from ordinary
+     * counting noise, and they buried the two gin bottles.
      */
     it('ignores counting noise below the materiality floor', async () => {
         const withFloor = await shrinkage(LOCATION, SEED);
         const withoutFloor = await shrinkage(LOCATION, SEED, 0);
 
         expect(withoutFloor.length).toBeGreaterThan(withFloor.length);
-        expect(withFloor.every((r) => Math.abs(r.varianceValue) >= 100)).toBe(true);
+        expect(
+            withFloor.every((r) => (r.variancePct ?? 100) >= DEFAULT_SHRINKAGE_FLOOR_PCT)
+        ).toBe(true);
+
+        // A short list, not a page of noise.
+        expect(withFloor.length).toBeLessThan(20);
 
         // And the signal survives the filter.
         expect(withFloor.some((r) => r.code === 'BAR-001')).toBe(true);

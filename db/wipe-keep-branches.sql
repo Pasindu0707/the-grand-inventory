@@ -13,7 +13,7 @@
 --   item_categories   13 generic categories (Dry goods, Dairy, Bar spirits...)
 --   reason_codes      wastage and count reasons the app depends on
 --
--- Everything else goes: ledger, documents, items, packs, suppliers, prices,
+-- Everything else goes: ledger, documents, items, packs, suppliers,
 -- recipes, products, counts, returns, and every user.
 --
 -- Run through scripts/wipe-and-admins.mjs, which also creates the logins that
@@ -29,7 +29,6 @@ begin;
 set local grand.allow_demo_reset = 'on';
 
 delete from stock_ledger;
-delete from item_cost_state;
 
 delete from stock_count_lines;
 delete from stock_counts;
@@ -51,7 +50,6 @@ delete from issues;
 delete from transfers;
 delete from recipe_lines;
 delete from products;
-delete from supplier_prices;
 delete from item_packs;
 delete from items;
 delete from suppliers;

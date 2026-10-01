@@ -290,12 +290,12 @@ export async function documentRoutes(app: FastifyInstance) {
                         adjustments: z.number(),
                         counted: z.number(),
                         skipped: z.number(),
-                        varianceValue: z.number(),
                         biggest: z.array(
                             z.object({
                                 name: z.string(),
+                                stockUnit: z.string(),
                                 varianceQty: z.number(),
-                                varianceValue: z.number()
+                                variancePct: z.number()
                             })
                         )
                     })
@@ -492,9 +492,8 @@ export async function documentRoutes(app: FastifyInstance) {
                         // An opening balance typed wrong used to be
                         // permanent: not reversible here, and the section
                         // could never be opened again. That left a stock
-                        // count as the only instrument, which values a
-                        // never-received item at zero and quietly poisons
-                        // every report that reads cost.
+                        // count as the only instrument, which reads day one
+                        // as a discrepancy.
                         'opening'
                     ]),
                     id: z.string()
