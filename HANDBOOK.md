@@ -44,9 +44,9 @@ Open **http://localhost:4300**. Every demo user's PIN is **1234**.
 | Check | Command | Expected |
 |---|---|---|
 | Database | `docker compose ps` | `grand_db` healthy |
-| API | `curl localhost:3000/api/v1/health` | `{"status":"ok","db":"up","ledgerRows":…}` - 10,417 on a fresh seed, and it only ever grows |
+| API | `curl localhost:3000/api/v1/health` | `{"status":"ok","db":"up","ledgerRows":…}` - 10,432 on a fresh seed, and it only ever grows |
 | Web | open `localhost:4300` | login screen with eight faces |
-| Web → API | login as anyone | you land on Today with a stock value |
+| Web → API | login as anyone | you land on Today with your own buttons |
 
 ---
 
@@ -63,9 +63,10 @@ These are the fastest way to know the system is sound. Run them first.
 cd api && npm test
 ```
 
-**Expect 135 passing tests.** They run against a real Postgres, not a mock,
-because the things worth testing here - append-only triggers, weighted-average
-cost, idempotency races - *are* database behaviour.
+**Expect 144 passing tests.** They run against a real Postgres, not a mock,
+because the things worth testing here - append-only triggers, idempotency
+races, the guard that no money column ever comes back - *are* database
+behaviour.
 
 ```bash
 npm run db:verify
@@ -75,17 +76,16 @@ npm run db:verify
 tampered with, and that the cutover script works. If `reset.sql` ever stops
 emptying the ledger, this catches it.
 
-### 3.2 The five planted faults
+### 3.2 The four planted faults
 
-The demo data has five deliberate faults. Each one maps to a report. Sign in as
+The demo data has four deliberate faults. Each one maps to a report. Sign in as
 **Nuwan Perera (manager)** and open **Reports**, with the range covering
 2026-06-10 to 2026-08-08.
 
 | Tab | Look for | Correct answer |
 |---|---|---|
-| Usage variance | Chicken breast | **+18%**, ~LKR 199,000 over-issued - the only row |
-| Shrinkage | Gin - imported | **exactly two rows**, −750 ml each, ~LKR 5,216 each, both KITCHEN |
-| Price movement | Sunflower oil | **45,880 → 60,561.60 (+32%)** on 2026-07-30 |
+| Usage variance | Chicken breast | **+17.9%**, ~46.7 kg over-issued - the top row |
+| Shrinkage | Gin - imported | **exactly two rows**, −750 ml each, both KITCHEN |
 | Wastage | Lettuce | listed under **Spoiled / expired** |
 | Stock-outs | Prawns - medium | ran out on **2026-07-21** |
 
@@ -105,7 +105,7 @@ Sign in as **Sunil Fernando (storekeeper)** unless stated.
 | # | Do this | It is right when |
 |---|---|---|
 | 1 | **Receive delivery** → supplier, item, pack, quantity in *packs* | The line shows the stock-unit conversion beneath it, read-only. You never type grams. |
-| 2 | Enter a price 40% above the last one, save | It **warns** and still records. It must not block - the lorry has already gone. |
+| 2 | Look for a price field on the delivery | There is none. The system counts stock; the invoice is for accounts. |
 | 3 | Press Save twice quickly | **One** delivery, not two. |
 | 4 | **Issues** → new request for the Kitchen, then Fulfil | Store goes down, Kitchen goes up, by the same amount. |
 | 5 | Request more than the store holds | It issues what exists and tells you the shortfall. Stock never goes negative. |
@@ -116,17 +116,17 @@ Sign in as **Sunil Fernando (storekeeper)** unless stated.
 | 7a3 | Look for a separate return screen as the kitchen | There is none. Returning happens on the request that delivered the stock. |
 | 7a4 | Look at the row you just returned from | It still shows what was **released** - a request is history - with an amber line beneath saying what went back. |
 | 7a5 | Return the whole of a line, then look again | The Return button is gone and replaced by a **Returned** tag. |
-| 7a6 | As **Sunil (storekeeper)**, open the Overview | A **Returns** tile with a count. Open it: what is in quarantine, what it is worth, and the next step spelled out. |
+| 7a6 | As **Sunil (storekeeper)**, open the Overview | A **Returns** tile with a count. Open it: what is in quarantine, how much of it, and the next step spelled out. |
 | 7a7 | Return the whole of a release | The row reads **Done · Returned**, offers no *It came*, and leaves the Needs-me queue. Returning it *is* confirming it arrived. |
 | 7a8 | Look at a request from last month | **Too old to return.** Returns close after seven days, because after that nobody can say the shelf holds what came in on that release. |
-| 7b | **Returns** → press *Ask management what to do* | Supplier returns opens **already filled in**: the delivery, the reason, the packs and the credit. Nothing to type. |
+| 7b | **Returns** → press *Ask management what to do* | Supplier returns opens **already filled in**: the delivery, the reason and the packs. Nothing to type. |
 | 7b0 | As **Nuwan (manager)**, open **Returns** | No *Something on our own shelf is bad*, no *Send it back*. Approvals and the quarantine figure, nothing else. Management decides; the store handles stock. |
 | 7b2 | Press *Raise the return* without changing anything | Accepted. A suggestion that cannot be submitted as offered would be worse than none. |
 | 7b3 | **Supplier returns** → pick a different delivery by hand | Allowed. The suggested delivery is a guess, because the ledger does not tie a crate to an invoice, and the panel says so. |
-| 7b4 | **Supplier returns** → pick the delivery it came in on by hand | Only lines quarantine actually holds can be typed into. The credit prices itself off the invoice. |
-| 7c | Try to send it or bin it before management has answered | Refused both ways. It is money whichever way it goes, so it waits for a decision. |
+| 7b4 | **Supplier returns** → pick the delivery it came in on by hand | Only lines quarantine actually holds can be typed into, in the packs that delivery came in. |
+| 7c | Try to send it or bin it before management has answered | Refused both ways. Either answer has consequences, so it waits for a decision. |
 | 8 | **Stock count** → start a daily count | **The expected quantity is never shown.** One item per screen. |
-| 9 | Enter one item short, finish | Variance appears *after* closing, with a value. |
+| 9 | Enter one item short, finish | Variance appears *after* closing, as a quantity and a share of the shelf. |
 | 10 | As **Nuwan (manager)**, verify that count | Allowed. As Sunil, verifying your own count is refused. |
 | 11 | Refresh the page on any screen | You stay on that screen. |
 
@@ -173,11 +173,11 @@ explain the rules:
 | # | Do this | It is right when |
 |---|---|---|
 | R1 | As **Chaminda (kitchen)**, Requests → **Return** on a released row | Kitchen goes down, quarantine goes up, immediately. It is not waiting for anybody. |
-| R2 | As **Sunil (storekeeper)**, open **Returns** | It is in *Waiting to go back*, with a value. **There is nothing to approve** - the hand-back needs no stamp. |
-| R3 | Press *Ask management what to do* | Supplier returns opens filled in: delivery, reason, packs, credit. |
+| R2 | As **Sunil (storekeeper)**, open **Returns** | It is in *Waiting to go back*, with its quantity. **There is nothing to approve** - the hand-back needs no stamp. |
+| R3 | Press *Ask management what to do* | Supplier returns opens filled in: delivery, reason, packs. |
 | R4 | Press *Raise the return* unchanged | Accepted. **Quarantine does not change** - the crate is in the building. |
 | R5 | Press *It has gone* or *Bin them* before the answer | Refused both ways, and says why. |
-| R6 | As **Nuwan (manager)**, open **Supplier returns** | *Waiting for your decision*, with every line and what each is worth. |
+| R6 | As **Nuwan (manager)**, open **Supplier returns** | *Waiting for your decision*, with every line in packs and stock units. |
 | R7 | Answer only some of the lines | **Save is disabled.** Every line has to go somewhere. |
 | R8 | Mark one line *Send it back* and another *Bin it*, save | Accepted. Quarantine *still* unchanged - answering is paperwork. |
 | R9 | As Nuwan, look for *It has gone* or *Bin them* | Neither is offered. It says "Waiting for the store to send it / bin it". |
@@ -270,7 +270,7 @@ something has gone wrong.
 
 ### Warn, do not block
 
-Issue windows, price jumps, cash discrepancies: all warn, none block. An issue
+Issue windows and the like: they warn, they do not block. An issue
 that happened at 14:00 happened at 14:00. Refusing to record it does not undo
 it - it just makes the stock figure wrong as well as the process.
 
@@ -323,9 +323,8 @@ still in the building and still ours.
 ### The system knows which delivery it came in on, roughly
 
 Press *send it back to the supplier* and the form arrives filled: the delivery,
-the reason the chef gave, the pack quantities worked out from what is in
-quarantine, and the credit priced off that invoice. The storekeeper reads it and
-presses one button.
+the reason the chef gave, and the pack quantities worked out from what is in
+quarantine. The storekeeper reads it and presses one button.
 
 The delivery is the one honest guess in the chain. Nothing in the ledger ties a
 crate in quarantine to the invoice it arrived on: goods come in on a delivery,
@@ -401,20 +400,19 @@ Unexplained loss is a different discussion entirely. They are separate reports
 on separate screens, and documented waste is excluded from the loss report by
 construction.
 
-### Reports need a materiality floor, in money *and* proportion
+### Reports need a materiality floor, as a share of the shelf
 
-Counting is never exact. Without a floor the loss report listed Rs 0.44 of
-lettuce. With only a money floor, ordinary counting noise on expensive gin
-produced fifteen false alarms that buried the two real bottles. Noise is
-proportional to what is on the shelf; theft is not. Both floors are guesses
-(Rs 100 and 2%) and belong on the Phase 0 list to confirm with the owner.
+Counting is never exact. Without a floor the loss report listed one-gram gaps
+of lettuce, and ordinary counting noise on gin buried the two real bottles.
+Noise is proportional to what is on the shelf; theft is not. So a gap has to be
+at least 2% of what the count expected to find. The figure is a guess and
+belongs on the Phase 0 list to confirm with the owner.
 
 ### Faults surface when they are discovered, not when they happen
 
 The gin leaves on days 28 and 44 but nothing reveals it until the next Sunday
-count of the drinks shelf. The supplier raises the oil price on day 35 but you
-find out at the
-next delivery. A report that insists on same-day detection misses both.
+count of the drinks shelf. A report that insists on same-day detection misses
+it.
 
 ### Demo and real data share every code path
 
@@ -434,7 +432,7 @@ definitions, not from memory.
 | Role | Who this is | What they see |
 |---|---|---|
 | **Admin** | Whoever hands out logins | One screen: Logins. Cannot touch stock at all. |
-| **Management** | Owner, manager | Everything, including the five reports. They **decide**: approvals, purchases, credit notes. They do not hand stock over. |
+| **Management** | Owner, manager | Everything, including the reports. They **decide**: approvals, purchases, credit notes. They do not hand stock over. |
 | **Storekeeper** | Holds the store | Requests to release, stock everywhere, deliveries, raising purchases and supplier returns |
 | **Kitchen** | Cooks, bakers, bar hands - one room, one role | Ask for stock, what we have, confirm arrivals |
 | **Cleaning** | Cleaning staff | The same, for cleaning supplies, plus wastage, counts and returns in their own store |
@@ -467,7 +465,7 @@ the shelf is really empty, so only the storekeeper decides that something has to
 be bought.
 
 Every purchase order then goes to **Management**, who are the only people who
-can approve it. The storekeeper asks for the money; management spends it.
+can approve it. The storekeeper asks; management decides.
 
 ### Who can do what
 
@@ -491,7 +489,7 @@ can approve it. The storekeeper asks for the money; management spends it.
 | Stock count | | ● | ● | ● | ● |
 | **Verify a count** | | ● | | | |
 | **Reverse a document** | | ● | | | |
-| **See the five reports** | | ● | | | |
+| **See the reports** | | ● | | | |
 | **Create and remove logins** | ● | | | | |
 
 Read the bold rows as one rule: **management decides, the store handles stock,
@@ -500,8 +498,8 @@ in the same column as the action it approves.
 
 Four deliberate gaps. **Admin cannot touch stock** - someone has to hand out
 logins without that also granting them the run of the inventory. **The
-storekeeper cannot approve purchases or returns** - they handle stock, not
-money. **Management cannot release stock, put it in quarantine, or mark it gone**
+storekeeper cannot approve purchases or returns** - they handle stock, and an
+approval of your own request approves nothing. **Management cannot release stock, put it in quarantine, or mark it gone**
 - those are acts on a crate, done by the person standing next to it, and an
 approval you can grant yourself approves nothing. And **the kitchen cannot raise
 a purchase** - they cannot see the store's shelf, so asking them to decide
@@ -636,7 +634,7 @@ between you and go-live.** There is no screen for any of it.
 | People | **In the app** - Admin → Logins ✅ |
 | Items, packs, par levels | **In the app** - Setup → Products ✅ |
 | Categories | **In the app** - Setup → Products → Categories ✅ |
-| Suppliers and agreed prices | **In the app** - Setup → Suppliers ✅ |
+| Suppliers | **In the app** - Setup → Suppliers ✅ |
 | Outlets and sections | **In the app** - Setup → Branches and sections ✅ |
 | Opening balances | **In the app** - Advanced → Opening stock ✅ |
 | Quarantine section | **In the app** - Setup → Branches and sections. **Every branch needs one before anything can be returned** |
@@ -675,7 +673,7 @@ Honest list of what is not built.
 | **No offline support** | Deliberate - you chose online-only. A dropped connection during a count loses it. |
 | **Not installable as an app** | Runs in a browser tab. |
 | **Recipes and products** | Setup covers the item master, not Phase 2's recipes. `usage_variance` still runs on seeded recipes. |
-| **No approval limits** | Management approves every purchase, of any size. There is no "under Rs 5,000 needs nobody". |
+| **No approval limits** | Management approves every purchase, of any size. The system keeps no prices, so there is no value to set a limit on. |
 | Phase 4 | Other outlets. The schema supports them and Setup can now create them; nothing has been run at one. |
 
 **The one that should worry you most is backups.** There is currently no backup
@@ -706,13 +704,12 @@ software recovers from a wrong pack conversion.
       the return screen will say so at the worst possible moment.
    2. **Setup → Products.** Categories first, then every item with its packs.
       This is the long one, and it is Phase 0's spreadsheet being typed in.
-   3. **Setup → Suppliers**, with the prices you have already agreed. Those
-      prices are what the first delivery is measured against; without them the
-      first surprise price looks exactly like the normal price.
+   3. **Setup → Suppliers** - everyone you buy from, with their phone and
+      paperwork details.
    4. **Logins** for the real people. Delete nothing - the demo accounts went
       with the reset.
 7. **Advanced → Opening stock**, per section, as the storekeeper or a manager.
-   Count the shelf, enter what is on it and what it is worth. A section can be
+   Count the shelf and enter what is on it. A section can be
    opened once and only while it has never held anything; after that the
    instrument is a stock count, because after day one a difference is a
    discrepancy rather than a starting point.

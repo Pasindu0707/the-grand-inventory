@@ -14,7 +14,7 @@
 ## 1. What an admin is, and is not
 
 The admin **defines what the system contains**: branches, sections, products,
-packs, suppliers, prices and logins.
+packs, suppliers and logins. The system keeps no prices.
 
 The admin **touches no stock at all**. You cannot receive a delivery, release
 stock, count a shelf or read the reports. That is on purpose: the person who
@@ -27,7 +27,7 @@ Your menu is one group — **Administration** — with five screens:
 | **Admin overview** | Is this branch ready to go live, and what is wrong |
 | **Logins** | Who can sign in, and as what |
 | **Products** | Items, their units, their pack sizes, categories |
-| **Suppliers** | Who you buy from, and the prices agreed |
+| **Suppliers** | Who you buy from |
 | **Branches** | Outlets, and the sections inside them |
 
 ---
@@ -90,15 +90,11 @@ Once a product has moved, **its stock unit cannot be changed** — changing it
 would reinterpret every past figure. Retire it and create a new one instead.
 Same for resizing a pack that has already been bought.
 
-### Step 3 — Suppliers and their prices
+### Step 3 — Suppliers
 
-**Suppliers** → name, phone, payment terms, and **the prices you have already
-agreed**.
-
-Those prices matter more than they look. They are what the first delivery is
-measured against. Without them, the first surprise price looks exactly like the
-normal price, and the price-movement report only wakes up on the *second*
-delivery.
+**Suppliers** → name, phone, VAT number and payment terms. That is all a
+supplier is here: the system counts what they deliver, and accounts deals with
+what it costs.
 
 ### Step 4 — Logins
 
@@ -194,7 +190,6 @@ work being filed against it, it does not erase last month.
 | A product "cannot be received" | It has no pack | Products → add a pack |
 | A delivery cannot name its supplier | Supplier not entered | Suppliers → add them |
 | Somebody cannot sign in | Locked out, or switched off | Logins → Unlock, or Turn back on |
-| The price warning never fires for a supplier | No agreed prices were entered | Suppliers → add their prices |
 | A product never appears on a suggested order | No reorder point | Products → set one |
 
 ---

@@ -38,8 +38,8 @@ ask for it again tomorrow and the store would hand it over in good faith.
 
 ## 2. The same crate, hour by hour
 
-Say the kitchen asked for 5 kg of cuttlefish. It came in on delivery **no. 295**
-at **LKR 4,167 a kilo**, and it is off.
+Say the kitchen asked for 5 kg of cuttlefish. It came in on delivery **no. 295**,
+and it is off.
 
 | When | What happens | Where the crate is | What the stock record says | Who did it |
 |---|---|---|---|---|
@@ -48,10 +48,10 @@ at **LKR 4,167 a kilo**, and it is off.
 | Tue 06:45 | Storekeeper releases it | Kitchen | Store **−5 kg**, Kitchen **+5 kg** | Storekeeper |
 | Tue 06:50 | Kitchen taps *It came* | Kitchen | no change — this only confirms it arrived | Kitchen |
 | Tue 07:10 | Box opened. It smells wrong. Kitchen taps **Return**, picks *Below the quality agreed*, writes "off smell on opening" | **Quarantine** | Kitchen **−5 kg**, Quarantine **+5 kg** | Kitchen |
-| Tue 09:30 | Storekeeper asks management: delivery 295, 5 kg, worth LKR 20,835 — claim it or bin it? | Quarantine | **no change** | Storekeeper |
+| Tue 09:30 | Storekeeper asks management: delivery 295, 5 kg — claim it or bin it? | Quarantine | **no change** | Storekeeper |
 | Tue 11:00 | Manager answers: **send it back** | Quarantine | **no change** | Management |
 | Fri 08:00 | Supplier's van collects it. Storekeeper taps *It has gone* | **Gone** | Quarantine **−5 kg** | Storekeeper |
-| +3 weeks | Credit note CN-4412 for LKR 20,835 arrives. Manager records it | — | no change — this is money, not stock | Management |
+| +3 weeks | Credit note CN-4412 arrives. Manager records its number | — | no change — this is paperwork, not stock | Management |
 
 **Read the fourth column.** Between Tuesday 07:10 and Friday 08:00 — nearly four
 days — **the stock figure does not move once**. The crate is in the building the
@@ -72,12 +72,9 @@ Only one of these is the common one. All four are normal.
 The van takes it, and weeks later a credit note arrives.
 
 Management opens the return and taps **Credit note received**, entering the note
-number and the amount. That number is what you check against the supplier's
-statement at the end of the month.
-
-**If they allow less than was asked** — say LKR 16,000 against LKR 20,835 — the
-screen shows the shortfall of LKR 4,835 beside it. That gap is the number worth
-arguing about, and it is the only reason to record the two separately.
+number. That number is what accounts checks against the supplier's statement at
+the end of the month. The amount on the note is theirs to read - this system
+keeps no prices.
 
 ### Ending 2 — The supplier replaces it
 
@@ -91,9 +88,9 @@ anything else, because that is exactly what it is: goods arriving at the door.
 
 They refuse, or the claim is dropped, or it is not worth the argument.
 
-Management taps **Nothing back**. The return is closed and the money is gone.
-The stock already left the building when it was marked gone, so the books are
-already right; this only records that no credit is coming.
+Management taps **Nothing back**. The return is closed and nothing is coming
+back. The stock already left the building when it was marked gone, so the stock
+record is already right; this only records that no credit is coming.
 
 ### Ending 4 — Management says bin it
 
@@ -102,7 +99,7 @@ through the system.
 
 When the store asks, management can answer **Bin it** on any line — perhaps the
 claim is too weak, the goods are not worth the argument, or the relationship
-matters more than LKR 20,000. The store then presses **Bin them**, one button,
+matters more than one crate. The store then presses **Bin them**, one button,
 and the goods leave quarantine as an ordinary wastage document under the reason
 *"Bad goods, not taken back"*.
 
@@ -122,27 +119,18 @@ quarantine by its own route.
 > **Every line has to end somewhere.** Management cannot save a half-answered
 > ask, which is deliberate: a line nobody answered is stock sitting in
 > quarantine with nobody claiming it and nobody refusing it. Stock in quarantine
-> is money already paid for that is doing nothing, and the Returns screen shows
-> that total for exactly that reason.
+> has been delivered and is doing nothing, and the Returns screen lists it for
+> exactly that reason.
 
 ---
 
-## 4. What it does to the money
+## 4. And the money?
 
-Two different numbers, both correct, and they are allowed to differ.
-
-| Number | What it is | Where it lives |
-|---|---|---|
-| **What it cost us** | The running average cost of that product — the same figure any issue or wastage is valued at | The stock record |
-| **What they owe us** | The pack price **on the original invoice**, from the delivery it came in on | The supplier return |
-
-The crate might have cost us LKR 4,100/kg on average — mixed from several
-deliveries — while that particular invoice charged LKR 4,167/kg. The claim uses
-the invoice; the stock record uses the average.
-
-Forcing the stock record to the invoice price would quietly revalue the stock
-still sitting on the shelf, which would make every rupee figure in every report
-slightly wrong. So they stay separate.
+Not here. The system counts stock; it does not price it. The stock record moves
+in kilos and litres, and the return records which delivery the goods came in
+on and how many packs went back. What the supplier owes, and what the credit
+note was for, are accounts' figures off the invoice and the note. The credit
+note **number** is recorded so the two can be matched.
 
 ---
 
@@ -155,7 +143,6 @@ This is the part that protects people.
 | **Usage variance** | **Nets it off.** The kitchen is not treated as having used something it sent straight back — otherwise a chef gets asked why they got through 5 kg of cuttlefish they never cooked |
 | **Wastage by reason** | A return that goes **back to the supplier** does not appear here — it was not our waste, it arrived bad. A line management said to **bin** does appear, under *"Bad goods, not taken back"*, because we did throw it away |
 | **Shrinkage** *(unexplained loss)* | Neither ending appears here. Both have a document, a reason and a name against them. Only stock that goes missing with **no** document reaches this report |
-| **Price movement** | Untouched. The return does not change what the delivery was priced at |
 
 If a return ever shows up as shrinkage, that is a bug — tell us. Honest,
 documented returns being reported as unexplained loss is how a report gets
@@ -173,7 +160,7 @@ abandoned.
 | Management sends it back or bins it themselves | No such button | They answer; the store handles the goods. An approval you can grant yourself approves nothing |
 | The storekeeper answers their own ask | Refused | Same reason, the other way round |
 | Answering only some of the lines | Refused | Every line has to end somewhere |
-| Sending or binning before the answer | Refused, and says so | It is money, both ways |
+| Sending or binning before the answer | Refused, and says so | It is management's decision, both ways |
 | Editing a return once it is recorded | Not possible anywhere | Nothing on the stock record is edited. A correction is a **reversal** — a second entry that cancels the first and stays beside it |
 
 ---
@@ -214,7 +201,7 @@ to lose a supplier.
 | To see | Go to |
 |---|---|
 | What came back off the floor | **Returns** |
-| What is in quarantine right now, and what it is worth | **Returns**, top panel |
+| What is in quarantine right now, and how much | **Returns**, top panel |
 | Where a supplier return has got to | **Supplier returns** |
 | Whether a credit ever arrived | **Supplier returns**, the settled row |
 | Which delivery it was claimed against, and how much of it went back | **Deliveries** → open that delivery |

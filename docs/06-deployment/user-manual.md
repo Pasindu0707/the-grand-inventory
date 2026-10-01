@@ -163,7 +163,8 @@ protects you.
 **The system never shows you what it expects.** That is deliberate — if it told
 you, you would agree with it. Count the shelf, not the screen.
 
-When you finish, the difference appears with a value. **A manager verifies it**;
+When you finish, the difference appears, as a quantity and as a share of what
+was expected. **A manager verifies it**;
 you cannot verify your own count.
 
 ---
@@ -215,19 +216,12 @@ A lorry is at the door. **Receive delivery** asks four questions, one at a time.
 |---|---|
 | **1. Which order?** | Pick the order this delivery is against and everything fills itself in. If nobody ordered it, tap **Nothing was ordered**. |
 | **2. Who delivered it?** | The supplier, the invoice number and its date. Against an order, the supplier is fixed — a delivery from anybody else is its own delivery. |
-| **3. What came?** | Each product, **in packs**, and the price per pack. |
+| **3. What came?** | Each product, **in packs**. There is no price to type - the invoice is for accounts. |
 | **4. Check and save** | Read it back, then **Save delivery**. |
 
 **You never type grams.** You type "2 × 50 kg sack" and the line tells you
 *"That is 100 kg onto the shelf"* underneath. If that sentence looks wrong, the
 pack is wrong.
-
-**The price is checked while you type it.** If it has moved more than 10% since
-last time, an amber note says so, with the old price: *"That is up 32% on last
-time. Last from this supplier: LKR 45,880.00 a pack."* It **does not stop you**
-— the lorry has gone, and refusing the delivery would only make the stock figure
-wrong as well. Record it. It appears in **Reports → Price movement** for
-management.
 
 Orders management has not approved yet are shown greyed out. You cannot receive
 against them until management says yes.
@@ -239,17 +233,17 @@ against them until management says yes.
 **Deliveries** is the record of everything that has arrived at this branch,
 newest first. Search by supplier name or invoice number.
 
-Open one and you see exactly what was booked in: every line, the packs, what
-each pack cost, what it put on the shelf, and the total. If any of it has since
-gone back to the supplier, the line says so — so *"did we get a credit for the
-bad half of that delivery?"* is answered on the delivery itself.
+Open one and you see exactly what was booked in: every line, the packs, and
+what it put on the shelf. If any of it has since gone back to the supplier, the
+line says so — so *"did the bad half of that delivery go back?"* is answered on
+the delivery itself.
 
 It is **read-only on purpose**. A delivery on the record is corrected with a
 reversal — a second entry that cancels it and stays beside it — never by editing
 it. Ask management.
 
-Management sees this screen too. It is where *"what did we pay for that last
-time?"* gets answered, which is the question the price report raises.
+Management sees this screen too. It is where *"what exactly came on that
+lorry?"* gets answered.
 
 ### 6.3 When a section hands something back
 
@@ -258,7 +252,7 @@ Your **Returns** screen has three parts:
 | Part | What it is |
 |---|---|
 | **Waiting for management** | Hand-backs nobody has approved yet. Nothing is blocked by this — the goods are already with you. |
-| **Waiting to go back** | What is sitting in **quarantine** right now, and what it is worth. Anything already on an ask is marked *already asked about*, so you are never invited to ask about the same crate twice |
+| **Waiting to go back** | What is sitting in **quarantine** right now, and how much. Anything already on an ask is marked *already asked about*, so you are never invited to ask about the same crate twice |
 | **Came back off the floor** | The full record of what sections have handed back |
 
 **Quarantine** is a separate shelf for bad stock. Nothing is ever issued out of
@@ -287,12 +281,11 @@ credit. You do not retype anything.
    back **what quarantine actually holds**.
 
    **Only what is in quarantine is listed** — usually one or two lines, not the
-   whole invoice. You could not claim for the rest anyway. If more of the same
+   whole invoice. You could not send the rest back anyway. If more of the same
    delivery turns out to be bad, hand it back to the store and it appears here.
 3. Tap **Raise the return**.
 
-Then you **wait for management to approve it** — it is money, so it is their
-decision. Nothing has moved yet: the crate is still in your building and the
+Then you **wait for management to approve it** — it is their decision. Nothing has moved yet: the crate is still in your building and the
 stock figure still says so.
 
 When they approve and the lorry actually takes it away:
@@ -311,11 +304,11 @@ Management records the credit note later.
 | Step | What you do |
 |---|---|
 | **1. What** | Open *What the shelf says* — everything already below its reorder point — and add what you need. Search for anything else by name. |
-| **2. How much** | In packs, with a rough price per pack. A guess is fine. |
+| **2. How much** | In packs - what you say to the supplier. |
 | **3. Why** | **Management decides on this sentence, so write it.** "Down to two sacks, Saturday is busy" beats "need rice". |
 
-Then it goes to management. You cannot approve your own purchase — you ask for
-the money, they spend it.
+Then it goes to management. You cannot approve your own purchase — you ask,
+they decide.
 
 When the goods arrive, receive them **against that order** (step 1 of Receive
 delivery). A short delivery leaves the order open for the rest.
@@ -334,10 +327,10 @@ approval would be approving your own work.
 |---|---|
 | **Returns** | Approve hand-backs from sections |
 | **Supplier returns** | Approve or reject goods going back; record the credit note afterwards |
-| **Purchase orders** | Approve or reject spending |
+| **Purchase orders** | Approve or reject purchases |
 | **Wastage** | Approve what was written off |
 | **Stock counts** | Verify counts other people performed |
-| **Reports** | The five reports — nobody else sees these |
+| **Reports** | The reports — nobody else sees these |
 
 ### 7.2 What the Returns screen is for you
 
@@ -345,8 +338,8 @@ A section handed something back. **The stock already moved** when they did it �
 they did not wait for you, and they should not have to.
 
 There is nothing to approve here. Open **Returns** to see **what is in
-quarantine and what it is worth** — money the restaurant has paid for and
-cannot use, which is worth watching — and the record of what has come back. The
+quarantine and how much of it** — stock that has been delivered and cannot be
+used, which is worth watching — and the record of what has come back. The
 decision comes to you on the next screen, when the storekeeper asks for it.
 
 ### 7.3 Answering the store's question
@@ -362,20 +355,20 @@ quarantine      back or bin     said             ↑ no stock move
                                 ↑ stock moves here
 ```
 
-**Waiting for your decision** lists the asks, each with its lines and what each
-line is worth. For every line, tap one of two buttons:
+**Waiting for your decision** lists the asks, each with its lines in packs and
+stock units. For every line, tap one of two buttons:
 
 | | What it means |
 |---|---|
 | **Send it back** | We claim a credit from the supplier for it |
-| **Bin it** | We throw it away and write the value off |
+| **Bin it** | We throw it away and write the stock off |
 
 Then **Save the decision**. You cannot save a half-answered ask — every line has
 to go somewhere, because a line nobody answered is stock that sits in quarantine
 for a month with nobody claiming it and nobody refusing it.
 
-Both buttons are money. One asks a supplier for a credit; the other writes the
-value off. Neither is preselected, and neither is styled as the safe option.
+Both buttons have consequences. One asks a supplier for a credit; the other
+writes the stock off. Neither is preselected, and neither is styled as the safe option.
 
 You will not see an *It has gone* or *Bin them* button. Those are the
 storekeeper doing what you decided — putting goods on a lorry, or in a bin — and
@@ -388,7 +381,7 @@ Weeks later the supplier responds. On the sent return, choose one:
 
 | Button | Use it when | It asks for |
 |---|---|---|
-| **Credit note received** | They allowed money | The note number **and** the amount |
+| **Credit note received** | They issued a credit note | The note number. The amount is for accounts |
 | **Replaced** | Fresh goods arrived | Nothing — the replacement comes in as a normal delivery |
 | **Nothing back** | Written off | Nothing |
 
@@ -396,28 +389,24 @@ This is only for lines you sent **back to the supplier**. Anything you marked
 **Bin it** needs no settlement — it was written off the moment you decided, and
 the store binning it is the end of it.
 
-A credit without its note number is refused. The reason to record a credit is to
-check it against the statement, and a credit you cannot find on the statement is
-just a note in a diary.
-
-If they allowed **less** than was asked for, the screen shows the shortfall
-beside it. That gap is the number worth arguing about.
+A credit without its note number is refused. The reason to record a credit is so
+accounts can find it against the statement, and a credit you cannot find on the
+statement is just a note in a diary.
 
 ### 7.5 Approving a purchase
 
-**Purchase orders** shows what the storekeeper has asked for, with the reason
-they wrote and the estimated cost. **Approve** or **Reject** — rejecting asks
+**Purchase orders** shows what the storekeeper has asked for, in packs, with
+the reason they wrote. **Approve** or **Reject** — rejecting asks
 for a reason.
 
-Only you can do this. Every purchase comes to you, whatever it costs.
+Only you can do this. Every purchase comes to you.
 
-### 7.6 The five reports
+### 7.6 The reports
 
 | Report | The question it answers |
 |---|---|
 | **Usage variance** | Are we using more of something than the recipes say we should? |
 | **Shrinkage** | What has gone missing with no document behind it? |
-| **Price movement** | Which supplier prices have jumped? |
 | **Wastage by reason** | What are we throwing away, and why? |
 | **Stock-outs** | What ran out, and when? |
 
@@ -471,8 +460,8 @@ This is the part people find hardest, so here it is twice.
 > gone**. **Now** the fish leaves quarantine. It is out of the building and out
 > of our stock.
 >
-> Three weeks later a credit note arrives for LKR 4,200. Nuwan opens the return,
-> taps **Credit note received**, and types the number and the amount. Finished.
+> Three weeks later a credit note arrives. Nuwan opens the return, taps
+> **Credit note received**, and types the note number. Finished.
 
 ### 8.2 As a table
 
@@ -499,7 +488,7 @@ goods have gone when they are still sitting on the quarantine shelf.
 
 | | Storekeeper | Management |
 |---|---|---|
-| See what is in quarantine, and its value | ✅ | ✅ (information only) |
+| See what is in quarantine, and how much | ✅ | ✅ (information only) |
 | Put the store's own bad stock into quarantine | ✅ | ❌ |
 | Ask management what to do with it | ✅ | ❌ |
 
@@ -515,7 +504,7 @@ goods have gone when they are still sitting on the quarantine shelf.
 | **Record the credit note** | ❌ | ✅ |
 
 Read down the two columns: **they never overlap on the same row.** One person
-handles the goods, the other decides about the money. That is the whole design.
+handles the goods, the other decides. That is the whole design.
 
 ### 8.4 Two different things people mix up
 
@@ -524,7 +513,7 @@ handles the goods, the other decides about the money. That is the whole design.
 | What happened | The supplier gave us something bad | We spoiled, burnt, dropped or broke it |
 | Whose fault | Theirs | Ours |
 | Where it goes | Quarantine, then back to them | Thrown away |
-| Money | We want a credit | The money is gone |
+| Afterwards | We want a credit or a replacement | Nothing comes back |
 | Screen | Requests → Return | Wastage |
 
 If you are not sure: **did it arrive bad, or did we ruin it?** That is the whole
@@ -546,7 +535,7 @@ If any of these ever work, tell us — something is wrong.
 | Take stock negative | The shelf cannot hold less than nothing |
 | Return more than was released to you | A return is measured against the release that delivered it |
 | Return something released over a week ago | Nobody can honestly say it is the same stock. Use Wastage |
-| Send goods back before management approves | It is money |
+| Send goods back before management approves | It is management's decision |
 | See another branch's stock | You work at one branch |
 
 ---
@@ -556,7 +545,7 @@ If any of these ever work, tell us — something is wrong.
 ### 10.1 What happens when you save a delivery
 
 **If it works:** the screen stays where it is and shows **Delivery recorded** —
-the supplier, the delivery number, the total, and for each line *what went in*
+the supplier, the delivery number, the line count, and for each line *what went in*
 and *what is on the shelf now*. That last figure is read straight off the stock
 record, so it is proof, not a promise.
 
