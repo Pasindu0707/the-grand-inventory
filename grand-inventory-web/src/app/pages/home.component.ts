@@ -2,7 +2,7 @@
  * Home. Different for each role, and deliberately short.
  *
  * The old dashboard showed everyone the same wall of numbers. A cleaner does
- * not need a stock valuation; they need "ask for shampoo" and "did my last
+ * not need a stock sheet; they need "ask for shampoo" and "did my last
  * request arrive". So this screen is a small number of large buttons, and the
  * first one is whatever that person came here to do.
  *
@@ -226,7 +226,7 @@ export class HomeComponent implements OnInit {
         if (ctx.seesAdvanced) {
             tiles.push({
                 label: 'Reports',
-                hint: 'Usage, loss, waste, prices, stock-outs',
+                hint: 'Usage, loss, waste, stock-outs',
                 icon: 'pi pi-chart-bar',
                 link: '/reports'
             });

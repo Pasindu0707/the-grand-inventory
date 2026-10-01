@@ -4,16 +4,12 @@
  * This is step 7 of the go-live runbook, and until now it had no screen at
  * all: the only way to get real stock into a fresh system was to type it in as
  * a delivery from a supplier who never delivered it, which puts a fictional
- * invoice into the price history and makes the first month's supplier report
- * nonsense.
+ * invoice into the delivery history and makes the first month's supplier
+ * report nonsense.
  *
  * A section can be opened exactly once, and only while it has never held
  * anything. After that the honest instrument is a stock count, and the server
  * says so rather than letting this screen quietly double the shelf.
- *
- * The cost per unit is asked for, not assumed. It becomes the section's
- * starting weighted average, and stock opened at zero reports every issue out
- * of it as free.
  */
 import { Component, computed, inject, signal, OnInit } from '@angular/core';
 import { CommonModule } from '@angular/common';
@@ -24,16 +20,16 @@ import { TagModule } from 'primeng/tag';
 import { GrandService } from '@/core/grand.service';
 import { NotifyService } from '@/core/notify.service';
 import { apiErrorMessage } from '@/core/api';
-import { formatMoney, formatQty } from '@/core/format';
+import { formatQty } from '@/core/format';
 import type { Item, ItemPack, OpeningSection } from '@/core/types';
 
 /**
  * One shelf, as the person counting it thinks about it.
  *
- * They are looking at three sacks and a part-used one, and they know the sack
- * cost 10,500 -- not that a gram costs 0.42. So the line is captured in packs
- * and converted here, the same way the delivery screen does it, and the two
- * grams-per-unit figures the API wants are derived rather than typed.
+ * They are looking at three sacks and a part-used one, not at 87,500 g. So the
+ * line is captured in packs and converted here, the same way the delivery
+ * screen does it, and the stock-unit figure the API wants is derived rather
+ * than typed.
  */
 interface OpeningLine {
     itemId: number;
@@ -44,8 +40,6 @@ interface OpeningLine {
     packId: number | null;
     /** How many of those: packs, or stock units when packId is null. */
     qtyEntered: number | null;
-    /** What one of those costs. Per pack, or per stock unit when loose. */
-    costEntered: number | null;
 }
 
 @Component({
@@ -70,7 +64,7 @@ interface OpeningLine {
                     <div class="app-note__title">Opening balance recorded</div>
                     <p class="text-sm mt-1">
                         {{ result.lineCount }} item{{ result.lineCount === 1 ? '' : 's' }},
-                        {{ money(result.totalValue) }}, dated {{ result.businessDate }}. This
+                        dated {{ result.businessDate }}. This
                         section is now live.
                     </p>
                     <button
@@ -140,8 +134,8 @@ interface OpeningLine {
                     <div class="px-5 py-4 border-b border-surface">
                         <div class="font-semibold">What is on the shelf?</div>
                         <p class="text-xs text-surface-500 mt-1">
-                            Count it in whatever it sits in - sacks, cans, bottles - and say what
-                            one of those cost. Anything you leave off simply starts at nothing.
+                            Count it in whatever it sits in - sacks, cans, bottles. Anything you
+                            leave off simply starts at nothing.
                         </p>
                     </div>
 
@@ -205,19 +199,17 @@ interface OpeningLine {
                         </div>
                     } @else {
                         <div
-                            class="hidden md:grid grid-cols-1 md:grid-cols-[minmax(0,1fr)_9rem_7rem_10rem_8rem_2.5rem] items-center gap-2 px-5 py-2 border-b border-surface text-xs uppercase tracking-wide text-surface-500">
+                            class="hidden md:grid grid-cols-1 md:grid-cols-[minmax(0,1fr)_9rem_7rem_2.5rem] items-center gap-2 px-5 py-2 border-b border-surface text-xs uppercase tracking-wide text-surface-500">
                             <span>Product</span>
                             <span>Counted in</span>
                             <span class="text-right app-req">How many</span>
-                            <span class="text-right app-req">Cost each</span>
-                            <span class="text-right">Value</span>
                             <span></span>
                         </div>
 
                         <ul class="divide-y divide-surface">
                             @for (line of lines(); track line.itemId) {
                                 <li class="px-5 py-3">
-                                    <div class="grid grid-cols-1 md:grid-cols-[minmax(0,1fr)_9rem_7rem_10rem_8rem_2.5rem] items-center gap-2">
+                                    <div class="grid grid-cols-1 md:grid-cols-[minmax(0,1fr)_9rem_7rem_2.5rem] items-center gap-2">
                                         <span class="text-sm font-medium truncate" [title]="line.name">{{
                                             line.name
                                         }}</span>
@@ -246,17 +238,6 @@ interface OpeningLine {
                                             [ngModel]="line.qtyEntered"
                                             (ngModelChange)="setQty(line.itemId, $event)" />
 
-                                        <input
-                                            pInputText
-                                            class="w-full text-right"
-                                            inputmode="decimal"
-                                            [attr.placeholder]="costPlaceholder(line)"
-                                            [ngModel]="line.costEntered"
-                                            (ngModelChange)="setCost(line.itemId, $event)" />
-
-                                        <span class="text-sm text-right tabular-nums">{{
-                                            money(lineValue(line))
-                                        }}</span>
                                         <button
                                             pButton
                                             size="small"
@@ -273,10 +254,6 @@ interface OpeningLine {
                                     @if (qtyBaseOf(line) > 0) {
                                         <p class="text-xs text-surface-500 mt-1">
                                             = {{ qty(qtyBaseOf(line), line.stockUnit) }} on the shelf
-                                            @if (line.costEntered) {
-                                                · {{ money(unitCostOf(line)) }} per
-                                                {{ line.stockUnit }}
-                                            }
                                         </p>
                                     }
                                 </li>
@@ -286,8 +263,8 @@ interface OpeningLine {
                         <div
                             class="px-5 py-4 border-t border-surface flex flex-wrap items-center justify-between gap-3">
                             <div>
-                                <div class="text-sm text-surface-500">Opening value</div>
-                                <div class="text-xl font-bold">{{ money(totalValue()) }}</div>
+                                <div class="text-sm text-surface-500">Items</div>
+                                <div class="text-xl font-bold">{{ lines().length }}</div>
                             </div>
                             <div class="flex items-center gap-2">
                                 <input
@@ -330,9 +307,7 @@ export class OpeningComponent implements OnInit {
     readonly loading = signal(false);
     readonly busy = signal(false);
     readonly error = signal<string | null>(null);
-    readonly done = signal<{ lineCount: number; totalValue: number; businessDate: string } | null>(
-        null
-    );
+    readonly done = signal<{ lineCount: number; businessDate: string } | null>(null);
 
     /**
      * A fresh key per section being opened, so a double-tap on a slow
@@ -358,15 +333,11 @@ export class OpeningComponent implements OnInit {
         Math.max(0, this.candidates().length - MAX_SUGGESTIONS)
     );
 
-    readonly totalValue = computed(() =>
-        this.lines().reduce((sum, l) => sum + this.lineValue(l), 0)
-    );
-
     readonly canSubmit = computed(
         () =>
             !!this.sectionId() &&
             this.lines().length > 0 &&
-            this.lines().every((l) => this.qtyBaseOf(l) > 0 && (l.costEntered ?? -1) >= 0)
+            this.lines().every((l) => this.qtyBaseOf(l) > 0)
     );
 
     async ngOnInit(): Promise<void> {
@@ -385,10 +356,6 @@ export class OpeningComponent implements OnInit {
         }
     }
 
-    money(value: number): string {
-        return formatMoney(value);
-    }
-
     qty(value: number, unit: string): string {
         return formatQty(value, unit);
     }
@@ -400,27 +367,12 @@ export class OpeningComponent implements OnInit {
     }
 
     /**
-     * What the API is actually sent. Rounded to the precision the columns hold
-     * -- qty_base is numeric(14,3), unit_cost numeric(14,4) -- so the total on
-     * screen is the total that gets stored, rather than one that drifts by a
-     * few cents once Postgres has rounded it.
+     * What the API is actually sent. Rounded to the precision the column holds
+     * -- qty_base is numeric(14,3) -- so the figure on screen is the figure
+     * that gets stored.
      */
     qtyBaseOf(line: OpeningLine): number {
         return round((line.qtyEntered ?? 0) * this.packSize(line), 3);
-    }
-
-    unitCostOf(line: OpeningLine): number {
-        return round((line.costEntered ?? 0) / this.packSize(line), 4);
-    }
-
-    lineValue(line: OpeningLine): number {
-        return this.qtyBaseOf(line) * this.unitCostOf(line);
-    }
-
-    costPlaceholder(line: OpeningLine): string {
-        if (line.packId === null) return `Cost per ${line.stockUnit}`;
-        const pack = line.packs.find((p) => p.id === line.packId);
-        return pack ? `Cost per ${pack.packName}` : 'Cost each';
     }
 
     /** "Main store · main store" reads as a stutter. */
@@ -449,8 +401,7 @@ export class OpeningComponent implements OnInit {
                 stockUnit: item.stockUnit,
                 packs: item.packs,
                 packId: preferred?.id ?? null,
-                qtyEntered: null,
-                costEntered: null
+                qtyEntered: null
             }
         ]);
         this.search.set('');
@@ -466,24 +417,8 @@ export class OpeningComponent implements OnInit {
         );
     }
 
-    setCost(itemId: number, value: string): void {
-        this.lines.set(
-            this.lines().map((l) => (l.itemId === itemId ? { ...l, costEntered: num(value) } : l))
-        );
-    }
-
-    /**
-     * Changing the pack clears the cost rather than converting it. 10,500 meant
-     * "per sack"; carrying that number over to "per kg" would be a plausible
-     * figure that is wrong by a factor of twenty-five, and nothing on screen
-     * would say so.
-     */
     setPack(itemId: number, packId: number | null): void {
-        this.lines.set(
-            this.lines().map((l) =>
-                l.itemId === itemId ? { ...l, packId, costEntered: null } : l
-            )
-        );
+        this.lines.set(this.lines().map((l) => (l.itemId === itemId ? { ...l, packId } : l)));
     }
 
     async submit(): Promise<void> {
@@ -492,7 +427,7 @@ export class OpeningComponent implements OnInit {
         const ok = await this.notify.confirm(
             `${this.lines().length} item${
                 this.lines().length === 1 ? '' : 's'
-            }, ${formatMoney(this.totalValue())}. This can only be done once for this section.`,
+            }. This can only be done once for this section.`,
             'Record the opening balance?',
             'Record it'
         );
@@ -507,8 +442,7 @@ export class OpeningComponent implements OnInit {
                     note: this.note().trim() || null,
                     lines: this.lines().map((l) => ({
                         itemId: l.itemId,
-                        qtyBase: this.qtyBaseOf(l),
-                        unitCost: this.unitCostOf(l)
+                        qtyBase: this.qtyBaseOf(l)
                     }))
                 },
                 this.idempotencyKey

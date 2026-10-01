@@ -11,8 +11,8 @@
  * changing the dates re-runs only what is on screen.
  *
  * The list is in two groups, and the split is the argument the old file made
- * about wastage and shrinkage generalised. The first five ask whether the stock
- * figure is true. The other seven ask whether the operation is working. They
+ * about wastage and shrinkage generalised. The first four ask whether the stock
+ * figure is true. The other eight ask whether the operation is working. They
  * are read by the same person at different moments and for different reasons,
  * and mixing them into one alphabetical list of twelve makes both harder to
  * find.
@@ -27,7 +27,7 @@ import { ButtonModule } from 'primeng/button';
 import { TagModule } from 'primeng/tag';
 import { GrandService } from '@/core/grand.service';
 import { apiErrorMessage } from '@/core/api';
-import { formatMoney, formatQty } from '@/core/format';
+import { formatQty } from '@/core/format';
 import type {
     BelowReorderRow,
     ConsumptionRow,
@@ -37,13 +37,12 @@ import type {
     DateRange,
     DeadStockRow,
     OpenPoRow,
-    PriceMovementRow,
     ServiceLevelRow,
     ShrinkageRow,
+    StockOnHandRow,
     StockOutRow,
     SupplierPerformanceRow,
     UsageVarianceRow,
-    ValuationRow,
     WastageReport
 } from '@/core/types';
 
@@ -51,12 +50,11 @@ type ReportKey =
     | 'usage'
     | 'shrinkage'
     | 'wastage'
-    | 'prices'
     | 'stockouts'
     | 'openPos'
     | 'serviceLevel'
     | 'suppliers'
-    | 'valuation'
+    | 'stockOnHand'
     | 'deadStock'
     | 'consumption'
     | 'countAccuracy'
@@ -100,12 +98,6 @@ const STOCK_REPORTS: ReportCard[] = [
         title: 'Usage variance',
         blurb: 'What the recipes say should have been used, against what was.',
         icon: 'pi-chart-line'
-    },
-    {
-        key: 'prices',
-        title: 'Price movement',
-        blurb: 'Where suppliers have quietly put their prices up.',
-        icon: 'pi-tag'
     }
 ];
 
@@ -125,31 +117,31 @@ const OPS_REPORTS: ReportCard[] = [
     {
         key: 'suppliers',
         title: 'Supplier performance',
-        blurb: 'Who delivers what they promised, and what you spent with them.',
+        blurb: 'Who delivers what they promised, and how much of it comes back.',
         icon: 'pi-truck'
     },
     {
-        key: 'valuation',
-        title: 'Stock valuation',
-        blurb: 'What is on the shelves, and what it is worth.',
-        icon: 'pi-wallet'
+        key: 'stockOnHand',
+        title: 'Stock on hand',
+        blurb: 'What was on every shelf, as at a date.',
+        icon: 'pi-box'
     },
     {
         key: 'deadStock',
         title: 'Dead and slow stock',
-        blurb: 'Money sitting on a shelf that nobody has touched.',
+        blurb: 'Stock sitting on a shelf that nobody has touched.',
         icon: 'pi-inbox'
     },
     {
         key: 'consumption',
         title: 'Consumption by section',
-        blurb: 'What each section got through, at what it cost.',
+        blurb: 'What each section got through.',
         icon: 'pi-chart-bar'
     },
     {
         key: 'returns',
         title: 'Returns and credits',
-        blurb: 'What went back, why, and whether the money ever came.',
+        blurb: 'What went back, why, and whether the supplier answered for it.',
         icon: 'pi-undo'
     },
     {
@@ -291,8 +283,8 @@ const OPS_REPORTS: ReportCard[] = [
                                                 <th class="px-4 py-2 font-semibold">Section</th>
                                                 <th class="px-4 py-2 font-semibold text-right">Should have used</th>
                                                 <th class="px-4 py-2 font-semibold text-right">Actually issued</th>
+                                                <th class="px-4 py-2 font-semibold text-right">Difference</th>
                                                 <th class="px-4 py-2 font-semibold text-right">Variance</th>
-                                                <th class="px-4 py-2 font-semibold text-right">Value</th>
                                             </tr>
                                         </thead>
                                         <tbody>
@@ -305,12 +297,12 @@ const OPS_REPORTS: ReportCard[] = [
                                                     <td class="px-4 py-2">{{ row.sectionCode }}</td>
                                                     <td class="px-4 py-2 text-right">{{ q(row.theoreticalQty, row.stockUnit) }}</td>
                                                     <td class="px-4 py-2 text-right">{{ q(row.actualQty, row.stockUnit) }}</td>
+                                                    <td class="px-4 py-2 text-right">{{ q(row.varianceQty, row.stockUnit) }}</td>
                                                     <td
                                                         class="px-4 py-2 text-right font-medium"
                                                         [class.text-red-600]="row.varianceQty > 0">
                                                         {{ row.variancePct > 0 ? '+' : '' }}{{ row.variancePct }}%
                                                     </td>
-                                                    <td class="px-4 py-2 text-right">{{ money(row.varianceValue) }}</td>
                                                 </tr>
                                             }
                                         </tbody>
@@ -328,8 +320,9 @@ const OPS_REPORTS: ReportCard[] = [
                                 <p class="text-sm text-surface-500 mt-1">
                                     Count gaps with <strong>no wastage document</strong> behind them. Anything
                                     that was declared as waste is not here - it is under Declared waste, where
-                                    it belongs. Small gaps are filtered out: counting is never exact, and a
-                                    report that lists every rounding error stops being read.
+                                    it belongs. Gaps under a small share of the shelf are filtered out:
+                                    counting is never exact, and a report that lists every rounding error
+                                    stops being read.
                                 </p>
                             </div>
                             @if (shrink().length === 0) {
@@ -338,8 +331,8 @@ const OPS_REPORTS: ReportCard[] = [
                                 </p>
                             } @else {
                                 <div class="px-5 py-4 border-b border-surface">
-                                    <span class="text-sm text-surface-500">Total unexplained</span>
-                                    <div class="text-2xl font-bold text-red-600">{{ money(shrinkTotal()) }}</div>
+                                    <span class="text-sm text-surface-500">Unexplained gaps</span>
+                                    <div class="text-2xl font-bold text-red-600">{{ shrink().length }}</div>
                                 </div>
                                 <ul class="divide-y divide-surface">
                                     @for (row of shrink(); track row.itemId + row.businessDate + row.sectionCode) {
@@ -354,8 +347,7 @@ const OPS_REPORTS: ReportCard[] = [
                                                 </div>
                                             </div>
                                             <div class="text-right">
-                                                <div class="font-medium">{{ q(row.varianceQty, row.stockUnit) }}</div>
-                                                <div class="text-red-600 font-semibold">{{ money(row.varianceValue) }}</div>
+                                                <div class="text-red-600 font-semibold">{{ q(row.varianceQty, row.stockUnit) }}</div>
                                             </div>
                                         </li>
                                     }
@@ -382,8 +374,8 @@ const OPS_REPORTS: ReportCard[] = [
                                     @for (r of w.byReason; track r.reasonCode) {
                                         <div class="rounded-2xl border border-surface bg-surface-0 dark:bg-surface-900 p-4">
                                             <div class="text-sm text-surface-500">{{ r.reasonLabel }}</div>
-                                            <div class="text-xl font-bold">{{ money(r.value) }}</div>
-                                            <div class="text-xs text-surface-500">{{ r.events }} event(s)</div>
+                                            <div class="text-xl font-bold">{{ r.events }}</div>
+                                            <div class="text-xs text-surface-500">event(s)</div>
                                         </div>
                                     }
                                 </div>
@@ -402,7 +394,6 @@ const OPS_REPORTS: ReportCard[] = [
                                                     <p-tag severity="info" [value]="row.reasonLabel"></p-tag>
                                                     <div class="text-right">
                                                         <div class="font-medium">{{ q(row.qtyBase, row.stockUnit) }}</div>
-                                                        <div class="text-sm text-surface-500">{{ money(row.value) }}</div>
                                                     </div>
                                                 </div>
                                             </li>
@@ -412,48 +403,6 @@ const OPS_REPORTS: ReportCard[] = [
                                         <p class="p-8 text-center text-surface-500">No waste logged.</p>
                                     }
                                 </div>
-                            }
-                        </div>
-                    }
-
-                    <!-- C. Price movement -->
-                    @if (selected() === 'prices') {
-                        <div class="rounded-2xl border border-surface bg-surface-0 dark:bg-surface-900 overflow-hidden">
-                            <div class="px-5 py-4 border-b border-surface">
-                                <div class="font-semibold">Supplier price movement</div>
-                                <p class="text-sm text-surface-500 mt-1">
-                                    Dated by the delivery that revealed the change, not the day the supplier
-                                    decided it. You find out when the lorry arrives.
-                                </p>
-                            </div>
-                            @if (prices().length === 0) {
-                                <p class="p-8 text-center text-surface-500">
-                                    {{ loading() ? 'Loading…' : 'No significant price changes.' }}
-                                </p>
-                            } @else {
-                                <ul class="divide-y divide-surface">
-                                    @for (row of prices(); track row.itemPackId + row.effectiveFrom) {
-                                        <li class="px-5 py-4 flex flex-wrap items-center justify-between gap-3">
-                                            <div>
-                                                <div class="font-medium">{{ row.itemName }}</div>
-                                                <div class="text-xs text-surface-500">
-                                                    {{ row.packName }} · {{ row.supplierName }} · {{ row.effectiveFrom }}
-                                                </div>
-                                            </div>
-                                            <div class="text-right">
-                                                <div class="text-sm text-surface-500">
-                                                    {{ money(row.previousPrice) }} → {{ money(row.newPrice) }}
-                                                </div>
-                                                <div
-                                                    class="font-semibold"
-                                                    [class.text-red-600]="row.changePct > 0"
-                                                    [class.text-green-600]="row.changePct < 0">
-                                                    {{ row.changePct > 0 ? '+' : '' }}{{ row.changePct }}%
-                                                </div>
-                                            </div>
-                                        </li>
-                                    }
-                                </ul>
                             }
                         </div>
                     }
@@ -577,7 +526,7 @@ const OPS_REPORTS: ReportCard[] = [
                                                     <td class="px-4 py-2 text-right" [class.text-red-600]="row.daysLate > 0">
                                                         {{ row.daysLate > 0 ? row.daysLate + ' d' : '-' }}
                                                     </td>
-                                                    <td class="px-4 py-2 text-right">{{ money(row.outstandingValue) }}</td>
+                                                    <td class="px-4 py-2 text-right">{{ row.linesOutstanding }} line(s)</td>
                                                 </tr>
                                             }
                                         </tbody>
@@ -650,11 +599,11 @@ const OPS_REPORTS: ReportCard[] = [
                             <div class="px-5 py-4 border-b border-surface">
                                 <div class="font-semibold">Who is worth ordering from</div>
                                 <p class="text-sm text-surface-500 mt-1">
-                                    Returned is what went back at the price paid; credited is what a credit
-                                    note has since been received for. A supplier who agrees to everything and
-                                    credits nothing shows as a wide gap between the two, and net spend is what
-                                    they really cost.
-                                    Fill rate comes from the orders, spend comes from the deliveries, and they
+                                    Returns is how many claims were raised against them; credit notes is how
+                                    many they have since settled with one. A supplier who agrees to everything
+                                    and credits nothing shows as a wide gap between the two. The percentage
+                                    under returns is the share of delivered lines that had something sent back.
+                                    Fill rate comes from the orders, deliveries from the goods received, and they
                                     are counted separately on purpose - a delivery can arrive with no order
                                     behind it, and an order can be placed and never filled. A supplier appears
                                     if they were ordered from <em>or</em> delivered in this period.
@@ -675,10 +624,8 @@ const OPS_REPORTS: ReportCard[] = [
                                                 <th class="px-4 py-2 font-semibold text-right">Fill rate</th>
                                                 <th class="px-4 py-2 font-semibold text-right">Late</th>
                                                 <th class="px-4 py-2 font-semibold text-right">Avg days</th>
-                                                <th class="px-4 py-2 font-semibold text-right">Spend</th>
-                                                <th class="px-4 py-2 font-semibold text-right">Returned</th>
-                                                <th class="px-4 py-2 font-semibold text-right">Credited</th>
-                                                <th class="px-4 py-2 font-semibold text-right">Net spend</th>
+                                                <th class="px-4 py-2 font-semibold text-right">Returns</th>
+                                                <th class="px-4 py-2 font-semibold text-right">Credit notes</th>
                                             </tr>
                                         </thead>
                                         <tbody>
@@ -696,15 +643,13 @@ const OPS_REPORTS: ReportCard[] = [
                                                     <td class="px-4 py-2 text-right">
                                                         {{ row.avgDaysToClose === null ? '-' : row.avgDaysToClose }}
                                                     </td>
-                                                    <td class="px-4 py-2 text-right">{{ money(row.spend) }}</td>
                                                     <td class="px-4 py-2 text-right" [class.text-amber-600]="(row.returnRatePct ?? 0) > 2">
-                                                        {{ money(row.returnedValue) }}
+                                                        {{ row.returns }}
                                                         @if (row.returnRatePct !== null) {
                                                             <span class="text-xs text-surface-500 block">{{ row.returnRatePct }}%</span>
                                                         }
                                                     </td>
-                                                    <td class="px-4 py-2 text-right">{{ money(row.creditedValue) }}</td>
-                                                    <td class="px-4 py-2 text-right font-medium">{{ money(row.netSpend) }}</td>
+                                                    <td class="px-4 py-2 text-right">{{ row.credited }}</td>
                                                 </tr>
                                             }
                                         </tbody>
@@ -714,22 +659,20 @@ const OPS_REPORTS: ReportCard[] = [
                         </div>
                     }
 
-                    <!-- I. Valuation -->
-                    @if (selected() === 'valuation') {
+                    <!-- I. Stock on hand -->
+                    @if (selected() === 'stockOnHand') {
                         <div class="space-y-4">
                             <div class="rounded-2xl border border-surface bg-surface-0 dark:bg-surface-900 p-5">
-                                <div class="text-sm text-surface-500">Total on hand at {{ range().to }}</div>
-                                <div class="text-3xl font-bold">{{ money(valuationTotal()) }}</div>
+                                <div class="text-sm text-surface-500">On hand at {{ range().to }}</div>
+                                <div class="text-3xl font-bold">{{ stockOnHand().length }} line(s)</div>
                                 <p class="text-sm text-surface-500 mt-2">
-                                    The quantity is rebuilt from the ledger up to the end date. The cost is
-                                    <strong>today's</strong> average - the system keeps one current cost per
-                                    item, not a history of them. For a period ending today the two agree, which
-                                    is what this is for; backdate it a long way and the value drifts.
+                                    Rebuilt from the ledger up to the end date, so it answers "what was on
+                                    the shelf on the 31st" after the fact.
                                 </p>
                             </div>
 
                             <div class="rounded-2xl border border-surface bg-surface-0 dark:bg-surface-900 overflow-hidden">
-                                @if (valuation().length === 0) {
+                                @if (stockOnHand().length === 0) {
                                     <p class="p-8 text-center text-surface-500">
                                         {{ loading() ? 'Loading…' : 'Nothing on hand.' }}
                                     </p>
@@ -741,21 +684,17 @@ const OPS_REPORTS: ReportCard[] = [
                                                     <th class="px-4 py-2 font-semibold">Section</th>
                                                     <th class="px-4 py-2 font-semibold">Item</th>
                                                     <th class="px-4 py-2 font-semibold text-right">On hand</th>
-                                                    <th class="px-4 py-2 font-semibold text-right">Unit cost</th>
-                                                    <th class="px-4 py-2 font-semibold text-right">Value</th>
                                                 </tr>
                                             </thead>
                                             <tbody>
-                                                @for (row of valuation(); track row.sectionId + '-' + row.itemId) {
+                                                @for (row of stockOnHand(); track row.sectionId + '-' + row.itemId) {
                                                     <tr class="border-b border-surface">
                                                         <td class="px-4 py-2">{{ row.sectionName }}</td>
                                                         <td class="px-4 py-2">
                                                             <div class="font-medium">{{ row.name }}</div>
                                                             <div class="text-xs text-surface-500 font-mono">{{ row.code }}</div>
                                                         </td>
-                                                        <td class="px-4 py-2 text-right">{{ q(row.qtyBase, row.stockUnit) }}</td>
-                                                        <td class="px-4 py-2 text-right text-surface-500">{{ row.avgCost }}</td>
-                                                        <td class="px-4 py-2 text-right font-medium">{{ money(row.value) }}</td>
+                                                        <td class="px-4 py-2 text-right font-medium">{{ q(row.qtyBase, row.stockUnit) }}</td>
                                                     </tr>
                                                 }
                                             </tbody>
@@ -772,8 +711,8 @@ const OPS_REPORTS: ReportCard[] = [
                             <div class="px-5 py-4 border-b border-surface">
                                 <div class="font-semibold">Nothing issued from it in this period</div>
                                 <p class="text-sm text-surface-500 mt-1">
-                                    Cash tied up, and for anything perishable a spoilage bill that has not been
-                                    written yet. <strong>Last moved</strong> is what separates slow from
+                                    Shelf space tied up, and for anything perishable spoilage that has not been
+                                    logged yet. <strong>Last moved</strong> is what separates slow from
                                     forgotten. A short date range will flag things that are simply seasonal -
                                     widen it before you act on a row.
                                 </p>
@@ -790,7 +729,6 @@ const OPS_REPORTS: ReportCard[] = [
                                                 <th class="px-4 py-2 font-semibold">Item</th>
                                                 <th class="px-4 py-2 font-semibold">Section</th>
                                                 <th class="px-4 py-2 font-semibold text-right">On hand</th>
-                                                <th class="px-4 py-2 font-semibold text-right">Value</th>
                                                 <th class="px-4 py-2 font-semibold text-right">Last moved</th>
                                             </tr>
                                         </thead>
@@ -802,8 +740,7 @@ const OPS_REPORTS: ReportCard[] = [
                                                         <div class="text-xs text-surface-500 font-mono">{{ row.code }}</div>
                                                     </td>
                                                     <td class="px-4 py-2">{{ row.sectionName }}</td>
-                                                    <td class="px-4 py-2 text-right">{{ q(row.qtyBase, row.stockUnit) }}</td>
-                                                    <td class="px-4 py-2 text-right font-medium">{{ money(row.value) }}</td>
+                                                    <td class="px-4 py-2 text-right font-medium">{{ q(row.qtyBase, row.stockUnit) }}</td>
                                                     <td class="px-4 py-2 text-right">
                                                         @if (row.lastMovedOn) {
                                                             <div>{{ row.lastMovedOn }}</div>
@@ -830,13 +767,12 @@ const OPS_REPORTS: ReportCard[] = [
                     @if (selected() === 'consumption') {
                         <div class="space-y-4">
                             <div class="rounded-2xl border border-surface bg-surface-0 dark:bg-surface-900 p-5">
-                                <div class="text-sm text-surface-500">Total drawn from the store</div>
-                                <div class="text-3xl font-bold">{{ money(consumptionTotal()) }}</div>
+                                <div class="text-sm text-surface-500">Drawn from the store</div>
+                                <div class="text-3xl font-bold">{{ consumption().length }} line(s)</div>
                                 <p class="text-sm text-surface-500 mt-2">
-                                    Valued at what each movement cost at the time, not at today's price, so a
-                                    period total does not shift under you when the next delivery lands. This is
-                                    the base for section-level food cost. What it is <em>not</em>, yet, is food
-                                    cost - there is no sales figure in this system to divide it by.
+                                    What each section was issued, less anything it handed straight back. Stock
+                                    that went back was never used, and a report that counted it would flag a
+                                    kitchen for food it never had.
                                 </p>
                             </div>
 
@@ -853,7 +789,6 @@ const OPS_REPORTS: ReportCard[] = [
                                                     <th class="px-4 py-2 font-semibold">Section</th>
                                                     <th class="px-4 py-2 font-semibold">Item</th>
                                                     <th class="px-4 py-2 font-semibold text-right">Quantity</th>
-                                                    <th class="px-4 py-2 font-semibold text-right">Cost</th>
                                                 </tr>
                                             </thead>
                                             <tbody>
@@ -864,8 +799,7 @@ const OPS_REPORTS: ReportCard[] = [
                                                             <div class="font-medium">{{ row.name }}</div>
                                                             <div class="text-xs text-surface-500 font-mono">{{ row.code }}</div>
                                                         </td>
-                                                        <td class="px-4 py-2 text-right">{{ q(row.qtyBase, row.stockUnit) }}</td>
-                                                        <td class="px-4 py-2 text-right font-medium">{{ money(row.value) }}</td>
+                                                        <td class="px-4 py-2 text-right font-medium">{{ q(row.qtyBase, row.stockUnit) }}</td>
                                                     </tr>
                                                 }
                                             </tbody>
@@ -904,7 +838,6 @@ const OPS_REPORTS: ReportCard[] = [
                                                 <th class="px-4 py-2 font-semibold text-right">Lines</th>
                                                 <th class="px-4 py-2 font-semibold text-right">Off</th>
                                                 <th class="px-4 py-2 font-semibold text-right">Accuracy</th>
-                                                <th class="px-4 py-2 font-semibold text-right">Value of gaps</th>
                                             </tr>
                                         </thead>
                                         <tbody>
@@ -918,7 +851,6 @@ const OPS_REPORTS: ReportCard[] = [
                                                     <td class="px-4 py-2 text-right font-medium" [class.text-red-600]="poor(row.accuracyPct)">
                                                         {{ pct(row.accuracyPct) }}
                                                     </td>
-                                                    <td class="px-4 py-2 text-right">{{ money(row.absVarianceValue) }}</td>
                                                 </tr>
                                             }
                                         </tbody>
@@ -934,15 +866,14 @@ const OPS_REPORTS: ReportCard[] = [
                             <div
                                 class="rounded-2xl border border-surface bg-surface-0 dark:bg-surface-900 p-5">
                                 <div class="text-sm text-surface-500">
-                                    Sent back to suppliers, and still owed
+                                    Supplier returns still to chase
                                 </div>
                                 <div class="text-3xl font-bold">
-                                    {{ money(returnsOutstanding()) }}
+                                    {{ openReturns().length }}
                                 </div>
                                 <p class="text-sm text-surface-500 mt-2">
-                                    The gap between what was sent back and what a credit note has
-                                    actually been received for. It is money that was agreed to be
-                                    owed and has not arrived, and this is the only place it appears.
+                                    Raised, approved or gone, and the supplier has not yet answered
+                                    with a credit note, a replacement or a refusal.
                                 </p>
                             </div>
 
@@ -975,13 +906,7 @@ const OPS_REPORTS: ReportCard[] = [
                                                         To suppliers
                                                     </th>
                                                     <th class="px-4 py-2 font-semibold text-right">
-                                                        Value sent back
-                                                    </th>
-                                                    <th class="px-4 py-2 font-semibold text-right">
-                                                        Credited
-                                                    </th>
-                                                    <th class="px-4 py-2 font-semibold text-right">
-                                                        Still owed
+                                                        Credit notes
                                                     </th>
                                                 </tr>
                                             </thead>
@@ -998,17 +923,7 @@ const OPS_REPORTS: ReportCard[] = [
                                                             {{ row.supplierReturns }}
                                                         </td>
                                                         <td class="px-4 py-2 text-right">
-                                                            {{ money(row.supplierValue) }}
-                                                        </td>
-                                                        <td class="px-4 py-2 text-right">
-                                                            {{ money(row.creditedValue) }}
-                                                        </td>
-                                                        <td
-                                                            class="px-4 py-2 text-right font-medium"
-                                                            [class.text-amber-600]="
-                                                                row.supplierValue - row.creditedValue > 0
-                                                            ">
-                                                            {{ money(row.supplierValue - row.creditedValue) }}
+                                                            {{ row.credited }}
                                                         </td>
                                                     </tr>
                                                 }
@@ -1024,7 +939,8 @@ const OPS_REPORTS: ReportCard[] = [
                                     <div class="font-semibold">Still to chase</div>
                                     <p class="text-sm text-surface-500 mt-1">
                                         Raised, approved or gone, and not settled. A return nobody
-                                        follows up is a delivery this restaurant paid for twice.
+                                        follows up is goods that went back and never came back as
+                                        anything.
                                     </p>
                                 </div>
                                 @if (openReturns().length === 0) {
@@ -1044,7 +960,7 @@ const OPS_REPORTS: ReportCard[] = [
                                                         Waiting
                                                     </th>
                                                     <th class="px-4 py-2 font-semibold text-right">
-                                                        Credit due
+                                                        Lines
                                                     </th>
                                                 </tr>
                                             </thead>
@@ -1063,7 +979,7 @@ const OPS_REPORTS: ReportCard[] = [
                                                             {{ row.daysWaiting }} days
                                                         </td>
                                                         <td class="px-4 py-2 text-right font-medium">
-                                                            {{ money(row.expectedCredit) }}
+                                                            {{ row.lines }}
                                                         </td>
                                                     </tr>
                                                 }
@@ -1096,40 +1012,23 @@ export class ReportsComponent {
         return [...STOCK_REPORTS, ...OPS_REPORTS].find((c) => c.key === key) ?? null;
     });
 
-    // The five
+    // The four
     readonly usage = signal<UsageVarianceRow[]>([]);
     readonly shrink = signal<ShrinkageRow[]>([]);
-    readonly shrinkTotal = signal(0);
-    readonly prices = signal<PriceMovementRow[]>([]);
     readonly wastage = signal<WastageReport | null>(null);
     readonly outs = signal<StockOutRow[]>([]);
     readonly low = signal<BelowReorderRow[]>([]);
 
-    // The seven
+    // The eight
     readonly openPos = signal<OpenPoRow[]>([]);
     readonly serviceLevel = signal<ServiceLevelRow[]>([]);
     readonly suppliers = signal<SupplierPerformanceRow[]>([]);
-    readonly valuation = signal<ValuationRow[]>([]);
+    readonly stockOnHand = signal<StockOnHandRow[]>([]);
     readonly deadStock = signal<DeadStockRow[]>([]);
     readonly consumption = signal<ConsumptionRow[]>([]);
     readonly countAccuracy = signal<CountAccuracyRow[]>([]);
     readonly returns = signal<ReturnsSummaryRow[]>([]);
     readonly openReturns = signal<OpenReturnRow[]>([]);
-    /**
-     * Sent back and not yet credited. The number the owner should be chasing:
-     * goods that left the building against an invoice that was already paid.
-     */
-    readonly returnsOutstanding = computed(() =>
-        this.returns().reduce((n, r) => n + (r.supplierValue - r.creditedValue), 0)
-    );
-
-
-    readonly valuationTotal = computed(() =>
-        this.valuation().reduce((sum, r) => sum + r.value, 0)
-    );
-    readonly consumptionTotal = computed(() =>
-        this.consumption().reduce((sum, r) => sum + r.value, 0)
-    );
 
     /**
      * Defaults to the last 60 days so the seeded demo period is visible without
@@ -1183,14 +1082,10 @@ export class ReportsComponent {
                 case 'shrinkage': {
                     const res = await this.api.shrinkage(range);
                     this.shrink.set(res.rows);
-                    this.shrinkTotal.set(res.totalValue);
                     break;
                 }
                 case 'wastage':
                     this.wastage.set(await this.api.wastageReport(range));
-                    break;
-                case 'prices':
-                    this.prices.set((await this.api.priceMovement(range)).rows);
                     break;
                 case 'stockouts': {
                     const res = await this.api.stockOutReport(range);
@@ -1207,8 +1102,8 @@ export class ReportsComponent {
                 case 'suppliers':
                     this.suppliers.set((await this.api.supplierPerformanceReport(range)).rows);
                     break;
-                case 'valuation':
-                    this.valuation.set((await this.api.valuationReport(range)).rows);
+                case 'stockOnHand':
+                    this.stockOnHand.set((await this.api.stockOnHandReport(range)).rows);
                     break;
                 case 'deadStock':
                     this.deadStock.set((await this.api.deadStockReport(range)).rows);
@@ -1221,7 +1116,7 @@ export class ReportsComponent {
                     break;
                 case 'returns': {
                     // Two questions on one screen: why it is coming back, and
-                    // what is still owed for it.
+                    // what is still waiting on a supplier.
                     const [summary, open] = await Promise.all([
                         this.api.returnsReport(range),
                         this.api.openReturnsReport(range)
@@ -1236,10 +1131,6 @@ export class ReportsComponent {
         } finally {
             this.loading.set(false);
         }
-    }
-
-    money(n: number): string {
-        return formatMoney(n);
     }
 
     q(qty: number, unit: string): string {

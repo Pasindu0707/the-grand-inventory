@@ -1,16 +1,11 @@
 /**
  * Goods received note - one question at a time.
  *
- * Three rules from the build notes are load-bearing in this form:
+ * Two rules from the build notes are load-bearing in this form:
  *
  *  - The user enters **packs**. "2 × 20 L can", never "40000". The stock-unit
  *    equivalent is shown read-only beside it so the storekeeper can sanity
  *    check the conversion, but it is never an input.
- *  - A price jump warns inline, before the lorry leaves, not in a report a
- *    fortnight later. The last price this supplier charged is read when the
- *    supplier is chosen, so the warning appears under the price as it is
- *    typed - the save response still carries the authoritative list, but by
- *    then the driver has gone.
  *  - The Idempotency-Key is minted once when the form opens. Tapping Save twice
  *    on a stalled connection replays the first request instead of receiving the
  *    same delivery twice.
@@ -39,7 +34,7 @@
  * **What happens after Save.** Either the whole delivery is written or none of
  * it is - the document rows and the ledger rows go in one transaction, so there
  * is no state where a delivery half-exists. On success the screen stays put and
- * shows what was recorded: the document number, the total, and what each line
+ * shows what was recorded: the document number, the line count, and what each line
  * left on the shelf, read back out of the ledger. It used to navigate away to
  * the stock list, which is alphabetical and shows every product in the branch -
  * so the one question the storekeeper has at that moment ("did that go in?")
@@ -69,14 +64,12 @@ import { AuthStore } from '@/core/auth.store';
 import { GrandService } from '@/core/grand.service';
 import { NotifyService } from '@/core/notify.service';
 import { apiErrorMessage } from '@/core/api';
-import { formatMoney, formatQty } from '@/core/format';
+import { formatQty } from '@/core/format';
 import { uuid } from '@/core/uuid';
 import type {
     GrnResult,
     Item,
     ItemPack,
-    LastPrice,
-    PriceWarning,
     PurchaseOrder,
     Supplier
 } from '@/core/types';
@@ -87,11 +80,7 @@ interface Draft {
     itemId: number | null;
     packId: number | null;
     qtyPacks: number | null;
-    packPrice: number | null;
 }
-
-/** A price move beyond this is worth interrupting someone about. Mirrors PRICE_WARN_PCT in api/src/services/grn.ts. */
-const PRICE_WARN_PCT = 10;
 
 @Component({
     selector: 'app-grn',
@@ -155,10 +144,8 @@ const PRICE_WARN_PCT = 10;
                             </p>
                         </div>
                         <div class="text-right">
-                            <div class="text-2xl font-bold">{{ money(done.total) }}</div>
-                            <div class="text-xs text-surface-500">
-                                {{ done.lineCount }} line(s)
-                            </div>
+                            <div class="text-2xl font-bold">{{ done.lineCount }}</div>
+                            <div class="text-xs text-surface-500">line(s)</div>
                         </div>
                     </div>
 
@@ -183,32 +170,6 @@ const PRICE_WARN_PCT = 10;
                             </li>
                         }
                     </ul>
-
-                    @if (done.priceWarnings.length > 0) {
-                        <div class="px-5 py-4 border-t border-surface">
-                            <div class="app-note app-note--warn">
-                                <div class="app-note__title mb-1">
-                                    {{ done.priceWarnings.length }} price change(s) went on the
-                                    record
-                                </div>
-                                <ul class="text-sm space-y-1">
-                                    @for (w of done.priceWarnings; track w.itemPackId) {
-                                        <li>
-                                            {{ w.itemName }} ({{ w.packName }}):
-                                            {{ money(w.previousPrice) }} →
-                                            {{ money(w.newPrice) }}
-                                            <strong>
-                                                ({{ w.changePct > 0 ? '+' : '' }}{{ w.changePct }}%)
-                                            </strong>
-                                        </li>
-                                    }
-                                </ul>
-                                <p class="text-sm mt-2">
-                                    These show up under <strong>Reports → Price movement</strong>.
-                                </p>
-                            </div>
-                        </div>
-                    }
 
                     <div
                         class="px-5 py-4 border-t border-surface flex flex-wrap items-center gap-3">
@@ -282,9 +243,6 @@ const PRICE_WARN_PCT = 10;
                                             raised by {{ order.raisedBy }} · {{ day(order.raisedAt) }}
                                             @if (order.neededBy) {
                                                 · needed by {{ order.neededBy }}
-                                            }
-                                            @if (order.estimatedTotal !== null) {
-                                                · about {{ money(order.estimatedTotal) }}
                                             }
                                         </div>
                                     </div>
@@ -399,8 +357,8 @@ const PRICE_WARN_PCT = 10;
                     </div>
 
                     <p class="text-sm text-surface-500">
-                        The invoice is what the price on the next step is checked against later.
-                        Leave it blank if the paperwork is coming separately.
+                        The invoice number is how this delivery is found again and matched to
+                        the paper. Leave it blank if the paperwork is coming separately.
                     </p>
                 </div>
             }
@@ -435,7 +393,7 @@ const PRICE_WARN_PCT = 10;
                             </div>
 
                             <div class="grid grid-cols-1 md:grid-cols-12 gap-4 items-start">
-                                <div class="md:col-span-5">
+                                <div class="md:col-span-6">
                                     <app-item-picker
                                         label="What is it?"
                                         [required]="true"
@@ -444,7 +402,7 @@ const PRICE_WARN_PCT = 10;
                                         (valueChange)="setItem(i, $event)" />
                                 </div>
 
-                                <div class="md:col-span-3">
+                                <div class="md:col-span-4">
                                     <label class="block text-sm font-medium mb-1 app-req">
                                         In what pack?
                                     </label>
@@ -478,24 +436,10 @@ const PRICE_WARN_PCT = 10;
                                         [min]="0"
                                         [maxFractionDigits]="3"></p-inputNumber>
                                 </div>
-
-                                <div class="md:col-span-2">
-                                    <label class="block text-sm font-medium mb-1 app-req">
-                                        Price per pack
-                                    </label>
-                                    <p-inputNumber
-                                        styleClass="w-full"
-                                        inputStyleClass="w-full"
-                                        [ngModel]="line.packPrice"
-                                        (ngModelChange)="setPrice(i, $event)"
-                                        [min]="0"
-                                        [maxFractionDigits]="2"></p-inputNumber>
-                                </div>
                             </div>
 
                             <!-- What the line means, in one sentence: the
-                                 conversion the storekeeper must never type, and
-                                 the money it comes to. -->
+                                 conversion the storekeeper must never type. -->
                             <div
                                 class="mt-3 pt-3 border-t border-surface flex flex-wrap items-center gap-x-4 gap-y-1 text-sm">
                                 @if (conversionFor(line); as conv) {
@@ -504,30 +448,7 @@ const PRICE_WARN_PCT = 10;
                                         onto the shelf
                                     </span>
                                 }
-                                @if (lineTotal(line) > 0) {
-                                    <span class="text-surface-500">
-                                        Line comes to <strong class="text-surface-700 dark:text-surface-200">{{ money(lineTotal(line)) }}</strong>
-                                    </span>
-                                }
                             </div>
-
-                            <!-- The price question, asked at the door. -->
-                            @if (livePriceCheck(line); as check) {
-                                <div
-                                    class="mt-3"
-                                    [class]="check.warn ? 'app-note app-note--warn' : 'app-note'">
-                                    @if (check.warn) {
-                                        <div class="app-note__title">
-                                            That is {{ check.changePct > 0 ? 'up' : 'down' }}
-                                            {{ abs(check.changePct) }}% on last time
-                                        </div>
-                                    }
-                                    <p class="text-sm" [class.mt-1]="check.warn">
-                                        Last from this supplier: {{ money(check.previousPrice) }} a
-                                        pack{{ check.warn ? '. Record it anyway - the lorry has gone - and it will show on the price report.' : '.' }}
-                                    </p>
-                                </div>
-                            }
                         </div>
                     }
 
@@ -568,56 +489,24 @@ const PRICE_WARN_PCT = 10;
                                     <div class="font-medium">{{ nameOf(line.itemId) }}</div>
                                     <div class="text-xs text-surface-500 mt-0.5">
                                         {{ line.qtyPacks }} × {{ packNameOf(line) }}
-                                        @if (conversionFor(line); as conv) {
-                                            = {{ conv }}
-                                        }
                                     </div>
                                 </div>
-                                <div class="text-right">
-                                    <div class="font-semibold">{{ money(lineTotal(line)) }}</div>
-                                    <div class="text-xs text-surface-500">
-                                        {{ money(line.packPrice ?? 0) }} a pack
+                                @if (conversionFor(line); as conv) {
+                                    <div class="text-right">
+                                        <div class="font-semibold">{{ conv }}</div>
+                                        <div class="text-xs text-surface-500">onto the shelf</div>
                                     </div>
-                                </div>
+                                }
                             </li>
                         }
                     </ul>
 
                     <div
                         class="px-5 py-4 border-t border-surface flex items-center justify-between">
-                        <span class="font-semibold">Total</span>
-                        <span class="text-xl font-bold">{{ money(total()) }}</span>
+                        <span class="font-semibold">Lines</span>
+                        <span class="text-xl font-bold">{{ lines().length }}</span>
                     </div>
                 </div>
-
-                @if (liveWarnings().length > 0) {
-                    <div class="app-note app-note--warn">
-                        <div class="app-note__title mb-2">Prices that have moved</div>
-                        <ul class="text-sm space-y-1">
-                            @for (w of liveWarnings(); track w.itemPackId) {
-                                <li>
-                                    {{ w.itemName }} ({{ w.packName }}):
-                                    {{ money(w.previousPrice) }} → {{ money(w.newPrice) }}
-                                    <strong>({{ w.changePct > 0 ? '+' : '' }}{{ w.changePct }}%)</strong>
-                                </li>
-                            }
-                        </ul>
-                        <p class="text-sm mt-2">
-                            This does not stop the delivery. It is recorded and the price report
-                            picks it up.
-                        </p>
-                    </div>
-                }
-
-                @if (warnings().length > 0) {
-                    <div class="app-note app-note--ok">
-                        <div class="app-note__title">Recorded</div>
-                        <p class="text-sm mt-1">
-                            The delivery is in and the stock is on the shelf. The price changes
-                            above are on the record for the report.
-                        </p>
-                    </div>
-                }
             }
 
             <!-- ── Moving between steps ────────────────────────────────────── -->
@@ -709,7 +598,6 @@ export class GrnComponent implements OnInit {
     readonly invoiceDate = signal('');
     readonly saving = signal(false);
     readonly error = signal<string | null>(null);
-    readonly warnings = signal<PriceWarning[]>([]);
 
     /**
      * The delivery that was just written, or null while one is being entered.
@@ -732,17 +620,10 @@ export class GrnComponent implements OnInit {
         }[]
     >([]);
 
-    /** What this supplier charged last time, per pack. Empty until one is chosen. */
-    private readonly lastPrices = signal<Map<number, LastPrice>>(new Map());
-
     /**
      * Minted once, per form. Not per submit - that would defeat the purpose.
      */
     private idempotencyKey = uuid();
-
-    readonly total = computed(() =>
-        this.lines().reduce((sum, l) => sum + this.lineTotal(l), 0)
-    );
 
     readonly supplierLocked = computed(() => !!this.po()?.supplierId);
 
@@ -752,7 +633,7 @@ export class GrnComponent implements OnInit {
 
     readonly completeLines = computed(() =>
         this.lines().filter(
-            (l) => l.packId !== null && (l.qtyPacks ?? 0) > 0 && (l.packPrice ?? 0) >= 0
+            (l) => l.packId !== null && (l.qtyPacks ?? 0) > 0
         )
     );
 
@@ -776,9 +657,7 @@ export class GrnComponent implements OnInit {
             case 'lines': {
                 if (this.lines().length === 0) return 'Add what arrived';
                 // Name the one thing that is missing, not the whole list of
-                // things a line needs. An order pre-fills three of the four and
-                // leaves the price blank, so "needs a product, a pack, a
-                // quantity and a price" reads as though nothing had been done.
+                // things a line needs.
                 for (const [i, line] of this.lines().entries()) {
                     const missing =
                         line.itemId === null
@@ -787,9 +666,7 @@ export class GrnComponent implements OnInit {
                               ? 'a pack'
                               : (line.qtyPacks ?? 0) <= 0
                                 ? 'how many packs came'
-                                : line.packPrice === null
-                                  ? 'the price per pack'
-                                  : null;
+                                : null;
                     if (missing) return `Item ${i + 1} still needs ${missing}`;
                 }
                 return null;
@@ -799,34 +676,6 @@ export class GrnComponent implements OnInit {
             default:
                 return null;
         }
-    });
-
-    /**
-     * The price warnings this delivery would raise, worked out here rather than
-     * waited for.
-     *
-     * The server's list, returned on save, stays the authority - it reads the
-     * same table and it is what the price report will show. This is the same
-     * arithmetic run early so the question gets asked while the driver is still
-     * in the yard.
-     */
-    readonly liveWarnings = computed<PriceWarning[]>(() => {
-        const out: PriceWarning[] = [];
-        for (const line of this.lines()) {
-            const check = this.livePriceCheck(line);
-            if (!check?.warn) continue;
-            const item = this.items().find((i) => i.id === line.itemId);
-            const pack = item?.packs.find((p) => p.id === line.packId);
-            out.push({
-                itemPackId: line.packId!,
-                itemName: item?.name ?? 'Item',
-                packName: pack?.packName ?? 'pack',
-                previousPrice: check.previousPrice,
-                newPrice: line.packPrice!,
-                changePct: check.changePct
-            });
-        }
-        return out;
     });
 
     async ngOnInit(): Promise<void> {
@@ -913,11 +762,9 @@ export class GrnComponent implements OnInit {
      */
     goBackTo(index: number): void {
         this.error.set(null);
-        this.warnings.set([]);
         if (index === 0) {
             this.po.set(null);
             this.supplierId.set(null);
-            this.lastPrices.set(new Map());
             this.lines.set([]);
             // A different document deserves a different key.
             this.idempotencyKey = uuid();
@@ -991,8 +838,7 @@ export class GrnComponent implements OnInit {
             drafts.push({
                 itemId: item.id,
                 packId: pack.id,
-                qtyPacks: round3(line.qtyOutstandingBase / pack.qtyInStockUnit),
-                packPrice: line.estPrice
+                qtyPacks: round3(line.qtyOutstandingBase / pack.qtyInStockUnit)
             });
         }
 
@@ -1000,23 +846,14 @@ export class GrnComponent implements OnInit {
         if (drafts.length === 0) this.addLine();
     }
 
-    /** Choosing the supplier is what makes last time's prices knowable. */
     setSupplier(supplierId: number | null): void {
         this.supplierId.set(supplierId);
-        this.lastPrices.set(new Map());
-        if (supplierId === null) return;
-        void this.api
-            .lastPrices(supplierId)
-            .then((rows) => this.lastPrices.set(new Map(rows.map((r) => [r.itemPackId, r]))))
-            // A missing price history is not an error worth stopping a
-            // delivery for; it just means nothing is known to compare against.
-            .catch(() => this.lastPrices.set(new Map()));
     }
 
     addLine(): void {
         this.lines.update((ls) => [
             ...ls,
-            { itemId: null, packId: null, qtyPacks: null, packPrice: null }
+            { itemId: null, packId: null, qtyPacks: null }
         ]);
     }
 
@@ -1042,40 +879,9 @@ export class GrnComponent implements OnInit {
         this.patch(index, { qtyPacks });
     }
 
-    setPrice(index: number, packPrice: number | null): void {
-        this.patch(index, { packPrice });
-    }
-
     packsFor(itemId: number | null): ItemPack[] {
         if (itemId === null) return [];
         return this.items().find((i) => i.id === itemId)?.packs ?? [];
-    }
-
-    /**
-     * What this pack cost last time, and whether the change is worth a word.
-     *
-     * Null when there is nothing to compare against - a first delivery of
-     * something is not a price change, and saying "no previous price" under
-     * every line of a new supplier's first invoice is noise.
-     */
-    livePriceCheck(
-        line: Draft
-    ): { previousPrice: number; changePct: number; warn: boolean } | null {
-        if (line.packId === null || line.packPrice === null || line.packPrice <= 0) return null;
-        const previous = this.lastPrices().get(line.packId);
-        if (!previous || previous.price <= 0) return null;
-
-        const changePct =
-            Math.round(((line.packPrice - previous.price) / previous.price) * 1000) / 10;
-        return {
-            previousPrice: previous.price,
-            changePct,
-            warn: Math.abs(changePct) >= PRICE_WARN_PCT
-        };
-    }
-
-    abs(n: number): number {
-        return Math.abs(n);
     }
 
     nameOf(itemId: number | null): string {
@@ -1095,14 +901,6 @@ export class GrnComponent implements OnInit {
         return formatQty(line.qtyPacks * pack.qtyInStockUnit, item.stockUnit);
     }
 
-    lineTotal(line: Draft): number {
-        return (line.qtyPacks ?? 0) * (line.packPrice ?? 0);
-    }
-
-    money(n: number): string {
-        return formatMoney(n);
-    }
-
     async submit(): Promise<void> {
         if (!this.canSubmit()) return;
 
@@ -1117,26 +915,13 @@ export class GrnComponent implements OnInit {
                     invoiceDate: this.invoiceDate() || null,
                     lines: this.lines().map((l) => ({
                         itemPackId: l.packId!,
-                        qtyPacks: l.qtyPacks!,
-                        packPrice: l.packPrice!
+                        qtyPacks: l.qtyPacks!
                     }))
                 },
                 this.idempotencyKey
             );
 
-            this.warnings.set(result.priceWarnings);
-
-            if (result.priceWarnings.length > 0) {
-                // Recorded, not blocked. The delivery is already in the store;
-                // refusing it would only mean the stock figure is wrong instead.
-                // The storekeeper saw this coming on the previous step, so this
-                // is a confirmation rather than news.
-                this.notify.warning(
-                    `Delivery recorded. ${result.priceWarnings.length} price change(s) went on the record.`
-                );
-            } else {
-                this.notify.success(`Delivery recorded. ${this.money(result.total)}`);
-            }
+            this.notify.success(`Delivery recorded. ${result.lineCount} line(s).`);
 
             await this.describeSaved(result);
         } catch (err) {
@@ -1199,11 +984,9 @@ export class GrnComponent implements OnInit {
     startAnother(): void {
         this.saved.set(null);
         this.savedLines.set([]);
-        this.warnings.set([]);
         this.error.set(null);
         this.po.set(null);
         this.supplierId.set(null);
-        this.lastPrices.set(new Map());
         this.invoiceNo.set('');
         this.invoiceDate.set('');
         this.lines.set([]);

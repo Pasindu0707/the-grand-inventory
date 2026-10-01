@@ -1,14 +1,9 @@
 /**
- * Suppliers, and what they charge.
+ * Suppliers.
  *
- * Two things live here that look like one. The supplier list is what the
- * delivery and market screens choose from. The price list is what the
- * price-movement report compares a delivery against - and without a starting
- * price, the first time a supplier puts oil up 32% it looks exactly like the
- * normal price, and the report only notices on the delivery after that.
- *
- * Prices are also written automatically by every GRN, so this screen is for
- * the ones agreed in advance: the opening price list, the annual contract.
+ * The list the delivery, purchase-order and return screens choose from. This
+ * system keeps no prices - see migration 0009 - so a supplier is a name, a
+ * phone number and the paperwork details accounts needs to find them.
  */
 import { Component, inject, signal, OnInit } from '@angular/core';
 import { CommonModule } from '@angular/common';
@@ -20,15 +15,12 @@ import { DrawerModule } from 'primeng/drawer';
 import { GrandService } from '@/core/grand.service';
 import { NotifyService } from '@/core/notify.service';
 import { apiErrorMessage } from '@/core/api';
-import { formatMoney } from '@/core/format';
 import {
     DEFAULT_PAGE_SIZE,
     emptyPage,
-    type Item,
     type Page,
     type PageRequest,
-    type SetupSupplier,
-    type SupplierPrice
+    type SetupSupplier
 } from '@/core/types';
 import { AppPaginator, type PageChange } from '@/shared/paginator.component';
 import { AppFilterBar, type FilterOption } from '@/shared/filter-bar.component';
@@ -51,7 +43,7 @@ import { AppFilterBar, type FilterOption } from '@/shared/filter-bar.component';
             <div class="flex flex-wrap items-start justify-between gap-3">
                 <div>
                     <h1 class="text-2xl font-bold">Suppliers</h1>
-                    <p class="text-surface-500 text-sm">Who you buy from, and at what price</p>
+                    <p class="text-surface-500 text-sm">Who you buy from</p>
                 </div>
                 <button pButton icon="pi pi-plus" label="Add supplier" (click)="openAdd()"></button>
             </div>
@@ -117,12 +109,6 @@ import { AppFilterBar, type FilterOption } from '@/shared/filter-bar.component';
                                     </div>
                                 </div>
                                 <div class="flex items-center gap-2">
-                                    <button
-                                        pButton
-                                        size="small"
-                                        text
-                                        label="Prices"
-                                        (click)="openPrices(s)"></button>
                                     @if (s.isActive) {
                                         <button
                                             pButton
@@ -218,87 +204,6 @@ import { AppFilterBar, type FilterOption } from '@/shared/filter-bar.component';
                 </div>
             </div>
         </p-drawer>
-
-        <!-- Agreed prices ---------------------------------------------------->
-        <p-drawer
-            [visible]="pricesOpen()"
-            (visibleChange)="pricesOpen.set($event)"
-            position="right"
-            [header]="priceSupplier()?.name ?? 'Prices'"
-            styleClass="!w-full sm:!w-[34rem]">
-            <div class="space-y-5">
-                <p class="text-sm text-surface-500">
-                    The price you have agreed, per pack. Deliveries add to this list by
-                    themselves - what you set here is the starting point the first delivery is
-                    measured against.
-                </p>
-
-                <div class="space-y-2 rounded-xl border border-surface p-3">
-                    <label class="block text-sm font-medium">Add a price</label>
-                    <select
-                        class="w-full px-3 py-2 rounded-lg border border-surface bg-surface-0 dark:bg-surface-900"
-                        [ngModel]="priceItemId()"
-                        (ngModelChange)="onPriceItem(+$event)">
-                        <option [ngValue]="0">Choose a product…</option>
-                        @for (i of items(); track i.id) {
-                            <option [ngValue]="i.id">{{ i.name }}</option>
-                        }
-                    </select>
-
-                    @if (packOptions().length > 0) {
-                        <select
-                            class="w-full px-3 py-2 rounded-lg border border-surface bg-surface-0 dark:bg-surface-900"
-                            [ngModel]="pricePackId()"
-                            (ngModelChange)="pricePackId.set(+$event)">
-                            @for (p of packOptions(); track p.id) {
-                                <option [ngValue]="p.id">{{ p.packName }}</option>
-                            }
-                        </select>
-                    }
-
-                    <div class="flex items-center gap-2">
-                        <input
-                            pInputText
-                            class="flex-1 text-right"
-                            inputmode="decimal"
-                            placeholder="Price per pack"
-                            [ngModel]="priceValue()"
-                            (ngModelChange)="priceValue.set($event)" />
-                        <input
-                            pInputText
-                            class="w-40"
-                            type="date"
-                            [ngModel]="priceFrom()"
-                            (ngModelChange)="priceFrom.set($event)" />
-                    </div>
-
-                    <button
-                        pButton
-                        class="w-full"
-                        label="Record this price"
-                        [disabled]="!pricePackId() || !priceValue()"
-                        (click)="addPrice()"></button>
-                </div>
-
-                @if (prices().length === 0) {
-                    <p class="text-sm text-surface-500">No prices recorded yet.</p>
-                } @else {
-                    <ul class="divide-y divide-surface border-t border-surface">
-                        @for (p of prices(); track p.id) {
-                            <li class="py-3 flex items-center justify-between gap-2 text-sm">
-                                <span>
-                                    <span class="font-medium">{{ p.itemName }}</span>
-                                    <span class="block text-xs text-surface-500">
-                                        {{ p.packName }} · from {{ p.effectiveFrom }}
-                                    </span>
-                                </span>
-                                <span class="font-medium">{{ money(p.price) }}</span>
-                            </li>
-                        }
-                    </ul>
-                }
-            </div>
-        </p-drawer>
     `
 })
 export class SetupSuppliersComponent implements OnInit {
@@ -327,24 +232,10 @@ export class SetupSuppliersComponent implements OnInit {
     readonly vatNo = signal('');
     readonly paymentTerms = signal('');
 
-    readonly pricesOpen = signal(false);
-    readonly priceSupplier = signal<SetupSupplier | null>(null);
-    readonly prices = signal<SupplierPrice[]>([]);
-    readonly items = signal<Item[]>([]);
-    readonly priceItemId = signal(0);
-    readonly pricePackId = signal(0);
-    readonly priceValue = signal<string | number>('');
-    readonly priceFrom = signal(new Date().toISOString().slice(0, 10));
-    readonly packOptions = signal<{ id: number; packName: string }[]>([]);
-
     private searchTimer: ReturnType<typeof setTimeout> | null = null;
 
     async ngOnInit(): Promise<void> {
         await this.load();
-    }
-
-    money(value: number): string {
-        return formatMoney(value);
     }
 
     onSearch(value: string): void {
@@ -444,52 +335,6 @@ export class SetupSuppliersComponent implements OnInit {
         try {
             await this.api.updateSupplier(supplier.id, { isActive });
             await this.load();
-        } catch (err) {
-            this.notify.error(apiErrorMessage(err));
-        }
-    }
-
-    async openPrices(supplier: SetupSupplier): Promise<void> {
-        this.priceSupplier.set(supplier);
-        this.pricesOpen.set(true);
-        this.priceItemId.set(0);
-        this.pricePackId.set(0);
-        this.priceValue.set('');
-        this.packOptions.set([]);
-        try {
-            const [prices, items] = await Promise.all([
-                this.api.supplierPrices(supplier.id),
-                this.items().length > 0 ? Promise.resolve(this.items()) : this.api.listItems()
-            ]);
-            this.prices.set(prices);
-            this.items.set(items);
-        } catch (err) {
-            this.notify.error(apiErrorMessage(err));
-        }
-    }
-
-    onPriceItem(itemId: number): void {
-        this.priceItemId.set(itemId);
-        const item = this.items().find((i) => i.id === itemId);
-        const packs = item?.packs ?? [];
-        this.packOptions.set(packs.map((p) => ({ id: p.id, packName: p.packName })));
-        // Pre-select what the item is normally bought in, which is what a
-        // price is normally agreed for.
-        const preferred = packs.find((p) => p.isDefaultPurchase) ?? packs[0];
-        this.pricePackId.set(preferred?.id ?? 0);
-    }
-
-    async addPrice(): Promise<void> {
-        const supplier = this.priceSupplier();
-        if (!supplier) return;
-        try {
-            await this.api.addSupplierPrice(supplier.id, {
-                itemPackId: this.pricePackId(),
-                price: Number(this.priceValue()),
-                effectiveFrom: this.priceFrom()
-            });
-            this.priceValue.set('');
-            this.prices.set(await this.api.supplierPrices(supplier.id));
         } catch (err) {
             this.notify.error(apiErrorMessage(err));
         }
