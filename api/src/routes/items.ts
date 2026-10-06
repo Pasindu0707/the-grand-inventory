@@ -2,6 +2,7 @@ import type { FastifyInstance } from 'fastify';
 import type { ZodTypeProvider } from 'fastify-type-provider-zod';
 import { z } from 'zod';
 import { db } from '../db/index.js';
+import { listSupplierItems } from '../services/supplier-items.js';
 import { homeSectionFor } from '../plugins/auth.js';
 
 export async function itemRoutes(app: FastifyInstance) {
@@ -19,7 +20,6 @@ export async function itemRoutes(app: FastifyInstance) {
             schema: {
                 querystring: z.object({
                     search: z.string().max(64).optional(),
-                    criticalOnly: z.coerce.boolean().optional(),
                     /**
                      * Narrow the list to things this person's own section
                      * actually deals in. A cleaner asking for stock was being
@@ -46,7 +46,6 @@ export async function itemRoutes(app: FastifyInstance) {
                             categoryName: z.string(),
                             parLevel: z.number(),
                             reorderPoint: z.number(),
-                            isCritical: z.boolean(),
                             packs: z.array(
                                 z.object({
                                     id: z.number(),
@@ -72,7 +71,6 @@ export async function itemRoutes(app: FastifyInstance) {
                     'c.name as categoryName',
                     'items.par_level as parLevel',
                     'items.reorder_point as reorderPoint',
-                    'items.is_critical as isCritical',
                 ])
                 .where('items.is_active', '=', true);
 
@@ -82,10 +80,9 @@ export async function itemRoutes(app: FastifyInstance) {
                     eb.or([eb('items.name', 'ilike', term), eb('items.code', 'ilike', term)])
                 );
             }
-            if (req.query.criticalOnly) q = q.where('items.is_critical', '=', true);
 
             if (req.query.mySection) {
-                const sectionId = await homeSectionFor(req.user.role, req.locationId);
+                const sectionId = await homeSectionFor(req.user, req.locationId);
                 if (sectionId !== null) {
                     q = q.where('items.id', 'in', (eb) =>
                         eb
@@ -166,5 +163,31 @@ export async function itemRoutes(app: FastifyInstance) {
                     .orderBy('name')
                     .execute()
             ).map((s) => ({ ...s }))
+    );
+
+    /**
+     * What a supplier delivers: the list a purchase order is built from, and
+     * what the admin edits on the Suppliers screen.
+     */
+    r.get(
+        '/suppliers/:id/items',
+        {
+            preHandler: app.authenticate,
+            schema: {
+                params: z.object({ id: z.coerce.number().int().positive() }),
+                response: {
+                    200: z.array(
+                        z.object({
+                            id: z.number(),
+                            itemId: z.number().nullable(),
+                            name: z.string(),
+                            code: z.string().nullable(),
+                            unit: z.string().nullable(),
+                        })
+                    ),
+                },
+            },
+        },
+        async (req) => listSupplierItems(req.params.id)
     );
 }

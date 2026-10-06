@@ -40,6 +40,8 @@ delete from supplier_returns;
 delete from section_returns;
 delete from wastage;
 delete from issue_lines;
+delete from grn_other_lines;
+delete from grn_rejections;
 delete from grn_lines;
 delete from grn;
 -- A GRN points at the purchase order, the order at the request it came from,
@@ -50,6 +52,7 @@ delete from issues;
 delete from transfers;
 delete from recipe_lines;
 delete from products;
+delete from supplier_items;
 delete from item_packs;
 delete from items;
 delete from suppliers;

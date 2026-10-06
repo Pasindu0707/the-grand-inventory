@@ -11,6 +11,8 @@ import type {
     BootstrapResponse,
     Branch,
     ConsumptionRow,
+    PurchaseListReport,
+    SectionRequestReport,
     CountAccuracyRow,
     DeadStockRow,
     OpenPoRow,
@@ -42,6 +44,7 @@ import type {
     OpeningResult,
     OpeningSection,
     ReasonCode,
+    DeliveryReportRow,
     IssueReturnable,
     OpenReturnRow,
     ReturnableLine,
@@ -64,6 +67,8 @@ import type {
     StockOutRow,
     StockResponse,
     Supplier,
+    SupplierItem,
+    SupplierItemEntry,
     UploadResult,
     UsageTrendPoint,
     UsageVarianceRow,
@@ -115,6 +120,13 @@ export class GrandService {
         return firstValueFrom(this.http.get<Supplier[]>(`${API_BASE}/suppliers`));
     }
 
+    /** What a supplier delivers - the list a purchase order is built from. */
+    supplierItems(supplierId: number): Promise<SupplierItem[]> {
+        return firstValueFrom(
+            this.http.get<SupplierItem[]>(`${API_BASE}/suppliers/${supplierId}/items`)
+        );
+    }
+
     // ── Stock ───────────────────────────────────────────────────────────────
 
     getStock(
@@ -146,6 +158,30 @@ export class GrandService {
         const params = pageParams(opts);
         if (opts.search) params['search'] = opts.search;
         return firstValueFrom(this.http.get<Page<GrnListRow>>(`${API_BASE}/grn`, { params }));
+    }
+
+    /** Deliveries management should read: refusals, or something still to come. */
+    listDeliveryReports(opts: { unseen?: boolean } & PageRequest = {}): Promise<Page<DeliveryReportRow>> {
+        const params = pageParams(opts);
+        if (opts.unseen) params['unseen'] = 'true';
+        return firstValueFrom(
+            this.http.get<Page<DeliveryReportRow>>(`${API_BASE}/delivery-reports`, { params })
+        );
+    }
+
+    markDeliveryReportSeen(grnId: string): Promise<{ ok: true }> {
+        return firstValueFrom(
+            this.http.post<{ ok: true }>(`${API_BASE}/delivery-reports/${grnId}/seen`, {})
+        );
+    }
+
+    /** The supplier's credit note for goods refused at the door. */
+    recordRejectionCreditNote(rejectionId: string, creditNoteNo: string): Promise<{ ok: true }> {
+        return firstValueFrom(
+            this.http.post<{ ok: true }>(`${API_BASE}/grn-rejections/${rejectionId}/credit-note`, {
+                creditNoteNo
+            })
+        );
     }
 
     /** One delivery, with its lines and what has gone back against them. */
@@ -229,9 +265,10 @@ export class GrandService {
     // ── Purchase orders ─────────────────────────────────────────────────────
 
     listPurchaseOrders(
-        opts: { status?: string; open?: boolean; mine?: boolean } & PageRequest = {}
+        opts: { status?: string; open?: boolean; mine?: boolean; search?: string } & PageRequest = {}
     ): Promise<Page<PurchaseOrder>> {
         const params = pageParams(opts);
+        if (opts.search) params['search'] = opts.search;
         if (opts.status) params['status'] = opts.status;
         // Everything not yet delivered or rejected, in one filter -- what the
         // delivery screen needs to offer, including the ones still waiting on
@@ -246,13 +283,16 @@ export class GrandService {
     /** Ordered in packs: what you say to a supplier, and what the invoice says. */
     raisePurchaseOrder(body: {
         issueId?: string | null;
-        supplierId?: number | null;
+        supplierId: number;
         neededBy?: string | null;
         reason?: string | null;
-        lines: { itemPackId: number; qtyPacks: number }[];
-    }): Promise<{ id: string }> {
+        lines: (
+            | { itemPackId: number; qtyPacks: number }
+            | { name: string; unit?: string | null; qty: number }
+        )[];
+    }): Promise<{ id: string; status: string }> {
         return firstValueFrom(
-            this.http.post<{ id: string }>(`${API_BASE}/purchase-orders`, body)
+            this.http.post<{ id: string; status: string }>(`${API_BASE}/purchase-orders`, body)
         );
     }
 
@@ -268,6 +308,16 @@ export class GrandService {
                 note: note ?? null,
                 supplierId: supplierId ?? null
             })
+        );
+    }
+
+    /** One item is not coming. Management only, with a reason. */
+    voidPoLine(poId: string, lineId: string, reason: string): Promise<{ orderComplete: boolean }> {
+        return firstValueFrom(
+            this.http.post<{ orderComplete: boolean }>(
+                `${API_BASE}/purchase-orders/${poId}/lines/${lineId}/void`,
+                { reason }
+            )
         );
     }
 
@@ -346,7 +396,6 @@ export class GrandService {
         parLevel?: number;
         reorderPoint?: number;
         shelfLifeDays?: number | null;
-        isCritical?: boolean;
         packs: { packName: string; qtyInStockUnit: number; isDefaultPurchase?: boolean }[];
     }): Promise<{ id: number }> {
         return firstValueFrom(this.http.post<{ id: number }>(`${API_BASE}/setup/items`, body));
@@ -361,8 +410,7 @@ export class GrandService {
             parLevel?: number;
             reorderPoint?: number;
             shelfLifeDays?: number | null;
-            isCritical?: boolean;
-            isActive?: boolean;
+                isActive?: boolean;
         }
     ): Promise<{ ok: true }> {
         return firstValueFrom(this.http.patch<{ ok: true }>(`${API_BASE}/setup/items/${id}`, body));
@@ -421,6 +469,15 @@ export class GrandService {
     ): Promise<{ ok: true }> {
         return firstValueFrom(
             this.http.patch<{ ok: true }>(`${API_BASE}/setup/suppliers/${id}`, body)
+        );
+    }
+
+    /** Replace what a supplier delivers with exactly this list. Admin only. */
+    saveSupplierItems(supplierId: number, items: SupplierItemEntry[]): Promise<{ ok: true }> {
+        return firstValueFrom(
+            this.http.put<{ ok: true }>(`${API_BASE}/setup/suppliers/${supplierId}/items`, {
+                items
+            })
         );
     }
 
@@ -485,6 +542,7 @@ export class GrandService {
         name: string;
         role: Role;
         locationId: number | null;
+        sectionId?: number | null;
         pin: string;
         phone?: string | null;
     }): Promise<ManagedUser> {
@@ -493,7 +551,13 @@ export class GrandService {
 
     updateUser(
         id: number,
-        body: { role?: Role; locationId?: number | null; pin?: string; isActive?: boolean }
+        body: {
+            role?: Role;
+            locationId?: number | null;
+            sectionId?: number | null;
+            pin?: string;
+            isActive?: boolean;
+        }
     ): Promise<{ ok: true }> {
         return firstValueFrom(this.http.patch<{ ok: true }>(`${API_BASE}/admin/users/${id}`, body));
     }
@@ -850,6 +914,20 @@ export class GrandService {
 
     countAccuracyReport(range: DateRange): Promise<DateRange & { rows: CountAccuracyRow[] }> {
         return this.rangeReport<CountAccuracyRow>('count-accuracy', range);
+    }
+
+    purchaseListReport(range: DateRange): Promise<PurchaseListReport> {
+        return firstValueFrom(
+            this.http.get<PurchaseListReport>(`${API_BASE}/reports/purchase-list`, { params: { ...range } })
+        );
+    }
+
+    sectionRequestsReport(range: DateRange): Promise<SectionRequestReport> {
+        return firstValueFrom(
+            this.http.get<SectionRequestReport>(`${API_BASE}/reports/section-requests`, {
+                params: { ...range }
+            })
+        );
     }
 
     private rangeReport<T>(path: string, range: DateRange): Promise<DateRange & { rows: T[] }> {

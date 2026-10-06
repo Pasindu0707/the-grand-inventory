@@ -27,6 +27,7 @@ import { TagModule } from 'primeng/tag';
 import { GrandService } from '@/core/grand.service';
 import { apiErrorMessage } from '@/core/api';
 import { formatQty } from '@/core/format';
+import { openPrint } from '@/core/print';
 import {
     DEFAULT_PAGE_SIZE,
     emptyPage,
@@ -115,6 +116,11 @@ import { AppPaginator, type PageChange } from '@/shared/paginator.component';
                                         </div>
                                     </div>
                                     <div class="flex items-center gap-3 shrink-0">
+                                        @if (row.returnedCount > 0) {
+                                            <p-tag
+                                                severity="warn"
+                                                [value]="row.returnedCount + ' sent back'"></p-tag>
+                                        }
                                         @if (row.poId) {
                                             <p-tag severity="info" value="Against an order"></p-tag>
                                         }
@@ -182,6 +188,9 @@ import { AppPaginator, type PageChange } from '@/shared/paginator.component';
                                         <div class="text-sm text-surface-500 mt-1">
                                             {{ line.qtyPacks }} × {{ line.packName }} =
                                             {{ q(line.qtyBase, line.stockUnit) }}
+                                            @if (line.expiryDate) {
+                                                · expires {{ line.expiryDate }}
+                                            }
                                         </div>
                                         @if (line.qtyPacksReturned > 0) {
                                             <div class="app-note app-note--warn mt-2">
@@ -192,11 +201,21 @@ import { AppPaginator, type PageChange } from '@/shared/paginator.component';
                                         }
                                     </li>
                                 }
+                                @for (line of d.otherLines; track line.id) {
+                                    <li class="px-4 py-3">
+                                        <div class="font-medium">{{ line.name }}</div>
+                                        <div class="text-sm text-surface-500 mt-1">
+                                            {{ line.qty }} {{ line.unit || 'each' }} · not a stock item
+                                        </div>
+                                    </li>
+                                }
                             </ul>
                             <div
                                 class="px-4 py-3 border-t border-surface flex items-center justify-between">
                                 <span class="font-semibold">Lines</span>
-                                <span class="text-lg font-bold">{{ d.lines.length }}</span>
+                                <span class="text-lg font-bold">
+                                    {{ d.lines.length + d.otherLines.length }}
+                                </span>
                             </div>
                         </div>
 
@@ -206,6 +225,12 @@ import { AppPaginator, type PageChange } from '@/shared/paginator.component';
                                 <img [src]="d.photoUrl" alt="The delivery" class="rounded-xl border border-surface" />
                             </div>
                         }
+
+                        <button
+                            pButton
+                            icon="pi pi-print"
+                            label="Print delivery note"
+                            (click)="print(d.id)"></button>
 
                         <div class="app-note">
                             This is a record, not a form. A delivery on the ledger is corrected
@@ -288,6 +313,10 @@ export class DeliveriesComponent implements OnInit {
         } finally {
             this.detailLoading.set(false);
         }
+    }
+
+    print(grnId: string): void {
+        openPrint(`/deliveries/${grnId}/print`);
     }
 
     q(qty: number, unit: string): string {

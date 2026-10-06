@@ -22,6 +22,7 @@ import {
     stockOnHand,
     supplierPerformance
 } from '../services/reports-ops.js';
+import { purchaseList, sectionRequests } from '../services/reports-periodic.js';
 
 const dateStr = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Use YYYY-MM-DD');
 
@@ -254,8 +255,7 @@ export async function reportRoutes(app: FastifyInstance) {
                                 qtyBase: z.number(),
                                 reorderPoint: z.number(),
                                 parLevel: z.number(),
-                                shortfall: z.number(),
-                                isCritical: z.boolean()
+                                shortfall: z.number()
                             })
                         )
                     })
@@ -565,6 +565,98 @@ export async function reportRoutes(app: FastifyInstance) {
         async (req) => {
             const range = resolveRange(req.query);
             return { ...range, rows: await openReturns(req.locationId, range) };
+        }
+    );
+
+    // ── The weekly and monthly lists ────────────────────────────────────────
+
+    r.get(
+        '/reports/purchase-list',
+        {
+            preHandler: managers(),
+            schema: {
+                querystring: rangeQuery,
+                response: {
+                    200: z.object({
+                        from: z.string(),
+                        to: z.string(),
+                        summary: z.object({
+                            deliveries: z.number(),
+                            suppliers: z.number(),
+                            lines: z.number(),
+                            deliveriesWithReturns: z.number(),
+                            ordersRaised: z.number()
+                        }),
+                        rows: z.array(
+                            z.object({
+                                supplierId: z.number(),
+                                supplierName: z.string(),
+                                itemId: z.number().nullable(),
+                                code: z.string().nullable(),
+                                name: z.string(),
+                                unit: z.string().nullable(),
+                                packName: z.string().nullable(),
+                                qtyPacks: z.number(),
+                                qtyBase: z.number(),
+                                qtyPacksSentBack: z.number(),
+                                deliveries: z.number()
+                            })
+                        )
+                    })
+                }
+            }
+        },
+        async (req) => {
+            const range = resolveRange(req.query);
+            return { ...range, ...(await purchaseList(req.locationId, range)) };
+        }
+    );
+
+    r.get(
+        '/reports/section-requests',
+        {
+            preHandler: managers(),
+            schema: {
+                querystring: rangeQuery,
+                response: {
+                    200: z.object({
+                        from: z.string(),
+                        to: z.string(),
+                        sections: z.array(
+                            z.object({
+                                sectionId: z.number(),
+                                sectionName: z.string(),
+                                requests: z.number(),
+                                waiting: z.number(),
+                                notConfirmed: z.number(),
+                                cancelled: z.number(),
+                                items: z.number(),
+                                itemsShort: z.number()
+                            })
+                        ),
+                        rows: z.array(
+                            z.object({
+                                sectionId: z.number(),
+                                sectionName: z.string(),
+                                itemId: z.number(),
+                                code: z.string(),
+                                name: z.string(),
+                                stockUnit: z.string(),
+                                requests: z.number(),
+                                qtyAsked: z.number(),
+                                qtySent: z.number(),
+                                qtyConfirmed: z.number(),
+                                qtyWaiting: z.number(),
+                                qtyShort: z.number()
+                            })
+                        )
+                    })
+                }
+            }
+        },
+        async (req) => {
+            const range = resolveRange(req.query);
+            return { ...range, ...(await sectionRequests(req.locationId, range)) };
         }
     );
 }

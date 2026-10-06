@@ -54,7 +54,7 @@ export async function documentRoutes(app: FastifyInstance) {
             }
         },
         async (req, reply) => {
-            await assertSectionAllowed(req.user.role, req.locationId, req.body.sectionId);
+            await assertSectionAllowed(req.user, req.locationId, req.body.sectionId);
             await assertSectionOpen(req.body.sectionId);
             const result = await logWastage({
                 locationId: req.locationId,
@@ -116,9 +116,9 @@ export async function documentRoutes(app: FastifyInstance) {
             // The wastage book is per section: the kitchen has no reason to read
             // what the cleaning store threw away, and vice versa. Management and
             // the storekeeper still see the branch.
-            const mine = await sectionsForUser(req.user.role, req.locationId);
+            const mine = await sectionsForUser(req.user, req.locationId);
             if (req.query.sectionId !== undefined) {
-                await assertSectionAllowed(req.user.role, req.locationId, req.query.sectionId);
+                await assertSectionAllowed(req.user, req.locationId, req.query.sectionId);
             }
             const sectionFilter = <Q extends { where: any }>(query: Q): Q => {
                 if (req.query.sectionId !== undefined) {
@@ -235,13 +235,13 @@ export async function documentRoutes(app: FastifyInstance) {
             schema: {
                 body: z.object({
                     sectionId: z.number().int().positive(),
-                    countType: z.enum(['daily_critical', 'weekly_full', 'monthly_full'])
+                    countType: z.enum(['weekly_full', 'monthly_full'])
                 }),
                 response: { 201: z.object({ id: z.string(), lines: z.array(countLine) }) }
             }
         },
         async (req, reply) => {
-            await assertSectionAllowed(req.user.role, req.locationId, req.body.sectionId);
+            await assertSectionAllowed(req.user, req.locationId, req.body.sectionId);
             await assertSectionOpen(req.body.sectionId);
             const result = await openCount({
                 locationId: req.locationId,
@@ -409,9 +409,9 @@ export async function documentRoutes(app: FastifyInstance) {
             }
         },
         async (req) => {
-            const mine = await sectionsForUser(req.user.role, req.locationId);
+            const mine = await sectionsForUser(req.user, req.locationId);
             if (req.query.sectionId !== undefined) {
-                await assertSectionAllowed(req.user.role, req.locationId, req.query.sectionId);
+                await assertSectionAllowed(req.user, req.locationId, req.query.sectionId);
             }
             const sectionFilter = <Q extends { where: any }>(query: Q): Q => {
                 if (req.query.sectionId !== undefined) {

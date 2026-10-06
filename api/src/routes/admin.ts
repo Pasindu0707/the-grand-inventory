@@ -13,6 +13,7 @@ import bcrypt from 'bcryptjs';
 import { db } from '../db/index.js';
 import { offsetOf, pageOf, pageQuery, toPage } from '../services/pagination.js';
 import { badRequest, conflict, notFound } from '../errors.js';
+import type { UserRole } from '../db/types.js';
 
 const ROLE = z.enum(['admin', 'management', 'storekeeper', 'kitchen', 'cleaning']);
 
@@ -22,10 +23,48 @@ const userRow = z.object({
     role: ROLE,
     locationId: z.number().nullable(),
     locationCode: z.string().nullable(),
+    sectionId: z.number().nullable(),
+    sectionName: z.string().nullable(),
     phone: z.string().nullable(),
     isActive: z.boolean(),
     isLocked: z.boolean()
 });
+
+/** The kind of section each role signs in to. Roles not listed stand at none. */
+const SECTION_KIND_FOR: Partial<Record<UserRole, string>> = {
+    kitchen: 'KITCHEN',
+    cleaning: 'CLEAN'
+};
+
+/**
+ * The section a login should be saved with.
+ *
+ * A kitchen or cleaning login names one section at its own branch, of the kind
+ * its role works in. Anyone else gets null whatever was sent: management, the
+ * storekeeper and the admin run the whole branch, and a stale section left on
+ * someone promoted out of the kitchen would quietly narrow what they see.
+ */
+async function sectionFor(
+    role: UserRole,
+    locationId: number | null,
+    sectionId: number | null | undefined
+): Promise<number | null> {
+    const kind = SECTION_KIND_FOR[role];
+    if (!kind || !sectionId) return null;
+    const row = await db
+        .selectFrom('sections')
+        .select(['id', 'location_id', 'kind'])
+        .where('id', '=', sectionId)
+        .executeTakeFirst();
+    if (!row) throw notFound('That section');
+    if (row.location_id !== locationId) {
+        throw badRequest('That section is at a different branch');
+    }
+    if (row.kind !== kind) {
+        throw badRequest(`A ${role} login has to be placed in a ${role} section`);
+    }
+    return row.id;
+}
 
 export async function adminRoutes(app: FastifyInstance) {
     const r = app.withTypeProvider<ZodTypeProvider>();
@@ -39,18 +78,42 @@ export async function adminRoutes(app: FastifyInstance) {
             schema: {
                 response: {
                     200: z.array(
-                        z.object({ id: z.number(), code: z.string(), name: z.string() })
+                        z.object({
+                            id: z.number(),
+                            code: z.string(),
+                            name: z.string(),
+                            /** Where a kitchen or cleaning login can be placed. */
+                            sections: z.array(
+                                z.object({ id: z.number(), name: z.string(), kind: z.string() })
+                            )
+                        })
                     )
                 }
             }
         },
-        async () =>
-            db
-                .selectFrom('locations')
-                .select(['id', 'code', 'name'])
-                .where('is_active', '=', true)
-                .orderBy('id')
-                .execute()
+        async () => {
+            const [branches, sections] = await Promise.all([
+                db
+                    .selectFrom('locations')
+                    .select(['id', 'code', 'name'])
+                    .where('is_active', '=', true)
+                    .orderBy('id')
+                    .execute(),
+                db
+                    .selectFrom('sections')
+                    .select(['id', 'location_id', 'name', 'kind'])
+                    .where('is_active', '=', true)
+                    .where('kind', 'in', Object.values(SECTION_KIND_FOR) as string[])
+                    .orderBy('id')
+                    .execute()
+            ]);
+            return branches.map((b) => ({
+                ...b,
+                sections: sections
+                    .filter((s) => s.location_id === b.id)
+                    .map((s) => ({ id: s.id, name: s.name, kind: s.kind }))
+            }));
+        }
     );
 
     r.get(
@@ -68,6 +131,7 @@ export async function adminRoutes(app: FastifyInstance) {
             let q = db
                 .selectFrom('users as u')
                 .leftJoin('locations as l', 'l.id', 'u.location_id')
+                .leftJoin('sections as s', 's.id', 'u.section_id')
                 .leftJoin('login_attempts as la', 'la.user_id', 'u.id')
                 .select([
                     'u.id',
@@ -75,6 +139,8 @@ export async function adminRoutes(app: FastifyInstance) {
                     'u.role',
                     'u.location_id as locationId',
                     'l.code as locationCode',
+                    'u.section_id as sectionId',
+                    's.name as sectionName',
                     'u.phone',
                     'u.is_active as isActive',
                     'la.locked_until as lockedUntil'
@@ -102,6 +168,8 @@ export async function adminRoutes(app: FastifyInstance) {
                 role: u.role,
                 locationId: u.locationId,
                 locationCode: u.locationCode,
+                sectionId: u.sectionId,
+                sectionName: u.sectionName,
                 phone: u.phone,
                 isActive: u.isActive,
                 isLocked: u.lockedUntil !== null && new Date(u.lockedUntil) > new Date()
@@ -121,6 +189,8 @@ export async function adminRoutes(app: FastifyInstance) {
                     role: ROLE,
                     // Null means group-wide: they can work at any branch.
                     locationId: z.number().int().positive().nullish(),
+                    /** Kitchen and cleaning only: the one section they work in. */
+                    sectionId: z.number().int().positive().nullish(),
                     pin: z.string().regex(/^\d{4,6}$/, 'PIN must be 4 to 6 digits'),
                     phone: z.string().max(30).nullish()
                 }),
@@ -149,18 +219,25 @@ export async function adminRoutes(app: FastifyInstance) {
                 if (!loc) throw notFound('That branch');
             }
 
+            const sectionId = await sectionFor(
+                req.body.role,
+                req.body.locationId ?? null,
+                req.body.sectionId
+            );
+
             const inserted = await db
                 .insertInto('users')
                 .values({
                     name: req.body.name,
                     role: req.body.role,
                     location_id: req.body.locationId ?? null,
+                    section_id: sectionId,
                     phone: req.body.phone ?? null,
                     pin_hash: await bcrypt.hash(req.body.pin, 10),
                     is_active: true,
                     is_demo: false
                 })
-                .returning(['id', 'name', 'role', 'location_id', 'phone', 'is_active'])
+                .returning(['id', 'name', 'role', 'location_id', 'section_id', 'phone', 'is_active'])
                 .executeTakeFirstOrThrow();
 
             const code = req.body.locationId
@@ -179,6 +256,16 @@ export async function adminRoutes(app: FastifyInstance) {
                 role: inserted.role,
                 locationId: inserted.location_id,
                 locationCode: code,
+                sectionId: inserted.section_id,
+                sectionName: inserted.section_id
+                    ? ((
+                          await db
+                              .selectFrom('sections')
+                              .select('name')
+                              .where('id', '=', inserted.section_id)
+                              .executeTakeFirst()
+                      )?.name ?? null)
+                    : null,
                 phone: inserted.phone,
                 isActive: inserted.is_active,
                 isLocked: false
@@ -195,6 +282,7 @@ export async function adminRoutes(app: FastifyInstance) {
                 body: z.object({
                     role: ROLE.optional(),
                     locationId: z.number().int().positive().nullish(),
+                    sectionId: z.number().int().positive().nullish(),
                     phone: z.string().max(30).nullish(),
                     /** Set a new PIN. Also clears any lockout. */
                     pin: z.string().regex(/^\d{4,6}$/).optional(),
@@ -233,14 +321,24 @@ export async function adminRoutes(app: FastifyInstance) {
                 }
             }
 
+            const role = req.body.role ?? target.role;
+            const locationId =
+                req.body.locationId === undefined ? target.location_id : req.body.locationId;
+            // Re-judged on every edit, not only when a section is sent: a move
+            // to another branch or out of the kitchen has to drop the old one.
+            // A section that was sent and does not fit is an error; one merely
+            // carried over that no longer fits is just let go.
+            const sectionId =
+                req.body.sectionId !== undefined
+                    ? await sectionFor(role, locationId, req.body.sectionId)
+                    : await sectionFor(role, locationId, target.section_id).catch(() => null);
+
             await db
                 .updateTable('users')
                 .set({
-                    role: req.body.role ?? target.role,
-                    location_id:
-                        req.body.locationId === undefined
-                            ? target.location_id
-                            : req.body.locationId,
+                    role,
+                    location_id: locationId,
+                    section_id: sectionId,
                     phone: req.body.phone === undefined ? target.phone : req.body.phone,
                     pin_hash: req.body.pin
                         ? await bcrypt.hash(req.body.pin, 10)

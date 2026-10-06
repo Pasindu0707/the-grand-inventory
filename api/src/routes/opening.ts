@@ -72,7 +72,7 @@ export async function openingRoutes(app: FastifyInstance) {
             }
         },
         async (req, reply) => {
-            await assertSectionAllowed(req.user.role, req.locationId, req.body.sectionId);
+            await assertSectionAllowed(req.user, req.locationId, req.body.sectionId);
 
             const key = req.headers['idempotency-key'] as string;
             const endpoint = 'POST /opening-stock';

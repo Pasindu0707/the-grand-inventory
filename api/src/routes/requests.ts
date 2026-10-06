@@ -78,8 +78,8 @@ export async function requestRoutes(app: FastifyInstance) {
         async (req) => {
             const role = req.user.role;
             const [mySectionIds, homeSectionId] = await Promise.all([
-                sectionsForUser(role, req.locationId),
-                homeSectionFor(role, req.locationId)
+                sectionsForUser(req.user, req.locationId),
+                homeSectionFor(req.user, req.locationId)
             ]);
             return {
                 role,
@@ -166,11 +166,11 @@ export async function requestRoutes(app: FastifyInstance) {
             // A kitchen or cleaning login does not choose a section - it is
             // theirs. One less decision on a screen used in a hurry.
             const sectionId =
-                req.body.sectionId ?? (await homeSectionFor(req.user.role, req.locationId));
+                req.body.sectionId ?? (await homeSectionFor(req.user, req.locationId));
             if (!sectionId) throw forbidden('You are not attached to a section at this branch');
             // Naming a section is allowed - the storekeeper raises requests for
             // others - but only one you are entitled to.
-            await assertSectionAllowed(req.user.role, req.locationId, sectionId);
+            await assertSectionAllowed(req.user, req.locationId, sectionId);
             await assertSectionOpen(sectionId);
 
             const result = await ask({
@@ -344,7 +344,7 @@ export async function requestRoutes(app: FastifyInstance) {
             // Sections this person belongs to, not the ones they may look at.
             // The storekeeper can see every section; they take delivery in none
             // but their own store.
-            const owned = await sectionsOwnedBy(req.user.role, req.locationId);
+            const owned = await sectionsOwnedBy(req.user, req.locationId);
             await confirmReceived(req.params.id, req.locationId, req.user.sub, owned);
             return { ok: true as const };
         }
@@ -360,7 +360,7 @@ export async function requestRoutes(app: FastifyInstance) {
             }
         },
         async (req) => {
-            const mine = await sectionsForUser(req.user.role, req.locationId);
+            const mine = await sectionsForUser(req.user, req.locationId);
             await cancelRequest(req.params.id, req.locationId, req.user.sub, mine);
             return { ok: true as const };
         }
@@ -454,8 +454,8 @@ export async function requestRoutes(app: FastifyInstance) {
             //   owned - which sections is this person part of (isMine, and so
             //           which rows offer "It came" and "Cancel")
             const [mine, owned] = await Promise.all([
-                sectionsForUser(req.user.role, req.locationId),
-                sectionsOwnedBy(req.user.role, req.locationId)
+                sectionsForUser(req.user, req.locationId),
+                sectionsOwnedBy(req.user, req.locationId)
             ]);
             const canRelease = req.user.role === 'storekeeper';
 

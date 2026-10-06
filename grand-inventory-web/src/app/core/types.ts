@@ -50,7 +50,9 @@ export type RouteKey =
     // The record of what has arrived. A delivery is a document the business
     // keeps, so it has a page of its own rather than living only inside the
     // form that created it.
-    | 'deliveries';
+    | 'deliveries'
+    // Deliveries that came with refusals or left something outstanding.
+    | 'deliveryReports';
 
 /** What this person can do. Answered by the server so the UI never guesses. */
 export interface MyContext {
@@ -129,9 +131,14 @@ export interface ReleaseResult {
 export type PoDecision = 'approved' | 'rejected' | 'ordered' | 'done';
 
 export interface PurchaseOrderLine {
-    itemId: number;
+    /** The order line, for ticking it off or voiding it. */
+    id: string;
+    /** Null for a product ordered by name, which is not stock. */
+    itemId: number | null;
     name: string;
-    stockUnit: string;
+    /** The item's stock unit, or what a named product is counted in. */
+    stockUnit: string | null;
+    isStockItem: boolean;
     qtyBase: number;
     /** What the store had when it was raised. */
     qtyInStore: number;
@@ -139,7 +146,14 @@ export interface PurchaseOrderLine {
     packName: string | null;
     qtyPacks: number | null;
     qtyReceivedBase: number;
+    /** Refused at the door and settled by credit note: not coming. */
+    qtyCreditedBase: number;
+    /** Zero once fully delivered, or voided. */
     qtyOutstandingBase: number;
+    /** Management took the undelivered balance off the order. */
+    voided: boolean;
+    voidReason: string | null;
+    voidedBy: string | null;
 }
 
 export interface PurchaseOrder {
@@ -180,6 +194,9 @@ export interface ManagedUser {
     role: Role;
     locationId: number | null;
     locationCode: string | null;
+    /** Kitchen and cleaning only: the one section they work in. */
+    sectionId: number | null;
+    sectionName: string | null;
     phone: string | null;
     isActive: boolean;
     isLocked: boolean;
@@ -189,6 +206,8 @@ export interface Branch {
     id: number;
     code: string;
     name: string;
+    /** Kitchen and cleaning sections, where those logins can be placed. */
+    sections: { id: number; name: string; kind: string }[];
 }
 
 // ── Session ─────────────────────────────────────────────────────────────────
@@ -240,7 +259,16 @@ export interface SessionResponse {
 
 export interface BootstrapResponse {
     locations: LocationRef[];
-    users: { id: number; name: string; role: Role; locationId: number | null }[];
+    /** The kitchen and cleaning sections people sign in to, at every branch. */
+    sections: { id: number; locationId: number; name: string; kind: string }[];
+    users: {
+        id: number;
+        name: string;
+        role: Role;
+        locationId: number | null;
+        /** The section a kitchen or cleaning login belongs to. */
+        sectionId: number | null;
+    }[];
 }
 
 // ── Items and stock ─────────────────────────────────────────────────────────
@@ -261,7 +289,6 @@ export interface Item {
     categoryName: string;
     parLevel: number;
     reorderPoint: number;
-    isCritical: boolean;
     packs: ItemPack[];
 }
 
@@ -270,6 +297,22 @@ export interface Supplier {
     name: string;
     phone: string | null;
 }
+
+/**
+ * Something a supplier delivers: an item from the item master, or a product
+ * typed in by name that the item master does not have (`itemId` null).
+ */
+export interface SupplierItem {
+    id: number;
+    itemId: number | null;
+    name: string;
+    code: string | null;
+    /** The item's stock unit, or what a named product is counted in. */
+    unit: string | null;
+}
+
+/** An entry when saving or ordering: an item, or a product by name. */
+export type SupplierItemEntry = { itemId: number } | { name: string; unit?: string | null };
 
 export interface StockRow {
     itemId: number;
@@ -281,7 +324,6 @@ export interface StockRow {
     qtyBase: number;
     reorderPoint: number;
     parLevel: number;
-    isCritical: boolean;
     belowReorder: boolean;
 }
 
@@ -330,12 +372,68 @@ export interface GrnInput {
     invoiceDate?: string | null;
     photoUrl?: string | null;
     lines: GrnLineInput[];
+    /** Products ordered by name that came, by their order line. Not stock. */
+    otherLines?: { poLineId: string; qty: number }[];
+    /** Refused at the door and sent back on the same lorry. */
+    rejections?: GrnRejectionInput[];
+}
+
+export type RejectionOutcome = 'replacement' | 'credit';
+
+export interface GrnRejectionInput {
+    poLineId: string;
+    /** Packs of a stock item, or the count of a product ordered by name. */
+    qty: number;
+    reasonCode: string;
+    note?: string | null;
+    outcome: RejectionOutcome;
+}
+
+/** Goods refused at the door, read back. */
+export interface GrnRejection {
+    id: string;
+    name: string;
+    isStockItem: boolean;
+    packName: string | null;
+    qty: number;
+    unit: string | null;
+    qtyBase: number;
+    reasonCode: string;
+    reasonLabel: string;
+    note: string | null;
+    outcome: RejectionOutcome;
+    creditNoteNo: string | null;
+}
+
+/** A delivery management should read. */
+export interface DeliveryReportRow {
+    id: string;
+    supplierName: string;
+    invoiceNo: string | null;
+    receivedAt: string;
+    receivedBy: string;
+    poId: string | null;
+    receivedCount: number;
+    returnedCount: number;
+    /** Lines still to come on the order, as it stands now. */
+    outstandingCount: number;
+    /** Lines this delivery left owing, as it was that day. */
+    shortCount: number;
+    /** Lines where more came than was owed. */
+    overCount: number;
+    /** Stock items that came but were never on the order. */
+    notOnOrderCount: number;
+    creditsPending: number;
+    reviewedBy: string | null;
+    reviewedAt: string | null;
 }
 
 export interface GrnResult {
     id: string;
     businessDate: string;
     lineCount: number;
+    /** Something was refused or is still to come: management gets a report. */
+    needsReview: boolean;
 }
 
 export interface GrnListRow {
@@ -348,6 +446,9 @@ export interface GrnListRow {
     /** Set when this delivery filled a purchase order. */
     poId: string | null;
     lineCount: number;
+    returnedCount: number;
+    needsReview: boolean;
+    reviewed: boolean;
 }
 
 /** One line of a delivery, read back after the fact. */
@@ -362,8 +463,68 @@ export interface GrnDetailLine {
     qtyPacks: number;
     /** What it put on the shelf, in stock units. */
     qtyBase: number;
+    expiryDate: string | null;
     /** Packs already sent back to the supplier against this line. */
     qtyPacksReturned: number;
+    /** Came on an order delivery but was never on the order. */
+    notOnOrder: boolean;
+}
+
+/**
+ * One order line as a delivery found it - a record of that day, which does not
+ * move when later deliveries come. Quantities in stock units.
+ */
+export interface GrnArrivalLine {
+    poLineId: string;
+    name: string;
+    isStockItem: boolean;
+    unit: string | null;
+    packName: string | null;
+    packSize: number | null;
+    qtyOrderedBase: number;
+    /** Still owed when the lorry arrived. */
+    qtyOwedBeforeBase: number;
+    qtyReceivedBase: number;
+    /** Sent back at the door, either outcome. */
+    qtyRefusedBase: number;
+    /** The part of the refusal settled by a credit note. */
+    qtyCreditedBase: number;
+    /** Came off the lorry beyond what was owed. */
+    qtyOverBase: number;
+    /** What this delivery left owing. */
+    qtyOwedAfterBase: number;
+}
+
+/** A product ordered by name that came on a delivery. Not stock. */
+export interface GrnOtherLine {
+    id: string;
+    name: string;
+    unit: string | null;
+    qty: number;
+}
+
+/** The order a delivery was against, as it stands now. */
+export interface GrnOrderSnapshot {
+    id: string;
+    status: string;
+    raisedAt: string;
+    raisedBy: string;
+    neededBy: string | null;
+    lines: {
+        id: string;
+        itemId: number | null;
+        name: string;
+        isStockItem: boolean;
+        unit: string | null;
+        packName: string | null;
+        qtyPacks: number | null;
+        qtyBase: number;
+        qtyReceivedBase: number;
+        qtyCreditedBase: number;
+        qtyOutstandingBase: number;
+        voided: boolean;
+        voidReason: string | null;
+    }[];
 }
 
 export interface GrnDetail {
@@ -377,6 +538,14 @@ export interface GrnDetail {
     poId: string | null;
     photoUrl: string | null;
     lines: GrnDetailLine[];
+    rejections: GrnRejection[];
+    needsReview: boolean;
+    reviewedBy: string | null;
+    reviewedAt: string | null;
+    otherLines: GrnOtherLine[];
+    /** The order line by line as this delivery found it. Empty if not ordered. */
+    atArrival: GrnArrivalLine[];
+    order: GrnOrderSnapshot | null;
 }
 
 // ── Issues ──────────────────────────────────────────────────────────────────
@@ -650,7 +819,8 @@ export interface WastageRow {
 }
 
 // ── Counts ──────────────────────────────────────────────────────────────────
-export type CountType = 'daily_critical' | 'weekly_full' | 'monthly_full';
+/** Weekly and monthly, both in full. There is no daily count. */
+export type CountType = 'weekly_full' | 'monthly_full';
 
 export interface CountLine {
     lineId: string;
@@ -769,7 +939,6 @@ export interface BelowReorderRow {
     reorderPoint: number;
     parLevel: number;
     shortfall: number;
-    isCritical: boolean;
 }
 
 export interface UsageTrendPoint {
@@ -827,7 +996,6 @@ export interface SetupItem {
     parLevel: number;
     reorderPoint: number;
     shelfLifeDays: number | null;
-    isCritical: boolean;
     isActive: boolean;
     /** Has moved, so the stock unit is frozen. */
     hasMoved: boolean;
@@ -842,6 +1010,8 @@ export interface SetupSupplier {
     paymentTerms: string | null;
     isActive: boolean;
     deliveries: number;
+    /** How many things they are on file as delivering. */
+    products: number;
 }
 
 export interface SectionKind {
@@ -969,6 +1139,67 @@ export interface DeadStockRow {
     qtyBase: number;
     lastMovedOn: string | null;
     daysSinceMoved: number | null;
+}
+
+/** One thing bought from one supplier in a week or month, in one pack. */
+export interface PurchaseListRow {
+    supplierId: number;
+    supplierName: string;
+    /** Null for a product ordered by name, which is not stock. */
+    itemId: number | null;
+    code: string | null;
+    name: string;
+    unit: string | null;
+    packName: string | null;
+    /** Packs kept (or the count, for a named product). */
+    qtyPacks: number;
+    qtyBase: number;
+    /** Packs refused at the door. */
+    qtyPacksSentBack: number;
+    deliveries: number;
+}
+
+export interface PurchaseListReport extends DateRange {
+    summary: {
+        deliveries: number;
+        suppliers: number;
+        lines: number;
+        deliveriesWithReturns: number;
+        ordersRaised: number;
+    };
+    rows: PurchaseListRow[];
+}
+
+/** One item one section asked the store for in a week or month. Stock units. */
+export interface SectionRequestRow {
+    sectionId: number;
+    sectionName: string;
+    itemId: number;
+    code: string;
+    name: string;
+    stockUnit: string;
+    requests: number;
+    qtyAsked: number;
+    qtySent: number;
+    qtyConfirmed: number;
+    qtyWaiting: number;
+    qtyShort: number;
+}
+
+export interface SectionRequestSummary {
+    sectionId: number;
+    sectionName: string;
+    requests: number;
+    waiting: number;
+    notConfirmed: number;
+    cancelled: number;
+    items: number;
+    itemsShort: number;
+}
+
+export interface SectionRequestReport extends DateRange {
+    sections: SectionRequestSummary[];
+    rows: SectionRequestRow[];
 }
 
 /** What one section drew from the store. */

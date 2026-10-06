@@ -125,3 +125,38 @@ describe('the operating reports', () => {
         expect(days).toBe(29);
     });
 });
+
+describe('the weekly and monthly lists', () => {
+    const RECENT = { from: '2026-09-01', to: '2026-10-31' };
+
+    it('purchase-list totals by supplier and item, with what was sent back', async () => {
+        const res = await app.inject({
+            method: 'GET',
+            url: `/api/v1/reports/purchase-list?from=${RECENT.from}&to=${RECENT.to}`,
+            headers
+        });
+        expect(res.statusCode, res.payload).toBe(200);
+        const body = res.json();
+        expect(body.summary.lines).toBe(body.rows.length);
+        for (const r of body.rows) {
+            expect(r.qtyPacks + r.qtyPacksSentBack).toBeGreaterThan(0);
+            if (r.itemId !== null) expect(r.packName).not.toBeNull();
+        }
+    });
+
+    it('section-requests answers per section, never sending more than was asked short', async () => {
+        const res = await app.inject({
+            method: 'GET',
+            url: `/api/v1/reports/section-requests?from=${RECENT.from}&to=${RECENT.to}`,
+            headers
+        });
+        expect(res.statusCode, res.payload).toBe(200);
+        const body = res.json();
+        for (const r of body.rows) {
+            expect(r.qtyConfirmed).toBeLessThanOrEqual(r.qtySent + 0.001);
+            expect(r.qtyShort).toBeGreaterThanOrEqual(0);
+        }
+        const total = body.sections.reduce((n: number, s: { items: number }) => n + s.items, 0);
+        expect(total).toBe(body.rows.length);
+    });
+});

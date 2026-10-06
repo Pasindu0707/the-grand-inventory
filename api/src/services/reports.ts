@@ -335,7 +335,6 @@ export interface BelowReorderRow {
     reorderPoint: number;
     parLevel: number;
     shortfall: number;
-    isCritical: boolean;
 }
 
 /** What needs ordering now. */
@@ -349,8 +348,7 @@ export async function belowReorder(locationId: number): Promise<BelowReorderRow[
           round(coalesce(cs.qty_base, 0), 3)  as "qtyBase",
           round(i.reorder_point, 3)           as "reorderPoint",
           round(i.par_level, 3)               as "parLevel",
-          round(i.par_level - coalesce(cs.qty_base, 0), 3) as shortfall,
-          i.is_critical                       as "isCritical"
+          round(i.par_level - coalesce(cs.qty_base, 0), 3) as shortfall
         from items i
         join sections s on s.location_id = ${locationId} and s.is_store
         left join current_stock cs

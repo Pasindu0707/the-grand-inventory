@@ -66,7 +66,9 @@ export async function openPurchaseOrders(
             coalesce(current_date - po.needed_by, 0)
           )::int                                         as "daysLate",
           (count(l.id) filter (
-            where l.qty_base > l.qty_received_base
+            -- Voided lines are not coming; see 0011.
+            where l.voided_at is null
+              and l.qty_base > l.qty_received_base + l.qty_credited_base
           ))::int                                        as "linesOutstanding"
         from purchase_orders po
         join users u on u.id = po.raised_by
@@ -221,7 +223,9 @@ export async function supplierPerformance(
               where po.closed_at is not null
             )                                           as avg_days
           from purchase_orders po
-          join purchase_order_lines l on l.po_id = po.id
+          -- Stock items only: a named product's quantity is in whatever unit
+          -- it was typed in, and it is never received against the order.
+          join purchase_order_lines l on l.po_id = po.id and l.item_id is not null
           where po.location_id = ${locationId}
             and po.supplier_id is not null
             and po.raised_at::date between ${range.from}::date and ${range.to}::date

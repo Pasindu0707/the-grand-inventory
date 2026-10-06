@@ -25,6 +25,10 @@ delete from supplier_returns    where is_demo;
 delete from section_returns     where is_demo;
 delete from wastage             where is_demo;
 delete from issue_lines         where is_demo;
+delete from grn_other_lines     where is_demo or grn_id in (select id from grn where is_demo);
+delete from grn_rejections      where is_demo or grn_id in (select id from grn where is_demo);
+update grn set reviewed_by = null where reviewed_by in (select id from users where is_demo) and not is_demo;
+update grn_rejections set credit_recorded_by = null where credit_recorded_by in (select id from users where is_demo);
 delete from grn_lines           where is_demo;
 delete from grn                 where is_demo;
 -- A GRN entered against a purchase order points at it, and the order points
@@ -36,6 +40,13 @@ delete from issues              where is_demo;
 delete from transfers           where is_demo;
 delete from recipe_lines        where is_demo;
 delete from products            where is_demo;
+-- What a supplier delivers points at both the supplier and the item, and
+-- anything somebody added by hand to a demo supplier goes with it.
+delete from supplier_items      where is_demo
+                                   or supplier_id in (select id from suppliers where is_demo)
+                                   or item_id in (select id from items where is_demo);
+update supplier_items set added_by = null
+ where added_by in (select id from users where is_demo);
 delete from item_packs          where is_demo;
 delete from items               where is_demo;
 delete from suppliers           where is_demo;

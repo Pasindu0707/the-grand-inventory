@@ -37,7 +37,6 @@ export async function stockRoutes(app: FastifyInstance) {
                             qtyBase: z.number(),
                             reorderPoint: z.number(),
                             parLevel: z.number(),
-                            isCritical: z.boolean(),
                             belowReorder: z.boolean(),
                         })
                     ),
@@ -59,7 +58,6 @@ export async function stockRoutes(app: FastifyInstance) {
                     'cs.qty_base as qtyBase',
                     'items.reorder_point as reorderPoint',
                     'items.par_level as parLevel',
-                    'items.is_critical as isCritical',
                 ])
                 .where('cs.location_id', '=', req.locationId)
                 .where('items.is_active', '=', true);
@@ -68,10 +66,10 @@ export async function stockRoutes(app: FastifyInstance) {
             // With none named, a role that owns particular sections sees those
             // and no more - the endpoint used to hand back the whole branch.
             if (req.query.sectionId) {
-                await assertSectionAllowed(req.user.role, req.locationId, req.query.sectionId);
+                await assertSectionAllowed(req.user, req.locationId, req.query.sectionId);
                 q = q.where('cs.section_id', '=', req.query.sectionId);
             } else {
-                const mine = await sectionsForUser(req.user.role, req.locationId);
+                const mine = await sectionsForUser(req.user, req.locationId);
                 q = q.where('cs.section_id', 'in', mine);
             }
 

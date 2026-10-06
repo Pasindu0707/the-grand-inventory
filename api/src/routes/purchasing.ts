@@ -8,8 +8,14 @@
  * sack of flour that is sitting in the store already, and the buying decision
  * starts from what the store really holds.
  *
+ * An order starts from the supplier: pick who it is going to, and what they
+ * deliver is what is offered (services/supplier-items.ts). Something not on
+ * their list can still go on the order, from the item master or typed in by
+ * name, and is remembered against them for next time.
+ *
  * Deciding one is management and only management: it is the single action in
- * this system that spends money.
+ * this system that spends money. So management's own orders are approved by
+ * being raised, and only the storekeeper's wait for a decision.
  *
  * Receiving is not here. A delivery against an order is entered as a GRN with
  * a `poId`, so there is one way for stock to arrive and one place that
@@ -24,15 +30,21 @@ import {
     closePurchaseOrderShort,
     decidePurchaseOrder,
     raisePurchaseOrder,
-    suggestedOrder
+    suggestedOrder,
+    voidPoLine
 } from '../services/purchasing.js';
 
 const dateStr = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Use YYYY-MM-DD');
 
 const poLine = z.object({
-    itemId: z.number(),
+    /** The order line, for ticking it off or voiding it. */
+    id: z.string(),
+    /** Null for a product ordered by name, which is not stock. */
+    itemId: z.number().nullable(),
     name: z.string(),
-    stockUnit: z.string(),
+    /** The item's stock unit, or what a named product is counted in. */
+    stockUnit: z.string().nullable(),
+    isStockItem: z.boolean(),
     qtyBase: z.number(),
     /** What was in the store when it was raised. */
     qtyInStore: z.number(),
@@ -40,8 +52,14 @@ const poLine = z.object({
     packName: z.string().nullable(),
     qtyPacks: z.number().nullable(),
     qtyReceivedBase: z.number(),
-    /** Still to come. Zero once the line is fully delivered. */
-    qtyOutstandingBase: z.number()
+    /** Refused at the door and settled by credit note: not coming. */
+    qtyCreditedBase: z.number(),
+    /** Still to come. Zero once the line is fully delivered, or voided. */
+    qtyOutstandingBase: z.number(),
+    /** Management took the undelivered balance off the order. */
+    voided: z.boolean(),
+    voidReason: z.string().nullable(),
+    voidedBy: z.string().nullable()
 });
 
 const purchaseOrder = z.object({
@@ -74,35 +92,53 @@ export async function purchasingRoutes(app: FastifyInstance) {
             schema: {
                 body: z.object({
                     issueId: z.string().nullish(),
-                    supplierId: z.number().int().positive().nullish(),
+                    // Required: an order is placed with somebody.
+                    supplierId: z.number().int().positive(),
                     neededBy: dateStr.nullish(),
                     reason: z.string().max(500).nullish(),
                     lines: z
                         .array(
-                            z.object({
-                                // Packs, not stock units: what you say to a
-                                // supplier, and what comes back on the invoice.
-                                itemPackId: z.number().int().positive(),
-                                qtyPacks: z.number().positive().max(100_000)
-                            })
+                            z.union([
+                                z.object({
+                                    // Packs, not stock units: what you say to a
+                                    // supplier, and what comes back on the invoice.
+                                    itemPackId: z.number().int().positive(),
+                                    qtyPacks: z.number().positive().max(100_000)
+                                }),
+                                z.object({
+                                    // A product the item master does not have.
+                                    name: z.string().trim().min(2).max(120),
+                                    unit: z.string().trim().max(30).nullish(),
+                                    qty: z.number().positive().max(100_000)
+                                })
+                            ])
                         )
                         .min(1)
+                        .max(200)
                 }),
-                response: { 201: z.object({ id: z.string() }) }
+                response: {
+                    201: z.object({
+                        id: z.string(),
+                        /** "approved" when management raised it, else "requested". */
+                        status: z.string()
+                    })
+                }
             }
         },
         async (req, reply) => {
             const result = await raisePurchaseOrder({
                 locationId: req.locationId,
                 raisedBy: req.user.sub,
+                raisedByRole: req.user.role,
                 issueId: req.body.issueId ?? null,
-                supplierId: req.body.supplierId ?? null,
+                supplierId: req.body.supplierId,
                 neededBy: req.body.neededBy ?? null,
                 reason: req.body.reason ?? null,
-                lines: req.body.lines.map((l) => ({
-                    itemPackId: l.itemPackId,
-                    qtyPacks: l.qtyPacks
-                }))
+                lines: req.body.lines.map((l) =>
+                    'itemPackId' in l
+                        ? { itemPackId: l.itemPackId, qtyPacks: l.qtyPacks }
+                        : { name: l.name, unit: l.unit ?? null, qty: l.qty }
+                )
             });
             return reply.status(201).send(result);
         }
@@ -163,6 +199,24 @@ export async function purchasingRoutes(app: FastifyInstance) {
     );
 
     /**
+     * One item is not coming. Takes it off the order with a reason, and closes
+     * the order if nothing else is outstanding.
+     */
+    r.post(
+        '/purchase-orders/:id/lines/:lineId/void',
+        {
+            preHandler: app.requireRole('management'),
+            schema: {
+                params: z.object({ id: z.string(), lineId: z.string() }),
+                body: z.object({ reason: z.string().trim().min(3).max(300) }),
+                response: { 200: z.object({ orderComplete: z.boolean() }) }
+            }
+        },
+        async (req) =>
+            voidPoLine(req.params.id, req.params.lineId, req.locationId, req.user.sub, req.body.reason)
+    );
+
+    /**
      * What the store should be ordering, off the reorder points in the item
      * master. The point of this screen is that nobody has to have gone short
      * first.
@@ -215,7 +269,9 @@ export async function purchasingRoutes(app: FastifyInstance) {
                      * are raised standalone rather than from a short request, so
                      * there is nothing to reach a section through.
                      */
-                    mine: z.coerce.boolean().optional()
+                    mine: z.coerce.boolean().optional(),
+                    /** A supplier's name, or an order number. */
+                    search: z.string().trim().max(64).optional()
                 }),
                 response: { 200: pageOf(purchaseOrder) }
             }
@@ -243,8 +299,30 @@ export async function purchasingRoutes(app: FastifyInstance) {
 
             let countQ = db
                 .selectFrom('purchase_orders as po')
+                .leftJoin('suppliers as s', 's.id', 'po.supplier_id')
                 .select(({ fn }) => fn.countAll().as('total'))
                 .where('po.location_id', '=', req.locationId);
+
+            // "14" finds order 14; anything else is matched against the
+            // supplier's name. Applied to the count too, or the pager would
+            // describe a different list from the one under it.
+            const search = req.query.search;
+            if (search) {
+                const byName = `%${search}%`;
+                const asId = /^\d+$/.test(search) ? search : null;
+                q = q.where((eb) =>
+                    eb.or([
+                        eb('s.name', 'ilike', byName),
+                        ...(asId ? [eb('po.id', '=', asId)] : [])
+                    ])
+                );
+                countQ = countQ.where((eb) =>
+                    eb.or([
+                        eb('s.name', 'ilike', byName),
+                        ...(asId ? [eb('po.id', '=', asId)] : [])
+                    ])
+                );
+            }
 
             if (req.query.status) {
                 q = q.where('po.status', '=', req.query.status);
@@ -269,19 +347,27 @@ export async function purchasingRoutes(app: FastifyInstance) {
 
             const lines = await db
                 .selectFrom('purchase_order_lines as l')
-                .innerJoin('items', 'items.id', 'l.item_id')
+                .leftJoin('items', 'items.id', 'l.item_id')
                 .leftJoin('item_packs as p', 'p.id', 'l.item_pack_id')
+                .leftJoin('users as voider', 'voider.id', 'l.voided_by')
                 .select([
+                    'l.id',
                     'l.po_id',
-                    'items.id as itemId',
-                    'items.name',
-                    'items.stock_unit as stockUnit',
+                    'l.voided_at',
+                    'l.void_reason',
+                    'voider.name as voidedBy',
+                    'l.item_id as itemId',
+                    'items.name as itemName',
+                    'items.stock_unit as itemUnit',
+                    'l.description',
+                    'l.unit',
                     'l.qty_base as qtyBase',
                     'l.qty_in_store as qtyInStore',
                     'l.item_pack_id as itemPackId',
                     'p.pack_name as packName',
                     'l.qty_packs as qtyPacks',
-                    'l.qty_received_base as qtyReceivedBase'
+                    'l.qty_received_base as qtyReceivedBase',
+                    'l.qty_credited_base as qtyCreditedBase'
                 ])
                 .where(
                     'l.po_id',
@@ -303,17 +389,28 @@ export async function purchasingRoutes(app: FastifyInstance) {
                 const mine = (byPo.get(String(o.id)) ?? []).map((l) => {
                     const qtyBase = Number(l.qtyBase);
                     const received = Number(l.qtyReceivedBase);
+                    const credited = Number(l.qtyCreditedBase);
+                    const isStockItem = l.itemId !== null;
+                    const voided = l.voided_at !== null;
                     return {
+                        id: String(l.id),
                         itemId: l.itemId,
-                        name: l.name,
-                        stockUnit: l.stockUnit,
+                        name: (l.itemName ?? l.description)!,
+                        stockUnit: isStockItem ? l.itemUnit : l.unit,
+                        isStockItem,
                         qtyBase,
                         qtyInStore: Number(l.qtyInStore),
                         itemPackId: l.itemPackId,
                         packName: l.packName,
                         qtyPacks: l.qtyPacks === null ? null : Number(l.qtyPacks),
                         qtyReceivedBase: received,
-                        qtyOutstandingBase: Math.max(0, Math.round((qtyBase - received) * 1000) / 1000)
+                        qtyOutstandingBase: voided
+                            ? 0
+                            : Math.max(0, Math.round((qtyBase - received - credited) * 1000) / 1000),
+                        qtyCreditedBase: credited,
+                        voided,
+                        voidReason: l.void_reason,
+                        voidedBy: l.voidedBy
                     };
                 });
 

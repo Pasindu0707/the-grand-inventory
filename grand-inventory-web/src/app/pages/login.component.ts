@@ -1,9 +1,11 @@
 /**
  * Sign in on a shared device.
  *
- * Pick the outlet, tap your name, key in a PIN. Nobody types an email address
- * on a wet tablet in a store room with a delivery waiting, which is why the
- * schema stores a PIN and not a password.
+ * The branch comes from the link - /login/gb, /login/esp - so nobody standing
+ * in the Gastrobar is ever asked where they are. Pick where you work, tap your
+ * name, key in a PIN. Nobody types an email address on a wet tablet in a store
+ * room with a delivery waiting, which is why the schema stores a PIN and not a
+ * password.
  *
  * Three steps down one column rather than a form: on a shared tablet the
  * question is never "what are your credentials", it is "which of these five
@@ -11,19 +13,54 @@
  */
 import { Component, HostListener, computed, inject, signal, OnInit } from '@angular/core';
 import { CommonModule } from '@angular/common';
-import { Router } from '@angular/router';
+import { ActivatedRoute, Router } from '@angular/router';
 import { ButtonModule } from 'primeng/button';
 import { AuthStore } from '@/core/auth.store';
 import { GrandService } from '@/core/grand.service';
 import { NotifyService } from '@/core/notify.service';
 import { apiErrorMessage } from '@/core/api';
-import { ROLE_LABELS, type LocationRef, type Role } from '@/core/types';
+import { ROLE_LABELS, type BootstrapResponse, type LocationRef, type Role } from '@/core/types';
 
 interface Tile {
     id: number;
     name: string;
     role: Role;
     locationId: number | null;
+    sectionId: number | null;
+}
+
+/**
+ * One way in: a section people work in, or a role that runs the whole branch.
+ *
+ * Kitchens and cleaning are doors by section, because the hot kitchen and the
+ * pastry kitchen are different shelves with different people. Management, the
+ * storekeeper and the admin stand at no one shelf, so their door is the role.
+ */
+interface Door {
+    key: string;
+    label: string;
+    hint: string;
+    people: Tile[];
+}
+
+/** Where the last branch this device signed in at is kept, for bare /login. */
+const BRANCH_KEY = 'grand.branch';
+
+function rememberedBranch(): string | null {
+    try {
+        return localStorage.getItem(BRANCH_KEY);
+    } catch {
+        return null;
+    }
+}
+
+function rememberBranch(code: string): void {
+    try {
+        localStorage.setItem(BRANCH_KEY, code);
+    } catch {
+        // Private mode or blocked storage: the link still works, it just will
+        // not be offered back on a bare /login.
+    }
 }
 
 @Component({
@@ -280,7 +317,7 @@ interface Tile {
                     <span class="signin__mark" aria-hidden="true"></span>
                     <div>
                         <div class="signin__wordmark">The Grand</div>
-                        <div class="signin__kicker">Inventory</div>
+                        <div class="signin__kicker">{{ branch()?.name ?? 'Inventory' }}</div>
                     </div>
                 </div>
 
@@ -298,11 +335,11 @@ interface Tile {
 
                 <div class="signin__foot">
                     <div>
-                        <b>{{ locations().length || '-' }}</b>
-                        Outlets
+                        <b>{{ doors().length || '-' }}</b>
+                        Ways in
                     </div>
                     <div>
-                        <b>{{ allUsersCount() || '-' }}</b>
+                        <b>{{ peopleHere() || '-' }}</b>
                         People
                     </div>
                 </div>
@@ -311,15 +348,32 @@ interface Tile {
             <!-- ── The sign-in half ──────────────────────────────────────── -->
             <main class="signin__pane">
                 <div class="signin__form">
-                    <!-- Step 1: which outlet -->
-                    @if (step() === 'location') {
+                    <!-- No branch in the link, and none remembered on this device -->
+                    @if (step() === 'nobranch') {
+                        <h2 class="step__q">Use your branch's link</h2>
+                        <p class="roster__meta mt-2">
+                            Each branch signs in from its own address. Ask your manager for the
+                            link for your branch, and keep it as a bookmark on this device.
+                        </p>
+                        @if (unknownBranch()) {
+                            <div class="app-note app-note--warn mt-4">
+                                <div class="app-note__title">No branch called "{{ unknownBranch() }}"</div>
+                                <p class="mt-1">
+                                    The link may be mistyped, or the branch has been switched off.
+                                </p>
+                            </div>
+                        }
+                    }
+
+                    <!-- Step 1: where do you work -->
+                    @if (step() === 'door') {
                         <div class="step">Step 1 of 3</div>
-                        <h2 class="step__q">Where are you?</h2>
+                        <h2 class="step__q">Where do you work?</h2>
 
                         @if (loading()) {
                             <div class="empty">
                                 <div class="empty__rule"></div>
-                                <div class="empty__body">Fetching the outlets</div>
+                                <div class="empty__body">Fetching the sections</div>
                             </div>
                         } @else if (loadError()) {
                             <div class="app-note app-note--error mt-4">
@@ -335,14 +389,16 @@ interface Tile {
                             </div>
                         } @else {
                             <div class="roster">
-                                @for (loc of locations(); track loc.id) {
+                                @for (door of doors(); track door.key) {
                                     <button
                                         type="button"
                                         class="roster__row"
-                                        (click)="pickLocation(loc)"
+                                        (click)="pickDoor(door)"
                                     >
-                                        <span class="stamp__code">{{ loc.code }}</span>
-                                        <span class="roster__name">{{ loc.name }}</span>
+                                        <span class="min-w-0">
+                                            <span class="roster__name block">{{ door.label }}</span>
+                                            <span class="roster__meta">{{ door.hint }}</span>
+                                        </span>
                                         <i class="pi pi-angle-right roster__chevron"></i>
                                     </button>
                                 }
@@ -359,8 +415,8 @@ interface Tile {
                                 pButton
                                 text
                                 size="small"
-                                label="Change outlet"
-                                (click)="step.set('location')"
+                                [label]="'Not ' + selectedDoor()?.label"
+                                (click)="step.set('door')"
                             ></button>
                         </div>
 
@@ -368,9 +424,8 @@ interface Tile {
                             <div class="app-note app-note--warn mt-4">
                                 <div class="app-note__title">No logins here yet</div>
                                 <p class="mt-1">
-                                    Nobody has been given a login at
-                                    {{ selectedLocation()?.name }}. An admin adds people under
-                                    Logins.
+                                    Nobody has been given a login for {{ selectedDoor()?.label }}
+                                    at {{ branch()?.name }}. An admin adds people under Logins.
                                 </p>
                             </div>
                         } @else {
@@ -408,7 +463,9 @@ interface Tile {
                             }}</span>
                             <div class="min-w-0">
                                 <div class="roster__name truncate">{{ selectedUser()!.name }}</div>
-                                <div class="roster__meta">{{ selectedLocation()?.name }}</div>
+                                <div class="roster__meta">
+                                    {{ selectedDoor()?.label }} · {{ branch()?.name }}
+                                </div>
                             </div>
                         </div>
 
@@ -471,45 +528,123 @@ export class LoginComponent implements OnInit {
     private api = inject(GrandService);
     private auth = inject(AuthStore);
     private router = inject(Router);
+    private route = inject(ActivatedRoute);
     private notify = inject(NotifyService);
 
     readonly digits = ['1', '2', '3', '4', '5', '6', '7', '8', '9'];
 
-    readonly step = signal<'location' | 'user' | 'pin'>('location');
+    readonly step = signal<'nobranch' | 'door' | 'user' | 'pin'>('door');
     readonly loading = signal(false);
     readonly loadError = signal<string | null>(null);
     readonly submitting = signal(false);
     readonly error = signal<string | null>(null);
     readonly pin = signal('');
 
-    readonly locations = signal<LocationRef[]>([]);
+    /** The code from the link that matched no active branch, to say so. */
+    readonly unknownBranch = signal<string | null>(null);
+    readonly branch = signal<LocationRef | null>(null);
+    private sections = signal<BootstrapResponse['sections']>([]);
     private allUsers = signal<Tile[]>([]);
-    readonly selectedLocation = signal<LocationRef | null>(null);
+    readonly selectedDoor = signal<Door | null>(null);
     readonly selectedUser = signal<Tile | null>(null);
 
-    readonly allUsersCount = computed(() => this.allUsers().length);
-
-    /** Outlet staff plus group-wide roles, who can sign in anywhere. */
-    readonly usersHere = computed(() => {
-        const locId = this.selectedLocation()?.id;
+    /** Branch staff plus group-wide roles, who can sign in anywhere. */
+    private branchUsers = computed(() => {
+        const locId = this.branch()?.id;
         return this.allUsers().filter((u) => u.locationId === locId || u.locationId === null);
     });
+
+    readonly peopleHere = computed(() => this.branchUsers().length);
+
+    /**
+     * Sections first, kitchens before cleaning and by name within a kind, then
+     * the three roles that run the branch.
+     *
+     * A kitchen or cleaning login nobody has placed in a section yet shows
+     * behind every door of its kind rather than behind none: locking someone
+     * out of the morning's request because setup is unfinished helps nobody.
+     */
+    readonly doors = computed<Door[]>(() => {
+        const locId = this.branch()?.id;
+        const people = this.branchUsers();
+        const kindRole: Record<string, Role> = { KITCHEN: 'kitchen', CLEAN: 'cleaning' };
+        const kindOrder = ['KITCHEN', 'CLEAN'];
+
+        const sectionDoors = this.sections()
+            .filter((s) => s.locationId === locId && kindRole[s.kind])
+            // Front of house before the kitchens behind it: Restaurant, then
+            // Hot Kitchen and Pastry Kitchen, which is the way people walk in.
+            .sort(
+                (a, b) =>
+                    kindOrder.indexOf(a.kind) - kindOrder.indexOf(b.kind) ||
+                    Number(/kitchen/i.test(a.name)) - Number(/kitchen/i.test(b.name)) ||
+                    a.name.localeCompare(b.name)
+            )
+            .map((s) =>
+                this.door(
+                    `s${s.id}`,
+                    s.name,
+                    people.filter(
+                        (u) =>
+                            u.role === kindRole[s.kind] &&
+                            (u.sectionId === s.id || u.sectionId === null)
+                    )
+                )
+            );
+
+        const roleDoors = (
+            [
+                ['management', 'Main'],
+                ['storekeeper', 'Storekeeper'],
+                ['admin', 'Admin']
+            ] as const
+        ).map(([role, label]) =>
+            this.door(
+                role,
+                label,
+                people.filter((u) => u.role === role)
+            )
+        );
+
+        return [...sectionDoors, ...roleDoors];
+    });
+
+    readonly usersHere = computed(() => this.selectedDoor()?.people ?? []);
 
     /** The dots are decorative; this is what a screen reader gets instead. */
     readonly pinLabel = computed(() => `${this.pin().length} of 4 digits entered`);
 
     ngOnInit(): void {
+        // Bare /login - after signing out, or an expired session - goes back to
+        // the branch this device last used, so the tablet stays its branch's.
+        if (!this.route.snapshot.paramMap.get('branch')) {
+            const last = rememberedBranch();
+            if (last) {
+                void this.router.navigate(['/login', last], { replaceUrl: true });
+                return;
+            }
+            this.step.set('nobranch');
+            return;
+        }
         void this.loadBootstrap();
     }
 
     async loadBootstrap(): Promise<void> {
+        const code = (this.route.snapshot.paramMap.get('branch') ?? '').toLowerCase();
         this.loading.set(true);
         this.loadError.set(null);
         try {
             const data = await this.api.bootstrap();
-            this.locations.set(data.locations);
+            const branch = data.locations.find((l) => l.code.toLowerCase() === code);
+            if (!branch) {
+                this.unknownBranch.set(code);
+                this.step.set('nobranch');
+                return;
+            }
+            rememberBranch(code);
+            this.branch.set(branch);
+            this.sections.set(data.sections);
             this.allUsers.set(data.users);
-            if (data.locations.length === 1) this.pickLocation(data.locations[0]);
         } catch (err) {
             this.loadError.set(apiErrorMessage(err));
         } finally {
@@ -517,9 +652,16 @@ export class LoginComponent implements OnInit {
         }
     }
 
-    pickLocation(loc: LocationRef): void {
-        this.selectedLocation.set(loc);
+    pickDoor(door: Door): void {
+        this.selectedDoor.set(door);
         this.step.set('user');
+    }
+
+    private door(key: string, label: string, people: Tile[]): Door {
+        const n = people.length;
+        const hint =
+            n === 0 ? 'No logins yet' : n === 1 ? people[0].name : `${n} people`;
+        return { key, label, hint, people };
     }
 
     pickUser(user: Tile): void {
@@ -588,7 +730,7 @@ export class LoginComponent implements OnInit {
 
     private async submit(): Promise<void> {
         const user = this.selectedUser();
-        const loc = this.selectedLocation();
+        const loc = this.branch();
         if (!user || !loc) return;
 
         this.submitting.set(true);

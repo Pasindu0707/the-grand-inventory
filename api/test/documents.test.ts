@@ -112,7 +112,7 @@ describe('the cleaning store keeps its own shelf', () => {
             method: 'POST',
             url: '/api/v1/counts/open',
             headers: ch,
-            payload: { sectionId: clean, countType: 'daily_critical' }
+            payload: { sectionId: clean, countType: 'weekly_full' }
         });
         expect(opened.statusCode).toBe(201);
 
@@ -130,7 +130,7 @@ describe('the cleaning store keeps its own shelf', () => {
             method: 'POST',
             url: '/api/v1/counts/open',
             headers: ch,
-            payload: { sectionId: kitchenId, countType: 'daily_critical' }
+            payload: { sectionId: kitchenId, countType: 'weekly_full' }
         });
         expect(res.statusCode).toBe(403);
     });
@@ -142,7 +142,7 @@ describe('the cleaning store keeps its own shelf', () => {
             method: 'POST',
             url: '/api/v1/counts/open',
             headers: ch,
-            payload: { sectionId: clean, countType: 'daily_critical' }
+            payload: { sectionId: clean, countType: 'weekly_full' }
         });
         await app.inject({
             method: 'POST',
@@ -204,7 +204,7 @@ describe('section boundaries', () => {
                 method: 'POST',
                 url: '/api/v1/counts/open',
                 headers: kh,
-                payload: { sectionId: clean, countType: 'daily_critical' }
+                payload: { sectionId: clean, countType: 'weekly_full' }
             }),
             app.inject({ method: 'GET', url: `/api/v1/stock?sectionId=${clean}`, headers: kh }),
             app.inject({ method: 'GET', url: `/api/v1/wastage?sectionId=${clean}`, headers: kh }),
@@ -346,7 +346,7 @@ describe('stock counts', () => {
             method: 'POST',
             url: '/api/v1/counts/open',
             headers,
-            payload: { sectionId: storeId, countType: 'daily_critical' }
+            payload: { sectionId: storeId, countType: 'weekly_full' }
         });
         expect(open.statusCode).toBe(201);
 
@@ -370,7 +370,7 @@ describe('stock counts', () => {
             method: 'POST',
             url: '/api/v1/counts/open',
             headers,
-            payload: { sectionId: kitchenId, countType: 'daily_critical' }
+            payload: { sectionId: kitchenId, countType: 'weekly_full' }
         });
         const countId = open.json().id;
         const lines = open.json().lines as {
@@ -380,8 +380,9 @@ describe('stock counts', () => {
         }[];
 
         // One item is 25 units short on the shelf: the signature of shrinkage.
-        const target = lines[0];
+        // A full count includes lines that ran out, so pick one with stock on it.
         const shortBy = 25;
+        const target = lines.find((l) => l.qtyExpected >= shortBy) ?? lines[0];
 
         await app.inject({
             method: 'PUT',
@@ -493,12 +494,12 @@ describe('stock counts', () => {
         expect(adj[0]!.item_id).toBe(target!.itemId);
     });
 
-    it('scopes the daily count to what the section actually holds', async () => {
+    it('scopes a count to what the section actually holds', async () => {
         const open = await app.inject({
             method: 'POST',
             url: '/api/v1/counts/open',
             headers,
-            payload: { sectionId: await sectionId('KITCHEN'), countType: 'daily_critical' }
+            payload: { sectionId: await sectionId('KITCHEN'), countType: 'weekly_full' }
         });
         expect(open.statusCode).toBe(201);
 
@@ -510,10 +511,19 @@ describe('stock counts', () => {
             .execute();
         const heldIds = new Set(held.map((r) => r.item_id));
 
-        // Nothing the kitchen has never stocked. It used to be handed all
-        // thirty-two critical items in the group.
+        // Nothing the kitchen has never stocked.
         expect(lines.length).toBeGreaterThan(0);
         expect(lines.every((l) => heldIds.has(l.itemId))).toBe(true);
+    });
+
+    it('has no daily count to open', async () => {
+        const open = await app.inject({
+            method: 'POST',
+            url: '/api/v1/counts/open',
+            headers,
+            payload: { sectionId: await sectionId('KITCHEN'), countType: 'daily_critical' }
+        });
+        expect(open.statusCode).toBe(400);
     });
 
     it('will not close the same count twice', async () => {
@@ -521,7 +531,7 @@ describe('stock counts', () => {
             method: 'POST',
             url: '/api/v1/counts/open',
             headers,
-            payload: { sectionId: await sectionId('KITCHEN'), countType: 'daily_critical' }
+            payload: { sectionId: await sectionId('KITCHEN'), countType: 'weekly_full' }
         });
         const countId = open.json().id;
 
@@ -537,7 +547,7 @@ describe('stock counts', () => {
             method: 'POST',
             url: '/api/v1/counts/open',
             headers,
-            payload: { sectionId: await sectionId('CLEAN'), countType: 'daily_critical' }
+            payload: { sectionId: await sectionId('CLEAN'), countType: 'weekly_full' }
         });
         const countId = open.json().id;
         await app.inject({ method: 'POST', url: `/api/v1/counts/${countId}/close`, headers });

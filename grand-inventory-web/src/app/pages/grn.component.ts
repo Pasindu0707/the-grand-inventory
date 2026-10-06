@@ -1,56 +1,38 @@
 /**
- * Goods received note - one question at a time.
+ * Receive delivery - tick off what came off the lorry.
  *
- * Two rules from the build notes are load-bearing in this form:
+ * The screen opens on what is expected: every approved order, grouped by
+ * supplier, because that is how a morning of deliveries arrives - "three
+ * deliveries, two suppliers". Pick the one at the door and it becomes a
+ * checklist of what is still to come on it. Tick what is there; a tick fills in
+ * the outstanding amount, which can be changed when only part of it came.
+ * Anything not ticked stays open on the order until it turns up, or until
+ * management voids it with a reason.
  *
- *  - The user enters **packs**. "2 × 20 L can", never "40000". The stock-unit
- *    equivalent is shown read-only beside it so the storekeeper can sanity
- *    check the conversion, but it is never an input.
- *  - The Idempotency-Key is minted once when the form opens. Tapping Save twice
- *    on a stalled connection replays the first request instead of receiving the
- *    same delivery twice.
+ * Two rules from the build notes still hold:
  *
- * **Why it is a sequence.** This screen used to show everything at once: an
- * order list, a supplier block, a line grid and a save button, all live
- * together, with a blank line already sitting under a list the storekeeper had
- * not answered yet. Two panels both looked like the place to start, the
- * supplier could be filled in before anyone had said what the delivery was
- * against, and nothing said how far through you were. It is four questions in
- * a fixed order and now reads as four questions in a fixed order:
+ *  - Quantities are **packs** - "2 × 20 L can", never "40000". The stock-unit
+ *    figure is shown beside it so a wrong pack is obvious, but never typed.
+ *  - The Idempotency-Key is minted once per delivery. Tapping Save twice on a
+ *    stalled connection replays the first request instead of receiving the
+ *    same goods twice.
  *
- *   1. Which order?   2. Who delivered it?   3. What came off the lorry?
- *   4. Check it and save.
+ * After saving, the delivery is read back from the server - what came, and
+ * what is still outstanding on the order - with a button to print it.
  *
- * Going back is a button on the step header, because changing an answer is
- * ordinary. Going forward needs the current answer to be complete, and the
- * button says what is missing rather than sitting there greyed and silent.
+ * Something that arrives with no order behind it is still received here, as a
+ * checklist with nothing on it and a supplier to choose.
  *
- * Orders management has not approved yet are listed but greyed and inert. The
- * server refuses a delivery against them, so a row that looked pickable would
- * only ever be a dead end; showing them anyway answers the question the
- * storekeeper actually has, which is "where is my order" and not "why is this
- * list short".
+ * **More than is owed is allowed, but said out loud.** A line where more came
+ * off the lorry than the order still owes - or an item added that the order
+ * does not still ask for - is received (it is physically here), warned about
+ * on the spot, and sends the delivery to management. That is where a box
+ * already settled by a credit note, sent again, gets caught.
  *
- * **What happens after Save.** Either the whole delivery is written or none of
- * it is - the document rows and the ledger rows go in one transaction, so there
- * is no state where a delivery half-exists. On success the screen stays put and
- * shows what was recorded: the document number, the line count, and what each line
- * left on the shelf, read back out of the ledger. It used to navigate away to
- * the stock list, which is alphabetical and shows every product in the branch -
- * so the one question the storekeeper has at that moment ("did that go in?")
- * was answered by making them search for it.
- *
- * On failure nothing is written, the reason is shown next to the button that
- * was pressed, and the form is left exactly as it was so it can be corrected
- * and sent again. The Idempotency-Key is the same on that retry, so a failure
- * that was actually a lost response - the server wrote it, the reply never
- * arrived - replays the first result instead of receiving the goods twice.
- *
- * Manual entry stays. Plenty arrives that nobody raised an order for.
- *
- * There is deliberately no separate "receive" screen -- one way for stock to
- * arrive means one place that converts packs into stock units, and that
- * conversion is the thing that must never have a second implementation.
+ * **Bad goods go back on the same lorry.** A ticked line can say "some are
+ * bad": how many, why, and whether the supplier owes a replacement or a credit
+ * note. Those packs never enter stock. A delivery with anything sent back, or
+ * with something still to come, goes to management as a delivery report.
  */
 import { Component, computed, inject, signal, OnInit } from '@angular/core';
 import { CommonModule } from '@angular/common';
@@ -58,28 +40,67 @@ import { FormsModule } from '@angular/forms';
 import { ActivatedRoute, Router, RouterLink } from '@angular/router';
 import { ButtonModule } from 'primeng/button';
 import { InputTextModule } from 'primeng/inputtext';
-import { InputNumberModule } from 'primeng/inputnumber';
 import { TagModule } from 'primeng/tag';
 import { AuthStore } from '@/core/auth.store';
 import { GrandService } from '@/core/grand.service';
 import { NotifyService } from '@/core/notify.service';
 import { apiErrorMessage } from '@/core/api';
 import { formatQty } from '@/core/format';
+import { openPrint } from '@/core/print';
 import { uuid } from '@/core/uuid';
 import type {
-    GrnResult,
+    GrnDetail,
     Item,
     ItemPack,
     PurchaseOrder,
+    PurchaseOrderLine,
+    ReasonCode,
+    RejectionOutcome,
     Supplier
 } from '@/core/types';
 import { AppItemPicker } from '@/shared/item-picker.component';
-import { AppSteps, type Step } from '@/shared/steps.component';
 
-interface Draft {
+/** One line of the order, as a box to tick. */
+interface CheckRow {
+    lineId: string;
+    /** Null for a product ordered by name, which is not stock. */
+    itemId: number | null;
+    name: string;
+    code: string | null;
+    /** Stock unit for an item; what a named product is counted in. */
+    unit: string | null;
+    /** The pack it was ordered in. Null for a named product. */
+    packId: number | null;
+    packName: string | null;
+    packSize: number | null;
+    /** Still to come, in packs (or plain count for a named product). */
+    outstanding: number;
+    ticked: boolean;
+    /** How many came off the lorry, good and bad together. */
+    qty: number | null;
+    expiry: string;
+    /** Some of it is going straight back. */
+    bad: boolean;
+    badQty: number | null;
+    badReason: string;
+    badNote: string;
+    badOutcome: RejectionOutcome;
+}
+
+/** Something that came and is not on the order. */
+interface ExtraRow {
+    key: string;
     itemId: number | null;
     packId: number | null;
-    qtyPacks: number | null;
+    qty: number | null;
+    expiry: string;
+}
+
+/** A supplier's expected deliveries, for the list. */
+interface SupplierGroup {
+    supplierId: number | null;
+    supplierName: string;
+    orders: PurchaseOrder[];
 }
 
 @Component({
@@ -90,246 +111,222 @@ interface Draft {
         FormsModule,
         ButtonModule,
         InputTextModule,
-        InputNumberModule,
         TagModule,
         RouterLink,
-        AppItemPicker,
-        AppSteps
+        AppItemPicker
     ],
     template: `
         <div class="space-y-6">
-            <div>
-                <h1 class="text-2xl font-bold">Receive delivery</h1>
-                <p class="text-surface-500 text-sm">
-                    Something has arrived at the door. Four questions and it is on the shelf.
-                </p>
+            <div class="flex flex-wrap items-start justify-between gap-3">
+                <div>
+                    <h1 class="text-2xl font-bold">Receive delivery</h1>
+                    <p class="text-surface-500 text-sm">
+                        @if (mode() === 'list') {
+                            Pick the delivery at the door and tick off what came.
+                        } @else if (mode() === 'check') {
+                            Tick what is here. Anything not ticked stays open on the order.
+                        } @else {
+                            Saved. Print it for the file.
+                        }
+                    </p>
+                </div>
+                @if (mode() === 'check') {
+                    <button
+                        pButton
+                        text
+                        icon="pi pi-arrow-left"
+                        label="All deliveries"
+                        (click)="backToList()"></button>
+                }
             </div>
-
-            @if (!saved()) {
-                <app-steps
-                    [steps]="steps"
-                    [index]="stepIndex()"
-                    label="Receiving a delivery"
-                    (indexChange)="goBackTo($event)" />
-            }
 
             @if (error()) {
                 <div class="app-note app-note--error">
                     <div class="app-note__title">That did not save</div>
                     <p class="mt-1">{{ error() }}</p>
-                    <p class="mt-1">
-                        <strong>Nothing was recorded.</strong> The delivery is exactly as you
-                        left it - fix what the message says and press Save again.
-                    </p>
-                </div>
-            }
-
-            <!-- ── Saved ───────────────────────────────────────────────────
-                 The answer to "did that go in?", on the screen where it was
-                 asked. -->
-            @if (saved(); as done) {
-                <div
-                    class="rounded-2xl border border-surface bg-surface-0 dark:bg-surface-900 overflow-hidden">
-                    <div class="px-5 py-4 border-b border-surface flex flex-wrap items-start justify-between gap-3">
-                        <div>
-                            <div class="font-semibold text-lg">Delivery recorded</div>
-                            <p class="text-sm text-surface-500 mt-0.5">
-                                {{ supplierName() }}
-                                @if (invoiceNo()) {
-                                    · invoice {{ invoiceNo() }}
-                                }
-                                · delivery no.
-                                <span class="font-mono">{{ done.id }}</span>
-                                · business day {{ done.businessDate }}
-                            </p>
-                        </div>
-                        <div class="text-right">
-                            <div class="text-2xl font-bold">{{ done.lineCount }}</div>
-                            <div class="text-xs text-surface-500">line(s)</div>
-                        </div>
-                    </div>
-
-                    <ul class="divide-y divide-surface">
-                        @for (line of savedLines(); track line.itemId) {
-                            <li class="px-5 py-3 flex flex-wrap items-center justify-between gap-3">
-                                <div class="min-w-0">
-                                    <div class="font-medium">{{ line.name }}</div>
-                                    <div class="text-xs text-surface-500 mt-0.5">
-                                        {{ line.qtyPacks }} × {{ line.packName }} = {{ line.added }}
-                                        in
-                                    </div>
-                                </div>
-                                @if (line.onShelf !== null) {
-                                    <div class="text-right">
-                                        <div class="font-semibold">{{ line.onShelf }}</div>
-                                        <div class="text-xs text-surface-500">
-                                            on the shelf now
-                                        </div>
-                                    </div>
-                                }
-                            </li>
-                        }
-                    </ul>
-
-                    <div
-                        class="px-5 py-4 border-t border-surface flex flex-wrap items-center gap-3">
-                        <button
-                            pButton
-                            icon="pi pi-plus"
-                            label="Receive another delivery"
-                            (click)="startAnother()"></button>
-                        <a pButton outlined icon="pi pi-database" label="Stock on hand" routerLink="/stock"></a>
-                        @if (po()) {
-                            <a
-                                pButton
-                                outlined
-                                icon="pi pi-file-edit"
-                                label="Back to the order"
-                                routerLink="/purchases"></a>
-                        }
-                        <span class="text-sm text-surface-500">
-                            It is on the ledger now. A mistake is corrected with a reversal, not
-                            an edit - ask management.
-                        </span>
-                    </div>
-                </div>
-            }
-
-            <!-- ── 1. Which order? ─────────────────────────────────────────── -->
-            @if (!saved() && step() === 'order') {
-                <div
-                    class="rounded-2xl border border-surface bg-surface-0 dark:bg-surface-900 overflow-hidden">
-                    @if (loadingOrders()) {
-                        <p class="p-8 text-center text-surface-500">Loading orders…</p>
-                    } @else if (openOrders().length === 0) {
-                        <div class="p-8 text-center space-y-3">
-                            <p class="text-surface-500">
-                                Nothing is on order. That is normal - plenty arrives that nobody
-                                raised an order for.
-                            </p>
-                            <button
-                                pButton
-                                icon="pi pi-arrow-right"
-                                iconPos="right"
-                                label="Enter this delivery"
-                                (click)="enterManually()"></button>
-                        </div>
-                    } @else {
-                        <ul class="divide-y divide-surface">
-                            @for (order of openOrders(); track order.id) {
-                                <li
-                                    class="px-5 py-4 flex flex-wrap items-center justify-between gap-3"
-                                    [class.cursor-pointer]="receivable(order)"
-                                    [class.opacity-60]="!receivable(order)"
-                                    [class.cursor-not-allowed]="!receivable(order)"
-                                    [class.select-none]="!receivable(order)"
-                                    [attr.aria-disabled]="!receivable(order)"
-                                    (click)="choose(order)">
-                                    <div class="min-w-0">
-                                        <div
-                                            class="font-medium"
-                                            [class.text-surface-400]="!receivable(order)">
-                                            {{ order.supplierName || 'No supplier yet' }}
-                                        </div>
-                                        <div
-                                            class="text-sm mt-0.5"
-                                            [class.text-surface-400]="!receivable(order)">
-                                            {{ orderSummary(order) }}
-                                        </div>
-                                        <div
-                                            class="text-xs mt-0.5"
-                                            [class.text-surface-400]="!receivable(order)"
-                                            [class.text-surface-500]="receivable(order)">
-                                            raised by {{ order.raisedBy }} · {{ day(order.raisedAt) }}
-                                            @if (order.neededBy) {
-                                                · needed by {{ order.neededBy }}
-                                            }
-                                        </div>
-                                    </div>
-
-                                    <div class="flex items-center gap-2 shrink-0">
-                                        @if (order.partReceived) {
-                                            <p-tag severity="warn" value="Part delivered"></p-tag>
-                                        }
-                                        @if (receivable(order)) {
-                                            <p-tag
-                                                [severity]="order.status === 'ordered' ? 'info' : 'success'"
-                                                [value]="order.status === 'ordered' ? 'On order' : 'Approved'"></p-tag>
-                                            <button
-                                                pButton
-                                                size="small"
-                                                icon="pi pi-download"
-                                                label="This one"
-                                                (click)="choose(order); $event.stopPropagation()"></button>
-                                        } @else {
-                                            <!-- Greyed and inert on purpose: the
-                                                 server will not book a delivery
-                                                 against an order nobody has
-                                                 approved yet. -->
-                                            <p-tag severity="secondary" value="Waiting for approval"></p-tag>
-                                        }
-                                    </div>
-                                </li>
-                            }
-                        </ul>
-
-                        <div
-                            class="px-5 py-4 border-t border-surface flex flex-wrap items-center justify-between gap-3">
-                            <span class="text-sm text-surface-500">
-                                None of these? Nobody ordered it, or it is a top-up.
-                            </span>
-                            <button
-                                pButton
-                                outlined
-                                size="small"
-                                icon="pi pi-pencil"
-                                label="Nothing was ordered"
-                                (click)="enterManually()"></button>
-                        </div>
+                    @if (mode() === 'check') {
+                        <p class="mt-1">
+                            <strong>Nothing was recorded.</strong> Your ticks are still here - fix
+                            what the message says and press Save again.
+                        </p>
                     }
                 </div>
             }
 
-            <!-- ── 2. Who delivered it? ────────────────────────────────────── -->
-            @if (!saved() && step() === 'supplier') {
-                @if (po(); as order) {
-                    <div class="app-note">
-                        <div class="app-note__title">
-                            Against the purchase raised by {{ order.raisedBy }}
-                        </div>
-                        <p class="text-sm mt-1">
-                            The supplier comes from the order. A delivery from anybody else is its
-                            own delivery - go back a step and choose "nothing was ordered".
-                        </p>
+            <!-- ── Expected deliveries ─────────────────────────────────────── -->
+            @if (mode() === 'list') {
+                <div
+                    class="rounded-2xl border border-surface bg-surface-0 dark:bg-surface-900 px-5 py-4 flex flex-wrap items-center justify-between gap-3">
+                    <div>
+                        @if (loadingOrders()) {
+                            <span class="text-surface-500">Loading…</span>
+                        } @else {
+                            <div class="text-lg font-semibold">
+                                {{ expected().length }}
+                                {{ expected().length === 1 ? 'delivery' : 'deliveries' }} expected
+                            </div>
+                            <div class="text-sm text-surface-500">
+                                from {{ groups().length }}
+                                {{ groups().length === 1 ? 'supplier' : 'suppliers' }} · tap
+                                <strong>Receive</strong> when the lorry is at the door
+                            </div>
+                        }
+                    </div>
+                    <div class="flex flex-wrap gap-2">
+                        @if (expected().length > 0) {
+                            <button
+                                pButton
+                                outlined
+                                icon="pi pi-print"
+                                label="Print all checklists"
+                                (click)="printChecklist()"></button>
+                        }
+                        <button
+                            pButton
+                            text
+                            icon="pi pi-pencil"
+                            label="Something came that was not ordered"
+                            (click)="startManual()"></button>
+                    </div>
+                </div>
+
+                @if (!loadingOrders() && expected().length === 0) {
+                    <div
+                        class="rounded-2xl border border-surface bg-surface-0 dark:bg-surface-900 p-8 text-center text-surface-500">
+                        Nothing is on order right now.
                     </div>
                 }
 
-                <div
-                    class="rounded-2xl border border-surface bg-surface-0 dark:bg-surface-900 p-4 md:p-6 space-y-5">
-                    <div>
-                        <label class="block text-sm font-medium mb-1 app-req" for="grn-supplier">
-                            Who delivered it?
-                        </label>
-                        <select
-                            id="grn-supplier"
-                            class="w-full md:w-96 px-3 py-2.5 rounded-lg border border-surface bg-surface-0 dark:bg-surface-900"
-                            [disabled]="supplierLocked()"
-                            [ngModel]="supplierId()"
-                            (ngModelChange)="setSupplier(+$event)">
-                            <option [ngValue]="null">Choose a supplier…</option>
-                            @for (s of suppliers(); track s.id) {
-                                <option [ngValue]="s.id">{{ s.name }}</option>
+                @for (group of groups(); track group.supplierName) {
+                    <div
+                        class="rounded-2xl border border-surface bg-surface-0 dark:bg-surface-900 overflow-hidden">
+                        <div
+                            class="px-5 py-3 border-b border-surface bg-surface-50 dark:bg-surface-800 flex flex-wrap items-center justify-between gap-2">
+                            <div class="min-w-0">
+                                <div class="font-semibold">{{ group.supplierName }}</div>
+                                <div class="text-xs text-surface-500">
+                                    {{ group.orders.length }}
+                                    {{ group.orders.length === 1 ? 'delivery' : 'deliveries' }} expected
+                                    @if (phoneOf(group.supplierId); as phone) {
+                                        · {{ phone }}
+                                    }
+                                </div>
+                            </div>
+                            <button
+                                pButton
+                                size="small"
+                                text
+                                icon="pi pi-print"
+                                label="Print checklist"
+                                [attr.aria-label]="'Print the delivery checklist for ' + group.supplierName"
+                                (click)="printChecklist({ supplier: group.supplierId })"></button>
+                        </div>
+                        <ul class="divide-y divide-surface">
+                            @for (order of group.orders; track order.id) {
+                                <li
+                                    class="px-5 py-4 flex flex-wrap items-center justify-between gap-3 hover:bg-surface-50 dark:hover:bg-surface-800 cursor-pointer"
+                                    (click)="open(order)">
+                                        <div class="min-w-0">
+                                            <div class="font-medium">
+                                                Order no. <span class="font-mono">{{ order.id }}</span>
+                                                <span class="text-surface-500 font-normal">
+                                                    · {{ outstandingCount(order) }} of
+                                                    {{ order.lines.length }} still to come
+                                                </span>
+                                            </div>
+                                            <div class="text-sm text-surface-500 mt-0.5">
+                                                {{ orderSummary(order) }}
+                                            </div>
+                                            <div class="text-xs text-surface-500 mt-0.5">
+                                                raised {{ day(order.raisedAt) }} by {{ order.raisedBy }}
+                                                @if (order.neededBy) {
+                                                    · needed by {{ order.neededBy }}
+                                                }
+                                            </div>
+                                        </div>
+                                        <div class="flex items-center gap-2 shrink-0">
+                                            @if (order.partReceived) {
+                                                <p-tag severity="warn" value="Part delivered"></p-tag>
+                                            }
+                                            <button
+                                                pButton
+                                                icon="pi pi-truck"
+                                                label="Receive"
+                                                [attr.aria-label]="'Receive order ' + order.id + ' from ' + order.supplierName"
+                                                (click)="open(order); $event.stopPropagation()"></button>
+                                        </div>
+                                </li>
                             }
-                        </select>
-                        @if (suppliers().length === 0) {
-                            <p class="text-xs text-surface-500 mt-1">
-                                No suppliers are set up yet. An admin adds them under
-                                <strong>Suppliers</strong>.
-                            </p>
-                        }
+                        </ul>
                     </div>
+                }
 
-                    <div class="grid grid-cols-1 md:grid-cols-2 gap-4 max-w-2xl">
+                @if (waiting().length > 0) {
+                    <!-- Shown so "where is my order" has an answer, but inert:
+                         the server will not book a delivery against an order
+                         nobody has approved. -->
+                    <div class="rounded-2xl border border-surface overflow-hidden opacity-70">
+                        <div class="px-5 py-3 border-b border-surface text-sm font-semibold text-surface-500">
+                            Waiting for management to approve
+                        </div>
+                        <ul class="divide-y divide-surface">
+                            @for (order of waiting(); track order.id) {
+                                <li class="px-5 py-3 text-sm flex flex-wrap justify-between gap-2">
+                                    <span>
+                                        {{ order.supplierName || 'No supplier yet' }} · order no.
+                                        <span class="font-mono">{{ order.id }}</span>
+                                    </span>
+                                    <span class="text-surface-500">{{ orderSummary(order) }}</span>
+                                </li>
+                            }
+                        </ul>
+                    </div>
+                }
+            }
+
+            <!-- ── The checklist ───────────────────────────────────────────── -->
+            @if (mode() === 'check') {
+                <div
+                    class="rounded-2xl border border-surface bg-surface-0 dark:bg-surface-900 p-4 md:p-5 space-y-4">
+                    @if (po(); as order) {
+                        <div class="flex flex-wrap items-start justify-between gap-3">
+                            <div>
+                                <div class="text-lg font-semibold">{{ order.supplierName }}</div>
+                                <div class="text-sm text-surface-500">
+                                    Order no. <span class="font-mono">{{ order.id }}</span> · raised
+                                    {{ day(order.raisedAt) }} by {{ order.raisedBy }}
+                                    @if (order.neededBy) {
+                                        · needed by {{ order.neededBy }}
+                                    }
+                                </div>
+                            </div>
+                            <button
+                                pButton
+                                size="small"
+                                outlined
+                                icon="pi pi-print"
+                                label="Print checklist"
+                                (click)="printChecklist({ po: order.id })"></button>
+                        </div>
+                    } @else {
+                        <div>
+                            <label class="block text-sm font-medium mb-1 app-req" for="grn-supplier">
+                                Who delivered it?
+                            </label>
+                            <select
+                                id="grn-supplier"
+                                class="w-full md:w-96 px-3 py-2.5 rounded-lg border border-surface bg-surface-0 dark:bg-surface-900"
+                                [ngModel]="supplierId()"
+                                (ngModelChange)="supplierId.set($event === null ? null : +$event)">
+                                <option [ngValue]="null">Choose a supplier…</option>
+                                @for (s of suppliers(); track s.id) {
+                                    <option [ngValue]="s.id">{{ s.name }}</option>
+                                }
+                            </select>
+                        </div>
+                    }
+
+                    <div class="grid grid-cols-1 sm:grid-cols-2 gap-3 max-w-2xl">
                         <div>
                             <label class="block text-sm font-medium mb-1" for="grn-invoice">
                                 Invoice number
@@ -350,198 +347,462 @@ interface Draft {
                             <input
                                 id="grn-invoice-date"
                                 type="date"
-                                class="w-full px-3 py-2 rounded-lg border border-surface bg-surface-0 dark:bg-surface-900"
+                                pInputText
+                                class="w-full"
                                 [ngModel]="invoiceDate()"
                                 (ngModelChange)="invoiceDate.set($event)" />
                         </div>
                     </div>
-
-                    <p class="text-sm text-surface-500">
-                        The invoice number is how this delivery is found again and matched to
-                        the paper. Leave it blank if the paperwork is coming separately.
-                    </p>
                 </div>
-            }
 
-            <!-- ── 3. What came off the lorry? ─────────────────────────────── -->
-            @if (!saved() && step() === 'lines') {
-                <div class="space-y-4">
-                    @if (po()) {
-                        <div class="app-note">
-                            These are what is still outstanding on the order. Change them to what
-                            actually arrived - anything short stays on the order.
-                        </div>
-                    }
-
-                    @for (line of lines(); track $index; let i = $index) {
-                        <div
-                            class="rounded-2xl border border-surface bg-surface-0 dark:bg-surface-900 p-4 md:p-5">
-                            <div class="flex items-start justify-between gap-3 mb-3">
-                                <span class="text-xs font-semibold text-surface-500">
-                                    Item {{ i + 1 }} of {{ lines().length }}
+                @if (po()) {
+                    <div
+                        class="rounded-2xl border border-surface bg-surface-0 dark:bg-surface-900 overflow-hidden">
+                        <div class="px-5 py-3 border-b border-surface flex flex-wrap items-center justify-between gap-2">
+                            <span class="font-semibold">
+                                On the order
+                                <span class="text-surface-500 font-normal text-sm">
+                                    · {{ tickedCount() }} of {{ checks().length }} ticked
                                 </span>
-                                @if (lines().length > 1) {
-                                    <button
-                                        pButton
-                                        text
-                                        size="small"
-                                        severity="danger"
-                                        icon="pi pi-trash"
-                                        [attr.aria-label]="'Remove item ' + (i + 1)"
-                                        (click)="removeLine(i)"></button>
-                                }
-                            </div>
-
-                            <div class="grid grid-cols-1 md:grid-cols-12 gap-4 items-start">
-                                <div class="md:col-span-6">
-                                    <app-item-picker
-                                        label="What is it?"
-                                        [required]="true"
-                                        [items]="items()"
-                                        [value]="line.itemId"
-                                        (valueChange)="setItem(i, $event)" />
-                                </div>
-
-                                <div class="md:col-span-4">
-                                    <label class="block text-sm font-medium mb-1 app-req">
-                                        In what pack?
-                                    </label>
-                                    <select
-                                        class="w-full px-3 py-2.5 rounded-lg border border-surface bg-surface-0 dark:bg-surface-900"
-                                        [ngModel]="line.packId"
-                                        (ngModelChange)="setPack(i, +$event)"
-                                        [disabled]="!line.itemId">
-                                        <option [ngValue]="null">Choose…</option>
-                                        @for (p of packsFor(line.itemId); track p.id) {
-                                            <option [ngValue]="p.id">{{ p.packName }}</option>
+                            </span>
+                            <button
+                                pButton
+                                size="small"
+                                [outlined]="!allTicked()"
+                                [text]="allTicked()"
+                                [icon]="allTicked() ? 'pi pi-times' : 'pi pi-check-square'"
+                                [label]="allTicked() ? 'Untick all' : 'Everything came - tick all'"
+                                (click)="tickAll(!allTicked())"></button>
+                        </div>
+                        <p class="px-5 pt-3 text-xs text-surface-500">
+                            Tick each item that came off the lorry. Change the number if fewer came.
+                            Anything not ticked stays on the order as still to come.
+                        </p>
+                        <ul class="divide-y divide-surface">
+                            @for (row of checks(); track row.lineId) {
+                                <li
+                                    class="px-5 py-3 space-y-2"
+                                    [class.bg-primary-50]="row.ticked"
+                                    [class.dark:bg-primary-950]="row.ticked">
+                                    <div class="flex items-center gap-3">
+                                        <input
+                                            type="checkbox"
+                                            class="w-6 h-6 shrink-0 accent-[var(--p-primary-color)]"
+                                            [id]="'chk-' + row.lineId"
+                                            [attr.aria-label]="'Arrived: ' + row.name"
+                                            [checked]="row.ticked"
+                                            (change)="tick(row.lineId, !row.ticked)" />
+                                        <label
+                                            [for]="'chk-' + row.lineId"
+                                            class="min-w-0 flex-1 cursor-pointer flex flex-wrap items-center justify-between gap-x-4 gap-y-1 py-1">
+                                            <span class="min-w-0">
+                                                <span class="block font-medium">{{ row.name }}</span>
+                                                <span class="block text-xs text-surface-500">
+                                                    @if (row.itemId === null) {
+                                                        not a stock item
+                                                    } @else {
+                                                        {{ row.code }}
+                                                    }
+                                                </span>
+                                            </span>
+                                            <span class="text-right">
+                                                <span class="block font-semibold">{{ expectedPacks(row) }}</span>
+                                                @if (expectedBase(row); as base) {
+                                                    <span class="block text-xs text-surface-500">{{ base }} expected</span>
+                                                }
+                                            </span>
+                                        </label>
+                                        @if (!row.ticked && canVoid()) {
+                                            <button
+                                                pButton
+                                                size="small"
+                                                text
+                                                severity="danger"
+                                                label="Void"
+                                                [attr.aria-label]="'Take ' + row.name + ' off the order'"
+                                                [disabled]="saving()"
+                                                (click)="voidLine(row)"></button>
                                         }
-                                    </select>
-                                    @if (line.itemId && packsFor(line.itemId).length === 0) {
-                                        <p class="text-xs text-surface-500 mt-1">
-                                            This product has no pack set up, so it cannot be
-                                            received. An admin adds one under Products.
-                                        </p>
+                                    </div>
+
+                                    @if (row.ticked) {
+                                        <div class="flex flex-wrap items-end gap-3 pl-9">
+                                            <div>
+                                                <label class="block text-xs text-surface-500 mb-1" [for]="'qty-' + row.lineId">
+                                                    How many came?
+                                                </label>
+                                                <div class="flex items-center gap-2">
+                                                    <input
+                                                        pInputText
+                                                        class="w-24 text-right"
+                                                        inputmode="decimal"
+                                                        [id]="'qty-' + row.lineId"
+                                                        [ngModel]="row.qty"
+                                                        (ngModelChange)="setCheckQty(row.lineId, $event)" />
+                                                    <span class="text-sm text-surface-500">
+                                                        {{ row.itemId === null ? row.unit || 'each' : '× ' + row.packName }}
+                                                    </span>
+                                                </div>
+                                            </div>
+                                            @if (row.itemId !== null) {
+                                                <div>
+                                                    <label class="block text-xs text-surface-500 mb-1" [for]="'exp-' + row.lineId">
+                                                        Expiry
+                                                        <span class="font-normal">- optional</span>
+                                                    </label>
+                                                    <input
+                                                        pInputText
+                                                        type="date"
+                                                        class="w-40"
+                                                        [id]="'exp-' + row.lineId"
+                                                        [ngModel]="row.expiry"
+                                                        (ngModelChange)="setCheckExpiry(row.lineId, $event)" />
+                                                </div>
+                                                <div class="text-sm text-surface-500 pb-2">
+                                                    = {{ checkBase(row) }}
+                                                </div>
+                                            }
+                                            @if (shortOf(row); as short) {
+                                                <div class="text-sm text-orange-600 pb-2">
+                                                    {{ short }} still to come
+                                                </div>
+                                            }
+                                            @if (overOf(row); as over) {
+                                                <div class="w-full app-note app-note--error !py-2">
+                                                    <strong>{{ over }} more than is still owed.</strong>
+                                                    Only {{ expectedPacks(row) }} was left on the order. It will be
+                                                    received, and management will be asked to check it - make sure it
+                                                    is not something already credited or sent twice.
+                                                </div>
+                                            }
+                                        </div>
+
+                                        @if (!row.bad) {
+                                            <div class="pl-9">
+                                                <button
+                                                    pButton
+                                                    size="small"
+                                                    text
+                                                    severity="warn"
+                                                    icon="pi pi-replay"
+                                                    label="Some are bad - send them back"
+                                                    (click)="openBad(row.lineId)"></button>
+                                            </div>
+                                        } @else {
+                                            <div class="ml-9 rounded-xl border border-orange-300 dark:border-orange-700 overflow-hidden">
+                                                <div
+                                                    class="px-4 py-2 bg-orange-50 dark:bg-orange-950 flex items-center justify-between gap-2">
+                                                    <span class="text-sm font-semibold text-orange-700 dark:text-orange-300">
+                                                        <i class="pi pi-replay mr-1" aria-hidden="true"></i>
+                                                        Going back with the driver
+                                                    </span>
+                                                    <button
+                                                        pButton
+                                                        size="small"
+                                                        text
+                                                        label="Nothing is bad"
+                                                        (click)="closeBad(row.lineId)"></button>
+                                                </div>
+                                                <div class="p-4 space-y-3">
+                                                    <div class="flex flex-wrap items-end gap-3">
+                                                        <div>
+                                                            <label class="block text-xs text-surface-500 mb-1" [for]="'bad-' + row.lineId">
+                                                                How many are bad?
+                                                            </label>
+                                                            <div class="flex items-center gap-2">
+                                                                <input
+                                                                    pInputText
+                                                                    class="w-24 text-right"
+                                                                    inputmode="decimal"
+                                                                    [id]="'bad-' + row.lineId"
+                                                                    [ngModel]="row.badQty"
+                                                                    (ngModelChange)="patchCheck(row.lineId, { badQty: num($event) })" />
+                                                                <span class="text-sm text-surface-500">
+                                                                    {{ row.itemId === null ? row.unit || 'each' : '× ' + row.packName }}
+                                                                </span>
+                                                            </div>
+                                                        </div>
+                                                        <div class="flex-1 min-w-52">
+                                                            <label class="block text-xs text-surface-500 mb-1" [for]="'why-' + row.lineId">
+                                                                Why?
+                                                            </label>
+                                                            <select
+                                                                class="w-full px-3 py-2.5 rounded-lg border border-surface bg-surface-0 dark:bg-surface-900 text-sm"
+                                                                [id]="'why-' + row.lineId"
+                                                                [ngModel]="row.badReason"
+                                                                (ngModelChange)="patchCheck(row.lineId, { badReason: $event })">
+                                                                <option value="">Choose a reason…</option>
+                                                                @for (r of returnReasons(); track r.code) {
+                                                                    <option [value]="r.code">{{ r.label }}</option>
+                                                                }
+                                                            </select>
+                                                        </div>
+                                                    </div>
+                                                    <div>
+                                                        <label class="block text-xs text-surface-500 mb-1" [for]="'note-' + row.lineId">
+                                                            Note <span class="font-normal">- optional</span>
+                                                        </label>
+                                                        <input
+                                                            pInputText
+                                                            class="w-full"
+                                                            placeholder="e.g. bottom of the sack wet"
+                                                            [id]="'note-' + row.lineId"
+                                                            [ngModel]="row.badNote"
+                                                            (ngModelChange)="patchCheck(row.lineId, { badNote: $event })" />
+                                                    </div>
+                                                    <div>
+                                                        <div class="text-xs text-surface-500 mb-1">What does the supplier owe for them?</div>
+                                                        <div class="grid grid-cols-1 sm:grid-cols-2 gap-2" role="radiogroup">
+                                                            @for (o of outcomes; track o.value) {
+                                                                <button
+                                                                    type="button"
+                                                                    role="radio"
+                                                                    [attr.aria-checked]="row.badOutcome === o.value"
+                                                                    class="text-left px-3 py-2 rounded-lg border"
+                                                                    [class.border-primary]="row.badOutcome === o.value"
+                                                                    [class.bg-primary-50]="row.badOutcome === o.value"
+                                                                    [class.dark:bg-primary-950]="row.badOutcome === o.value"
+                                                                    [class.border-surface]="row.badOutcome !== o.value"
+                                                                    (click)="patchCheck(row.lineId, { badOutcome: o.value })">
+                                                                    <span class="block text-sm font-medium">
+                                                                        <i
+                                                                            class="pi mr-1"
+                                                                            [class.pi-check-circle]="row.badOutcome === o.value"
+                                                                            [class.pi-circle]="row.badOutcome !== o.value"
+                                                                            aria-hidden="true"></i>
+                                                                        {{ o.label }}
+                                                                    </span>
+                                                                    <span class="block text-xs text-surface-500">{{ o.hint }}</span>
+                                                                </button>
+                                                            }
+                                                        </div>
+                                                    </div>
+                                                    @if (badSummary(row); as summary) {
+                                                        <div class="text-sm font-medium">{{ summary }}</div>
+                                                    }
+                                                </div>
+                                            </div>
+                                        }
                                     }
-                                </div>
+                                </li>
+                            }
+                        </ul>
+                    </div>
+                }
 
-                                <div class="md:col-span-2">
-                                    <label class="block text-sm font-medium mb-1 app-req">
-                                        How many packs?
-                                    </label>
-                                    <p-inputNumber
-                                        styleClass="w-full"
-                                        inputStyleClass="w-full"
-                                        [ngModel]="line.qtyPacks"
-                                        (ngModelChange)="setQty(i, $event)"
-                                        [min]="0"
-                                        [maxFractionDigits]="3"></p-inputNumber>
-                                </div>
+                <!-- Not on the order (or no order at all). -->
+                <div
+                    class="rounded-2xl border border-surface bg-surface-0 dark:bg-surface-900 p-4 md:p-5 space-y-3">
+                    <div class="font-semibold">
+                        {{ po() ? 'Anything else that came' : 'What came' }}
+                    </div>
+                    @if (po() && extras().length > 0) {
+                        <p class="text-sm text-surface-500">
+                            The order does not still ask for anything added here. It will be received,
+                            and the delivery goes to management to check.
+                        </p>
+                    }
+                    @for (row of extras(); track row.key) {
+                        <div class="flex flex-wrap items-end gap-3 border-b border-surface pb-3">
+                            <div class="flex-1 min-w-56">
+                                <app-item-picker
+                                    label="Product"
+                                    [items]="items()"
+                                    [value]="row.itemId"
+                                    (valueChange)="setExtraItem(row.key, $event)" />
                             </div>
-
-                            <!-- What the line means, in one sentence: the
-                                 conversion the storekeeper must never type. -->
-                            <div
-                                class="mt-3 pt-3 border-t border-surface flex flex-wrap items-center gap-x-4 gap-y-1 text-sm">
-                                @if (conversionFor(line); as conv) {
-                                    <span class="text-surface-500">
-                                        That is <strong class="text-surface-700 dark:text-surface-200">{{ conv }}</strong>
-                                        onto the shelf
-                                    </span>
-                                }
+                            <div>
+                                <label class="block text-xs text-surface-500 mb-1">Pack</label>
+                                <select
+                                    class="w-36 px-2 py-2.5 rounded-lg border border-surface bg-surface-0 dark:bg-surface-900 text-sm"
+                                    [disabled]="!row.itemId"
+                                    [ngModel]="row.packId"
+                                    (ngModelChange)="patchExtra(row.key, { packId: +$event })">
+                                    @for (p of packsFor(row.itemId); track p.id) {
+                                        <option [ngValue]="p.id">{{ p.packName }}</option>
+                                    }
+                                </select>
                             </div>
+                            <div>
+                                <label class="block text-xs text-surface-500 mb-1">How many?</label>
+                                <input
+                                    pInputText
+                                    class="w-20 text-right"
+                                    inputmode="decimal"
+                                    [ngModel]="row.qty"
+                                    (ngModelChange)="patchExtra(row.key, { qty: num($event) })" />
+                            </div>
+                            <div>
+                                <label class="block text-xs text-surface-500 mb-1">Expiry</label>
+                                <input
+                                    pInputText
+                                    type="date"
+                                    class="w-40"
+                                    [ngModel]="row.expiry"
+                                    (ngModelChange)="patchExtra(row.key, { expiry: $event })" />
+                            </div>
+                            <button
+                                pButton
+                                text
+                                severity="danger"
+                                icon="pi pi-times"
+                                aria-label="Remove this line"
+                                (click)="removeExtra(row.key)"></button>
                         </div>
                     }
-
                     <button
                         pButton
                         outlined
+                        size="small"
                         icon="pi pi-plus"
-                        label="Something else came too"
-                        (click)="addLine()"></button>
+                        [label]="extras().length === 0 && !po() ? 'Add the first item' : 'Add an item'"
+                        (click)="addExtra()"></button>
+                </div>
+
+                <div
+                    class="sticky bottom-0 z-10 -mx-1 rounded-2xl border border-surface bg-surface-0/95 dark:bg-surface-900/95 backdrop-blur shadow-lg px-4 py-3 flex flex-wrap items-center justify-between gap-3">
+                    <div class="flex flex-wrap items-center gap-x-4 gap-y-1 text-sm">
+                        @if (po()) {
+                            <span>
+                                <i class="pi pi-check-square text-primary mr-1" aria-hidden="true"></i>
+                                <strong>{{ tickedCount() }}</strong> of {{ checks().length }} ticked
+                            </span>
+                            @if (badCount() > 0) {
+                                <span class="text-orange-600">
+                                    <i class="pi pi-replay mr-1" aria-hidden="true"></i>
+                                    {{ badCount() }} going back
+                                </span>
+                            }
+                            @if (overCount() > 0) {
+                                <span class="text-red-600 dark:text-red-400">
+                                    <i class="pi pi-exclamation-triangle mr-1" aria-hidden="true"></i>
+                                    {{ overCount() }} more than owed
+                                </span>
+                            }
+                            @if (checks().length - tickedCount() > 0) {
+                                <span class="text-surface-500">
+                                    <i class="pi pi-clock mr-1" aria-hidden="true"></i>
+                                    {{ checks().length - tickedCount() }} still to come
+                                </span>
+                            }
+                        }
+                        @if (blocker(); as why) {
+                            <span class="text-surface-500">· {{ why }}</span>
+                        }
+                    </div>
+                    <button
+                        pButton
+                        icon="pi pi-check"
+                        [label]="saveLabel()"
+                        [disabled]="blocker() !== null || saving()"
+                        [loading]="saving()"
+                        (click)="submit()"></button>
                 </div>
             }
 
-            <!-- ── 4. Check it and save ────────────────────────────────────── -->
-            @if (!saved() && step() === 'check') {
-                <div
-                    class="rounded-2xl border border-surface bg-surface-0 dark:bg-surface-900 overflow-hidden">
-                    <div class="px-5 py-4 border-b border-surface">
-                        <div class="font-semibold">{{ supplierName() }}</div>
-                        <div class="text-sm text-surface-500 mt-0.5">
-                            @if (invoiceNo()) {
-                                invoice {{ invoiceNo() }}
-                            } @else {
-                                no invoice number
+            <!-- ── Saved ───────────────────────────────────────────────────── -->
+            @if (mode() === 'saved') {
+                @if (saved(); as d) {
+                    <div
+                        class="rounded-2xl border border-surface bg-surface-0 dark:bg-surface-900 overflow-hidden">
+                        <div class="px-5 py-4 border-b border-surface">
+                            <div class="font-semibold text-lg">Delivery recorded</div>
+                            <p class="text-sm text-surface-500 mt-0.5">
+                                {{ d.supplierName }} · delivery no.
+                                <span class="font-mono">{{ d.id }}</span>
+                                @if (d.invoiceNo) {
+                                    · invoice {{ d.invoiceNo }}
+                                }
+                                · {{ when(d.receivedAt) }}
+                            </p>
+                        </div>
+                        <ul class="divide-y divide-surface">
+                            @for (line of d.lines; track line.id) {
+                                <li class="px-5 py-3 flex flex-wrap justify-between gap-3">
+                                    <span class="font-medium">{{ line.itemName }}</span>
+                                    <span class="text-sm text-right">
+                                        {{ line.qtyPacks }} × {{ line.packName }}
+                                        <span class="block text-xs text-surface-500">
+                                            = {{ q(line.qtyBase, line.stockUnit) }}
+                                            @if (line.expiryDate) {
+                                                · expires {{ line.expiryDate }}
+                                            }
+                                        </span>
+                                    </span>
+                                </li>
                             }
-                            @if (invoiceDate()) {
-                                · dated {{ invoiceDate() }}
+                            @for (line of d.otherLines; track line.id) {
+                                <li class="px-5 py-3 flex flex-wrap justify-between gap-3">
+                                    <span class="font-medium">
+                                        {{ line.name }}
+                                        <span class="text-xs text-surface-500 font-normal">· not a stock item</span>
+                                    </span>
+                                    <span class="text-sm">{{ line.qty }} {{ line.unit || 'each' }}</span>
+                                </li>
                             }
-                            @if (po(); as order) {
-                                · against {{ order.raisedBy }}'s order
-                            }
+                        </ul>
+                        @if (d.rejections.length > 0) {
+                            <div class="px-5 py-3 border-t border-surface">
+                                <div class="font-medium text-orange-700 dark:text-orange-300">
+                                    <i class="pi pi-replay mr-1" aria-hidden="true"></i>
+                                    Sent back with the driver
+                                </div>
+                                <ul class="text-sm mt-1 space-y-1">
+                                    @for (r of d.rejections; track r.id) {
+                                        <li>
+                                            {{ r.name }} - {{ rejectionQty(r) }} · {{ r.reasonLabel }}
+                                            @if (r.note) {
+                                                <span class="text-surface-500">(“{{ r.note }}”)</span>
+                                            }
+                                            ·
+                                            <span class="font-medium">
+                                                {{ r.outcome === 'credit' ? 'credit note' : 'replacement' }}
+                                            </span>
+                                        </li>
+                                    }
+                                </ul>
+                            </div>
+                        }
+                        @if (stillToCome(d).length > 0) {
+                            <div class="px-5 py-3 border-t border-surface app-note app-note--warn !rounded-none">
+                                <div class="font-medium">Still to come on this order</div>
+                                <ul class="text-sm mt-1">
+                                    @for (l of stillToCome(d); track $index) {
+                                        <li>{{ l.name }} - {{ q(l.qtyOutstandingBase, l.unit) }}</li>
+                                    }
+                                </ul>
+                                <p class="text-xs mt-1">The order stays open until they come, or management voids them.</p>
+                            </div>
+                        } @else if (d.order) {
+                            <div class="px-5 py-3 border-t border-surface text-sm text-surface-500">
+                                Nothing else is outstanding - the order is closed.
+                            </div>
+                        }
+                        @if (d.needsReview) {
+                            <div class="px-5 py-3 border-t border-surface app-note !rounded-none">
+                                <i class="pi pi-send mr-1" aria-hidden="true"></i>
+                                Management has been sent a report of this delivery: what came, what went
+                                back and what is still to come.
+                            </div>
+                        }
+                        <div class="px-5 py-4 border-t border-surface flex flex-wrap items-center gap-3">
+                            <button
+                                pButton
+                                icon="pi pi-print"
+                                label="Print delivery note"
+                                (click)="print(d.id)"></button>
+                            <button
+                                pButton
+                                outlined
+                                icon="pi pi-truck"
+                                label="Next delivery"
+                                (click)="backToList()"></button>
+                            <a pButton text label="All deliveries" routerLink="/deliveries"></a>
                         </div>
                     </div>
-
-                    <ul class="divide-y divide-surface">
-                        @for (line of lines(); track $index) {
-                            <li class="px-5 py-3 flex flex-wrap items-center justify-between gap-3">
-                                <div class="min-w-0">
-                                    <div class="font-medium">{{ nameOf(line.itemId) }}</div>
-                                    <div class="text-xs text-surface-500 mt-0.5">
-                                        {{ line.qtyPacks }} × {{ packNameOf(line) }}
-                                    </div>
-                                </div>
-                                @if (conversionFor(line); as conv) {
-                                    <div class="text-right">
-                                        <div class="font-semibold">{{ conv }}</div>
-                                        <div class="text-xs text-surface-500">onto the shelf</div>
-                                    </div>
-                                }
-                            </li>
-                        }
-                    </ul>
-
-                    <div
-                        class="px-5 py-4 border-t border-surface flex items-center justify-between">
-                        <span class="font-semibold">Lines</span>
-                        <span class="text-xl font-bold">{{ lines().length }}</span>
-                    </div>
-                </div>
-            }
-
-            <!-- ── Moving between steps ────────────────────────────────────── -->
-            @if (!saved()) {
-            <div class="flex flex-wrap items-center justify-between gap-3 pt-2">
-                <button
-                    pButton
-                    text
-                    [label]="stepIndex() === 0 ? 'Cancel' : 'Back'"
-                    [icon]="stepIndex() === 0 ? '' : 'pi pi-arrow-left'"
-                    (click)="back()"></button>
-
-                <div class="flex items-center gap-3">
-                    @if (blocker(); as why) {
-                        <span class="text-sm text-surface-500">{{ why }}</span>
-                    }
-                    @if (step() === 'check') {
-                        <button
-                            pButton
-                            label="Save delivery"
-                            icon="pi pi-check"
-                            [disabled]="!canSubmit() || saving()"
-                            [loading]="saving()"
-                            (click)="submit()"></button>
-                    } @else if (step() !== 'order') {
-                        <button
-                            pButton
-                            label="Next"
-                            icon="pi pi-arrow-right"
-                            iconPos="right"
-                            [disabled]="blocker() !== null"
-                            (click)="next()"></button>
-                    }
-                </div>
-            </div>
+                } @else {
+                    <p class="text-surface-500">Loading…</p>
+                }
             }
         </div>
     `
@@ -553,155 +814,130 @@ export class GrnComponent implements OnInit {
     private router = inject(Router);
     private route = inject(ActivatedRoute);
 
-    readonly steps: Step[] = [
-        {
-            key: 'order',
-            label: 'Which order',
-            hint: 'Pick the order this delivery is against, and it fills itself in.'
-        },
-        {
-            key: 'supplier',
-            label: 'Who delivered',
-            hint: 'The supplier, and the invoice if one came with it.'
-        },
-        {
-            key: 'lines',
-            label: 'What came',
-            hint: 'In packs, as they are written on the delivery note. Never in grams.'
-        },
-        {
-            key: 'check',
-            label: 'Check and save',
-            hint: 'Read it back before it goes on the ledger. After this it can only be reversed.'
-        }
-    ];
+    readonly mode = signal<'list' | 'check' | 'saved'>('list');
 
-    readonly stepIndex = signal(0);
-    readonly step = computed(() => this.steps[this.stepIndex()]!.key);
-
-    /** Set when this delivery is being received against a purchase order. */
-    readonly po = signal<PurchaseOrder | null>(null);
-
-    /**
-     * Everything still out: awaiting approval, approved, or placed with a
-     * supplier. Delivered and rejected orders are not on the list because
-     * nothing can arrive against them.
-     */
     readonly openOrders = signal<PurchaseOrder[]>([]);
     readonly loadingOrders = signal(false);
-
     readonly items = signal<Item[]>([]);
     readonly suppliers = signal<Supplier[]>([]);
-    readonly lines = signal<Draft[]>([]);
+
+    /** The order being received, or null for a delivery nobody ordered. */
+    readonly po = signal<PurchaseOrder | null>(null);
     readonly supplierId = signal<number | null>(null);
     readonly invoiceNo = signal('');
     readonly invoiceDate = signal('');
+    readonly checks = signal<CheckRow[]>([]);
+    readonly extras = signal<ExtraRow[]>([]);
+
     readonly saving = signal(false);
     readonly error = signal<string | null>(null);
+    readonly saved = signal<GrnDetail | null>(null);
+    readonly returnReasons = signal<ReasonCode[]>([]);
 
-    /**
-     * The delivery that was just written, or null while one is being entered.
-     *
-     * Its presence is what puts the screen into its "done" state: the form and
-     * the step header go away, because the document exists now and nothing on
-     * it can be edited - only reversed.
-     */
-    readonly saved = signal<GrnResult | null>(null);
-
-    /** What each line put on the shelf, and what is there now. */
-    readonly savedLines = signal<
+    readonly outcomes: { value: RejectionOutcome; label: string; hint: string }[] = [
         {
-            itemId: number;
-            name: string;
-            packName: string;
-            qtyPacks: number;
-            added: string;
-            onShelf: string | null;
-        }[]
-    >([]);
+            value: 'replacement',
+            label: 'Send a replacement',
+            hint: 'Stays on the order as still to come'
+        },
+        {
+            value: 'credit',
+            label: 'Credit note',
+            hint: 'Comes off the order; management records the note'
+        }
+    ];
 
-    /**
-     * Minted once, per form. Not per submit - that would defeat the purpose.
-     */
+    /** Minted once per delivery, not per press of Save. */
     private idempotencyKey = uuid();
 
-    readonly supplierLocked = computed(() => !!this.po()?.supplierId);
+    readonly canVoid = computed(() => this.auth.role() === 'management');
 
-    readonly supplierName = computed(
-        () => this.suppliers().find((s) => s.id === this.supplierId())?.name ?? 'Unknown supplier'
-    );
-
-    readonly completeLines = computed(() =>
-        this.lines().filter(
-            (l) => l.packId !== null && (l.qtyPacks ?? 0) > 0
+    /** Orders a delivery can be booked against. */
+    readonly expected = computed(() =>
+        this.openOrders().filter(
+            (o) => (o.status === 'approved' || o.status === 'ordered') && this.outstandingCount(o) > 0
         )
     );
+    readonly waiting = computed(() => this.openOrders().filter((o) => o.status === 'requested'));
 
-    readonly canSubmit = computed(
-        () =>
-            this.supplierId() !== null &&
-            this.lines().length > 0 &&
-            this.completeLines().length === this.lines().length
+    readonly groups = computed<SupplierGroup[]>(() => {
+        const by = new Map<string, SupplierGroup>();
+        for (const o of this.expected()) {
+            const name = o.supplierName ?? 'No supplier yet';
+            const g = by.get(name) ?? { supplierId: o.supplierId, supplierName: name, orders: [] };
+            g.orders.push(o);
+            by.set(name, g);
+        }
+        return [...by.values()].sort((a, b) => a.supplierName.localeCompare(b.supplierName));
+    });
+
+    readonly tickedCount = computed(() => this.checks().filter((c) => c.ticked).length);
+    readonly allTicked = computed(
+        () => this.checks().length > 0 && this.checks().every((c) => c.ticked)
     );
 
-    /**
-     * Why Next is not available, in the words of the thing that is missing.
-     *
-     * A disabled button with no explanation is the commonest way a form wastes
-     * somebody's afternoon: they can see it is not working and cannot see why.
-     */
+    /** Extras that are filled in enough to send. */
+    private readonly completeExtras = computed(() =>
+        this.extras().filter((e) => e.itemId !== null && e.packId !== null && (e.qty ?? 0) > 0)
+    );
+
+    readonly lineTotal = computed(() => this.tickedCount() + this.completeExtras().length);
+
+    readonly badCount = computed(() => this.checks().filter((c) => c.ticked && c.bad).length);
+
+    readonly saveLabel = computed(() => {
+        const n = this.lineTotal();
+        const back = this.badCount();
+        if (!n) return 'Save delivery';
+        return back ? `Save delivery (${n}) · ${back} going back` : `Save delivery (${n})`;
+    });
+
+    /** Why Save is not available, in the words of what is missing. */
     readonly blocker = computed<string | null>(() => {
-        switch (this.step()) {
-            case 'supplier':
-                return this.supplierId() === null ? 'Choose who delivered it' : null;
-            case 'lines': {
-                if (this.lines().length === 0) return 'Add what arrived';
-                // Name the one thing that is missing, not the whole list of
-                // things a line needs.
-                for (const [i, line] of this.lines().entries()) {
-                    const missing =
-                        line.itemId === null
-                            ? 'a product'
-                            : line.packId === null
-                              ? 'a pack'
-                              : (line.qtyPacks ?? 0) <= 0
-                                ? 'how many packs came'
-                                : null;
-                    if (missing) return `Item ${i + 1} still needs ${missing}`;
-                }
-                return null;
+        if (!this.po() && this.supplierId() === null) return 'Choose who delivered it';
+        const badTick = this.checks().find((c) => c.ticked && !((c.qty ?? 0) > 0));
+        if (badTick) return `How many ${badTick.name} came?`;
+        for (const c of this.checks().filter((x) => x.ticked && x.bad)) {
+            if (!((c.badQty ?? 0) > 0)) return `How many ${c.name} are bad?`;
+            if ((c.badQty ?? 0) > (c.qty ?? 0)) {
+                return `More ${c.name} are bad than came - check the numbers`;
             }
-            case 'check':
-                return this.canSubmit() ? null : 'Something above is incomplete';
-            default:
-                return null;
+            if (!c.badReason) return `Why is ${c.name} going back?`;
         }
+        const badExtra = this.extras().find(
+            (e) => !(e.itemId !== null && e.packId !== null && (e.qty ?? 0) > 0)
+        );
+        if (badExtra) return 'Finish or remove the item you added';
+        if (this.lineTotal() === 0) return this.po() ? 'Tick what came' : 'Add what came';
+        return null;
     });
 
     async ngOnInit(): Promise<void> {
         try {
-            const [items, suppliers] = await Promise.all([
+            const [items, suppliers, reasons] = await Promise.all([
                 this.api.listItems(),
-                this.api.listSuppliers()
+                this.api.listSuppliers(),
+                this.api.reasonCodes('return')
             ]);
             this.items.set(items);
             this.suppliers.set(suppliers);
-
-            const poId = this.route.snapshot.queryParamMap.get('po');
-            if (poId) {
-                // Purchases has already answered question one.
-                await this.loadPurchaseOrder(poId);
-            } else {
-                this.stepIndex.set(0);
-                void this.loadOpenOrders();
-            }
+            this.returnReasons.set(reasons);
         } catch (err) {
             this.error.set(apiErrorMessage(err));
         }
+        await this.loadOrders();
+
+        // Sent here from an order on the Purchases screen.
+        const poId = this.route.snapshot.queryParamMap.get('po');
+        if (poId) {
+            const order = this.openOrders().find((o) => o.id === poId);
+            if (order && this.expected().includes(order)) this.open(order);
+            else this.error.set('That order is not waiting for a delivery. Pick one from the list.');
+            void this.router.navigate([], { relativeTo: this.route, queryParams: {}, replaceUrl: true });
+        }
     }
 
-    /** The orders that could plausibly be what is standing at the door. */
-    private async loadOpenOrders(): Promise<void> {
+    private async loadOrders(): Promise<void> {
         this.loadingOrders.set(true);
         try {
             const page = await this.api.listPurchaseOrders({ open: true, limit: 100 });
@@ -713,170 +949,223 @@ export class GrnComponent implements OnInit {
         }
     }
 
-    /**
-     * Can a delivery be booked against this order?
-     *
-     * The same two statuses the server accepts. `requested` means management
-     * has not approved it, and `applyReceiptToPo` refuses those outright --
-     * so the row is shown, greyed, and does nothing when pressed.
-     */
-    receivable(order: PurchaseOrder): boolean {
-        return order.status === 'approved' || order.status === 'ordered';
+    // ── Starting a delivery ─────────────────────────────────────────────────
+
+    open(order: PurchaseOrder): void {
+        this.reset();
+        this.po.set(order);
+        this.supplierId.set(order.supplierId);
+        this.checks.set(
+            order.lines
+                .filter((l) => !l.voided && l.qtyOutstandingBase > 0)
+                .map((l) => this.checkFrom(l))
+        );
+        this.mode.set('check');
     }
 
-    /** Pick an order: fill the form from it and move on. */
-    choose(order: PurchaseOrder): void {
-        if (!this.receivable(order)) return;
+    startManual(): void {
+        this.reset();
+        this.addExtra();
+        this.mode.set('check');
+    }
+
+    async backToList(): Promise<void> {
+        this.reset();
+        this.mode.set('list');
+        await this.loadOrders();
+    }
+
+    private reset(): void {
         this.error.set(null);
-        this.applyOrder(order);
-        this.stepIndex.set(1);
-    }
-
-    /** No order behind this delivery. Blank form, nothing pre-filled. */
-    enterManually(): void {
+        this.saved.set(null);
         this.po.set(null);
         this.supplierId.set(null);
-        if (this.lines().length === 0) this.addLine();
-        this.stepIndex.set(1);
+        this.invoiceNo.set('');
+        this.invoiceDate.set('');
+        this.checks.set([]);
+        this.extras.set([]);
+        // A different delivery deserves a different key.
+        this.idempotencyKey = uuid();
     }
 
-    next(): void {
-        if (this.blocker() !== null) return;
-        if (this.step() === 'supplier' && this.lines().length === 0) this.addLine();
-        this.stepIndex.update((i) => Math.min(i + 1, this.steps.length - 1));
-    }
-
-    back(): void {
-        if (this.stepIndex() === 0) {
-            void this.router.navigate(['/home']);
-            return;
+    private checkFrom(l: PurchaseOrderLine): CheckRow {
+        if (l.itemId === null) {
+            return {
+                lineId: l.id,
+                itemId: null,
+                name: l.name,
+                code: null,
+                unit: l.stockUnit,
+                packId: null,
+                packName: null,
+                packSize: null,
+                outstanding: l.qtyOutstandingBase,
+                ticked: false,
+                qty: null,
+                expiry: '',
+                ...NO_BAD
+            };
         }
-        this.goBackTo(this.stepIndex() - 1);
+        const item = this.items().find((i) => i.id === l.itemId);
+        const pack =
+            item?.packs.find((p) => p.id === l.itemPackId) ??
+            item?.packs.find((p) => p.isDefaultPurchase) ??
+            item?.packs[0];
+        const size = pack?.qtyInStockUnit ?? 1;
+        return {
+            lineId: l.id,
+            itemId: l.itemId,
+            name: l.name,
+            code: item?.code ?? null,
+            unit: l.stockUnit,
+            packId: pack?.id ?? null,
+            packName: pack?.packName ?? l.packName ?? 'pack',
+            packSize: size,
+            outstanding: round3(l.qtyOutstandingBase / size),
+            ticked: false,
+            qty: null,
+            expiry: '',
+            ...NO_BAD
+        };
+    }
+
+    // ── The checklist ───────────────────────────────────────────────────────
+
+    tick(lineId: string, on: boolean): void {
+        this.checks.update((rows) =>
+            rows.map((r) =>
+                r.lineId === lineId
+                    ? // A tick means it all came; the amount can be changed after.
+                      { ...r, ticked: on, qty: on ? (r.qty ?? r.outstanding) : r.qty, ...(on ? {} : NO_BAD) }
+                    : r
+            )
+        );
+    }
+
+    tickAll(on: boolean): void {
+        for (const r of this.checks()) if (r.ticked !== on) this.tick(r.lineId, on);
+    }
+
+    setCheckQty(lineId: string, value: string | number | null): void {
+        this.checks.update((rows) =>
+            rows.map((r) => (r.lineId === lineId ? { ...r, qty: this.num(value) } : r))
+        );
+    }
+
+    patchCheck(lineId: string, patch: Partial<CheckRow>): void {
+        this.checks.update((rows) => rows.map((r) => (r.lineId === lineId ? { ...r, ...patch } : r)));
+    }
+
+    openBad(lineId: string): void {
+        this.patchCheck(lineId, { bad: true });
+    }
+
+    closeBad(lineId: string): void {
+        this.patchCheck(lineId, NO_BAD);
+    }
+
+    /** "8 × 500 g pack into stock · 2 going back, replacement owed" */
+    badSummary(row: CheckRow): string | null {
+        const came = row.qty ?? 0;
+        const bad = row.badQty ?? 0;
+        if (!(bad > 0) || bad > came) return null;
+        const good = round3(came - bad);
+        const unit = row.itemId === null ? ` ${row.unit || 'each'}` : ` × ${row.packName}`;
+        const owed = row.badOutcome === 'credit' ? 'credit note owed' : 'replacement owed';
+        if (good <= 0) return `None into stock · all ${bad} going back, ${owed}`;
+        return `${good}${unit} into stock · ${bad} going back, ${owed}`;
+    }
+
+    rejectionQty(r: { qty: number; packName: string | null; unit: string | null; isStockItem: boolean }): string {
+        return r.isStockItem ? `${r.qty} × ${r.packName}` : `${r.qty} ${r.unit || 'each'}`;
+    }
+
+    setCheckExpiry(lineId: string, value: string): void {
+        this.checks.update((rows) =>
+            rows.map((r) => (r.lineId === lineId ? { ...r, expiry: value } : r))
+        );
+    }
+
+    checkBase(row: CheckRow): string {
+        if (row.packSize === null || !row.unit) return '';
+        const good = Math.max(0, (row.qty ?? 0) - (row.bad ? (row.badQty ?? 0) : 0));
+        return formatQty(good * row.packSize, row.unit) + (row.bad ? ' into stock' : '');
+    }
+
+    /** More came off the lorry, good and bad together, than the order still owes. */
+    overOf(row: CheckRow): string | null {
+        if (!row.ticked) return null;
+        const extra = round3((row.qty ?? 0) - row.outstanding);
+        if (extra <= 0) return null;
+        return row.itemId === null ? `${extra} ${row.unit || 'each'}` : `${extra} × ${row.packName}`;
+    }
+
+    /** Lines over what is owed, plus items added on an order delivery. */
+    readonly overCount = computed(
+        () =>
+            this.checks().filter((c) => this.overOf(c) !== null).length +
+            (this.po() ? this.completeExtras().length : 0)
+    );
+
+    /** The part of a ticked line that did not come, if any. */
+    shortOf(row: CheckRow): string | null {
+        const gap = round3(row.outstanding - (row.qty ?? 0));
+        if (gap <= 0) return null;
+        return row.itemId === null ? `${gap} ${row.unit || 'each'}` : `${gap} × ${row.packName}`;
     }
 
     /**
-     * Going back to question one throws the order away with it.
-     *
-     * Half of one order and half of another is the one delivery this form must
-     * never be able to produce.
+     * Take one line off the order. Management only, and only with a reason -
+     * in a month "why did we never get the cream" is a real question.
      */
-    goBackTo(index: number): void {
-        this.error.set(null);
-        if (index === 0) {
-            this.po.set(null);
-            this.supplierId.set(null);
-            this.lines.set([]);
-            // A different document deserves a different key.
-            this.idempotencyKey = uuid();
-            void this.loadOpenOrders();
-        }
-        this.stepIndex.set(index);
-    }
-
-    /** "3 items · 12 × 25 kg sack outstanding" - enough to recognise it by. */
-    orderSummary(order: PurchaseOrder): string {
-        const outstanding = order.lines.filter((l) => l.qtyOutstandingBase > 0);
-        const shown = outstanding
-            .slice(0, 3)
-            .map((l) => `${l.name} ${this.qty(l.qtyOutstandingBase, l.stockUnit)}`);
-        const rest = outstanding.length - shown.length;
-        if (rest > 0) shown.push(`and ${rest} more`);
-        return shown.join(' · ') || `${order.lines.length} item(s)`;
-    }
-
-    day(iso: string): string {
-        return new Date(iso).toLocaleDateString('en-LK', {
-            day: 'numeric',
-            month: 'short'
-        });
-    }
-
-    qty(n: number, unit: string): string {
-        return formatQty(n, unit);
-    }
-
-    /**
-     * Pre-fills from the order's outstanding balance.
-     *
-     * Only the outstanding part: on a second delivery against the same order,
-     * offering the full original quantity again is how an order for ten sacks
-     * ends up receiving sixteen.
-     */
-    private async loadPurchaseOrder(poId: string): Promise<void> {
-        const page = await this.api.listPurchaseOrders({ limit: 200 });
-        const order = page.items.find((p) => p.id === poId) ?? null;
-
-        if (!order) {
-            // Not a dead end: fall back to question one so the storekeeper can
-            // find the right order rather than re-reading a stale link.
-            this.error.set('That purchase order is not on this branch. Pick it from the list.');
-            this.stepIndex.set(0);
-            await this.loadOpenOrders();
+    async voidLine(row: CheckRow): Promise<void> {
+        const order = this.po();
+        if (!order) return;
+        const reason = await this.notify.prompt(
+            `${row.name} will be taken off order no. ${order.id}. What it was ordered for stays on record. Why is it not coming?`,
+            'Void this item',
+            '',
+            'Void it'
+        );
+        if (!reason || reason.trim().length < 3) {
+            if (reason !== null && reason !== undefined) this.notify.warning('Give a short reason.');
             return;
         }
-
-        this.applyOrder(order);
-        this.stepIndex.set(1);
-    }
-
-    /** Order in, form filled. Shared by `?po=` and by picking from the list. */
-    private applyOrder(order: PurchaseOrder): void {
-        this.po.set(order);
-        if (order.supplierId) this.setSupplier(order.supplierId);
-
-        const drafts: Draft[] = [];
-        for (const line of order.lines) {
-            if (line.qtyOutstandingBase <= 0) continue;
-
-            const item = this.items().find((i) => i.id === line.itemId);
-            const pack =
-                item?.packs.find((p) => p.id === line.itemPackId) ??
-                item?.packs.find((p) => p.isDefaultPurchase) ??
-                item?.packs[0];
-            if (!item || !pack) continue;
-
-            drafts.push({
-                itemId: item.id,
-                packId: pack.id,
-                qtyPacks: round3(line.qtyOutstandingBase / pack.qtyInStockUnit)
-            });
+        try {
+            const res = await this.api.voidPoLine(order.id, row.lineId, reason.trim());
+            this.checks.update((rows) => rows.filter((r) => r.lineId !== row.lineId));
+            if (res.orderComplete) {
+                this.notify.success(`${row.name} voided. Nothing else is outstanding - the order is closed.`);
+                await this.backToList();
+            } else {
+                this.notify.success(`${row.name} taken off the order`);
+            }
+        } catch (err) {
+            this.notify.error(apiErrorMessage(err));
         }
-
-        this.lines.set(drafts);
-        if (drafts.length === 0) this.addLine();
     }
 
-    setSupplier(supplierId: number | null): void {
-        this.supplierId.set(supplierId);
-    }
+    // ── Extras ──────────────────────────────────────────────────────────────
 
-    addLine(): void {
-        this.lines.update((ls) => [
-            ...ls,
-            { itemId: null, packId: null, qtyPacks: null }
+    addExtra(): void {
+        this.extras.update((rows) => [
+            ...rows,
+            { key: uuid(), itemId: null, packId: null, qty: null, expiry: '' }
         ]);
     }
 
-    removeLine(index: number): void {
-        this.lines.update((ls) => ls.filter((_, i) => i !== index));
+    removeExtra(key: string): void {
+        this.extras.update((rows) => rows.filter((r) => r.key !== key));
     }
 
-    private patch(index: number, patch: Partial<Draft>): void {
-        this.lines.update((ls) => ls.map((l, i) => (i === index ? { ...l, ...patch } : l)));
+    patchExtra(key: string, patch: Partial<ExtraRow>): void {
+        this.extras.update((rows) => rows.map((r) => (r.key === key ? { ...r, ...patch } : r)));
     }
 
-    setItem(index: number, itemId: number | null): void {
+    setExtraItem(key: string, itemId: number | null): void {
         const item = this.items().find((i) => i.id === itemId);
-        const defaultPack = item?.packs.find((p) => p.isDefaultPurchase) ?? item?.packs[0];
-        this.patch(index, { itemId, packId: defaultPack?.id ?? null });
-    }
-
-    setPack(index: number, packId: number): void {
-        this.patch(index, { packId });
-    }
-
-    setQty(index: number, qtyPacks: number | null): void {
-        this.patch(index, { qtyPacks });
+        const pack = item?.packs.find((p) => p.isDefaultPurchase) ?? item?.packs[0];
+        this.patchExtra(key, { itemId, packId: pack?.id ?? null });
     }
 
     packsFor(itemId: number | null): ItemPack[] {
@@ -884,25 +1173,18 @@ export class GrnComponent implements OnInit {
         return this.items().find((i) => i.id === itemId)?.packs ?? [];
     }
 
-    nameOf(itemId: number | null): string {
-        return this.items().find((i) => i.id === itemId)?.name ?? 'Item';
+    num(value: string | number | null): number | null {
+        const text = String(value ?? '').trim();
+        if (text === '') return null;
+        const n = Number(text);
+        return isNaN(n) || n < 0 ? null : n;
     }
 
-    packNameOf(line: Draft): string {
-        return this.packsFor(line.itemId).find((p) => p.id === line.packId)?.packName ?? 'pack';
-    }
-
-    /** "= 40 L" - the conversion made visible so a wrong pack is obvious. */
-    conversionFor(line: Draft): string | null {
-        if (line.itemId === null || line.packId === null || !line.qtyPacks) return null;
-        const item = this.items().find((i) => i.id === line.itemId);
-        const pack = item?.packs.find((p) => p.id === line.packId);
-        if (!item || !pack) return null;
-        return formatQty(line.qtyPacks * pack.qtyInStockUnit, item.stockUnit);
-    }
+    // ── Saving ──────────────────────────────────────────────────────────────
 
     async submit(): Promise<void> {
-        if (!this.canSubmit()) return;
+        if (this.blocker() !== null) return;
+        const ticked = this.checks().filter((c) => c.ticked && (c.qty ?? 0) > 0);
 
         this.saving.set(true);
         this.error.set(null);
@@ -911,92 +1193,138 @@ export class GrnComponent implements OnInit {
                 {
                     supplierId: this.supplierId()!,
                     poId: this.po()?.id ?? null,
-                    invoiceNo: this.invoiceNo() || null,
+                    invoiceNo: this.invoiceNo().trim() || null,
                     invoiceDate: this.invoiceDate() || null,
-                    lines: this.lines().map((l) => ({
-                        itemPackId: l.packId!,
-                        qtyPacks: l.qtyPacks!
-                    }))
+                    lines: [
+                        ...ticked
+                            .filter((c) => c.itemId !== null && c.packId !== null && good(c) > 0)
+                            .map((c) => ({
+                                itemPackId: c.packId!,
+                                qtyPacks: good(c),
+                                expiryDate: c.expiry || null
+                            })),
+                        ...this.completeExtras().map((e) => ({
+                            itemPackId: e.packId!,
+                            qtyPacks: e.qty!,
+                            expiryDate: e.expiry || null
+                        }))
+                    ],
+                    otherLines: ticked
+                        .filter((c) => c.itemId === null && good(c) > 0)
+                        .map((c) => ({ poLineId: c.lineId, qty: good(c) })),
+                    rejections: ticked
+                        .filter((c) => c.bad && (c.badQty ?? 0) > 0)
+                        .map((c) => ({
+                            poLineId: c.lineId,
+                            qty: c.badQty!,
+                            reasonCode: c.badReason,
+                            note: c.badNote.trim() || null,
+                            outcome: c.badOutcome
+                        }))
                 },
                 this.idempotencyKey
             );
-
-            this.notify.success(`Delivery recorded. ${result.lineCount} line(s).`);
-
-            await this.describeSaved(result);
+            this.notify.success(
+                result.needsReview
+                    ? 'Delivery recorded, and a report sent to management'
+                    : `Delivery recorded. ${result.lineCount} line(s).`
+            );
+            this.mode.set('saved');
+            // Read back from the server: what it holds is what gets printed.
+            this.saved.set(await this.api.getGrn(result.id));
         } catch (err) {
-            // Nothing was written -- the document and its ledger rows go in one
-            // transaction. The form is left alone so it can be corrected and
-            // sent again, and the idempotency key is deliberately NOT renewed:
-            // if this was a lost response rather than a real refusal, the retry
-            // replays the first result instead of receiving the goods twice.
+            // Nothing was written - the delivery and its ledger rows go in one
+            // transaction. The key is deliberately NOT renewed: if this was a
+            // lost response, the retry replays the first result.
             this.error.set(apiErrorMessage(err));
+            if (this.mode() === 'saved' && !this.saved()) this.mode.set('list');
         } finally {
             this.saving.set(false);
         }
     }
 
-    /**
-     * Read the delivery back, including what is on the shelf now.
-     *
-     * The shelf figure is the one that answers "did that actually go in", and
-     * it is read from the ledger rather than calculated here - if the two ever
-     * disagreed, the ledger would be right and this screen would be lying.
-     */
-    private async describeSaved(result: GrnResult): Promise<void> {
-        const lines = this.lines().map((l) => {
-            const item = this.items().find((i) => i.id === l.itemId);
-            const pack = item?.packs.find((p) => p.id === l.packId);
-            return {
-                itemId: l.itemId!,
-                name: item?.name ?? 'Item',
-                packName: pack?.packName ?? 'pack',
-                qtyPacks: l.qtyPacks ?? 0,
-                added:
-                    item && pack
-                        ? formatQty((l.qtyPacks ?? 0) * pack.qtyInStockUnit, item.stockUnit)
-                        : '',
-                onShelf: null as string | null
-            };
-        });
-        this.savedLines.set(lines);
-        this.saved.set(result);
-
-        const store = this.auth.storeSection();
-        if (!store) return;
-        try {
-            const stock = await this.api.getStock({ sectionId: store.id, limit: 200 });
-            this.savedLines.set(
-                lines.map((l) => {
-                    const row = stock.items.find((r) => r.itemId === l.itemId);
-                    return {
-                        ...l,
-                        onShelf: row ? formatQty(row.qtyBase, row.stockUnit) : null
-                    };
-                })
-            );
-        } catch {
-            /* the delivery is recorded either way; the shelf figure is a bonus */
-        }
+    print(grnId: string): void {
+        openPrint(`/deliveries/${grnId}/print`);
     }
 
-    /** A second lorry. A new document, so a new key and a clean form. */
-    startAnother(): void {
-        this.saved.set(null);
-        this.savedLines.set([]);
-        this.error.set(null);
-        this.po.set(null);
-        this.supplierId.set(null);
-        this.invoiceNo.set('');
-        this.invoiceDate.set('');
-        this.lines.set([]);
-        this.idempotencyKey = uuid();
-        this.stepIndex.set(0);
-        void this.loadOpenOrders();
+    /** What is still to come, on paper: one supplier, one order, or all of it. */
+    printChecklist(filter: { supplier?: number | null; po?: string } = {}): void {
+        const query: Record<string, string> = {};
+        if (filter.supplier) query['supplier'] = String(filter.supplier);
+        if (filter.po) query['po'] = filter.po;
+        openPrint('/expected-deliveries/print', query);
+    }
+
+    phoneOf(supplierId: number | null): string | null {
+        return this.suppliers().find((s) => s.id === supplierId)?.phone ?? null;
+    }
+
+    /** "20 × 1 L pack" */
+    expectedPacks(row: CheckRow): string {
+        return row.itemId === null
+            ? `${row.outstanding} ${row.unit || 'each'}`
+            : `${row.outstanding} × ${row.packName}`;
+    }
+
+    /** "20 L" - the same thing in what the shelf counts. */
+    expectedBase(row: CheckRow): string | null {
+        if (row.itemId === null || row.packSize === null || !row.unit) return null;
+        return formatQty(row.outstanding * row.packSize, row.unit);
+    }
+
+    // ── Display ─────────────────────────────────────────────────────────────
+
+    stillToCome(d: GrnDetail) {
+        return d.order?.lines.filter((l) => l.qtyOutstandingBase > 0) ?? [];
+    }
+
+    outstandingCount(order: PurchaseOrder): number {
+        return order.lines.filter((l) => !l.voided && l.qtyOutstandingBase > 0).length;
+    }
+
+    /** "Rice 2 × 25 kg sack · Sugar …" - enough to recognise it by. */
+    orderSummary(order: PurchaseOrder): string {
+        const outstanding = order.lines.filter((l) => !l.voided && l.qtyOutstandingBase > 0);
+        const shown = outstanding.slice(0, 3).map((l) => l.name);
+        const rest = outstanding.length - shown.length;
+        if (rest > 0) shown.push(`and ${rest} more`);
+        return shown.join(' · ') || `${order.lines.length} item(s)`;
+    }
+
+    day(iso: string): string {
+        return new Date(iso).toLocaleDateString('en-LK', { day: 'numeric', month: 'short' });
+    }
+
+    when(iso: string): string {
+        return new Date(iso).toLocaleString('en-LK', {
+            day: 'numeric',
+            month: 'short',
+            year: 'numeric',
+            hour: '2-digit',
+            minute: '2-digit'
+        });
+    }
+
+    q(qty: number, unit: string | null): string {
+        return formatQty(qty, unit ?? '');
     }
 }
 
 /** Packs can be fractional -- half a sack gets delivered -- but not endlessly. */
 function round3(n: number): number {
     return Math.round(n * 1000) / 1000;
+}
+
+/** A line with nothing being sent back. */
+const NO_BAD = {
+    bad: false,
+    badQty: null,
+    badReason: '',
+    badNote: '',
+    badOutcome: 'replacement' as RejectionOutcome
+};
+
+/** What goes into stock: what came, less what is going straight back. */
+function good(c: CheckRow): number {
+    return round3((c.qty ?? 0) - (c.bad ? (c.badQty ?? 0) : 0));
 }

@@ -97,6 +97,8 @@ export const ROUTE_PERMISSIONS: Record<RouteKey, Role[]> = {
     // decide something goes back to a supplier.
     supplierReturns: ['management', 'storekeeper'],
     reports: ['management'],
+    // Management reads them; the storekeeper's side is the delivery itself.
+    deliveryReports: ['management'],
     opening: ['management', 'storekeeper']
 };
 

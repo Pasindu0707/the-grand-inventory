@@ -30,6 +30,7 @@ import { db } from '../db/index.js';
 import { badRequest, conflict, forbidden, notFound } from '../errors.js';
 import { audit, type Tx } from './ledger.js';
 import { shortagesFor } from './requests.js';
+import { rememberSupplierItems } from './supplier-items.js';
 import type { PoStatus } from '../db/types.js';
 
 /** Statuses where the goods have not arrived and the order is still live. */
@@ -38,42 +39,80 @@ const OPEN_STATUSES: readonly PoStatus[] = ['requested', 'approved', 'ordered'];
 /** Statuses a delivery may be booked against. */
 const RECEIVABLE: readonly PoStatus[] = ['approved', 'ordered'];
 
-export interface RaisePoLine {
+/** An item from the item master, ordered in one of its packs. */
+export interface RaiseItemLine {
     itemPackId: number;
     qtyPacks: number;
 }
 
+/**
+ * A product the item master does not have, ordered by name. Not stock: it is
+ * on the order for the supplier, and nothing about it reaches the ledger.
+ */
+export interface RaiseNamedLine {
+    name: string;
+    unit?: string | null;
+    qty: number;
+}
+
+export type RaisePoLine = RaiseItemLine | RaiseNamedLine;
+
 export interface RaisePoInput {
     locationId: number;
     raisedBy: number;
-    supplierId?: number | null;
+    /**
+     * Management's own orders need nobody's approval -- they are the people
+     * who would give it. Everybody else's wait at "requested".
+     */
+    raisedByRole: string;
+    supplierId: number;
     issueId?: string | null;
     neededBy?: string | null;
     reason?: string | null;
     lines: RaisePoLine[];
 }
 
-export async function raisePurchaseOrder(input: RaisePoInput): Promise<{ id: string }> {
+const isItemLine = (l: RaisePoLine): l is RaiseItemLine => 'itemPackId' in l;
+
+export async function raisePurchaseOrder(
+    input: RaisePoInput
+): Promise<{ id: string; status: PoStatus }> {
     if (input.lines.length === 0) throw badRequest('Add at least one item');
 
-    const packIds = input.lines.map((l) => l.itemPackId);
-    const packs = await db
-        .selectFrom('item_packs')
-        .innerJoin('items', 'items.id', 'item_packs.item_id')
-        .select([
-            'item_packs.id as packId',
-            'item_packs.item_id as itemId',
-            'item_packs.pack_name as packName',
-            'item_packs.qty_in_stock_unit as qtyInStockUnit',
-            'item_packs.is_active as packActive',
-            'items.name as itemName',
-            'items.is_active as itemActive'
-        ])
-        .where('item_packs.id', 'in', packIds)
-        .execute();
+    // An order starts from who it is placed with. One with no supplier is a
+    // wish, and a delivery has nothing to be matched against.
+    const supplier = await db
+        .selectFrom('suppliers')
+        .select('id')
+        .where('id', '=', input.supplierId)
+        .where('is_active', '=', true)
+        .executeTakeFirst();
+    if (!supplier) throw notFound('That supplier');
+
+    const itemLines = input.lines.filter(isItemLine);
+    const namedLines = input.lines.filter((l): l is RaiseNamedLine => !isItemLine(l));
+
+    const packIds = itemLines.map((l) => l.itemPackId);
+    const packs =
+        packIds.length === 0
+            ? []
+            : await db
+                  .selectFrom('item_packs')
+                  .innerJoin('items', 'items.id', 'item_packs.item_id')
+                  .select([
+                      'item_packs.id as packId',
+                      'item_packs.item_id as itemId',
+                      'item_packs.pack_name as packName',
+                      'item_packs.qty_in_stock_unit as qtyInStockUnit',
+                      'item_packs.is_active as packActive',
+                      'items.name as itemName',
+                      'items.is_active as itemActive'
+                  ])
+                  .where('item_packs.id', 'in', packIds)
+                  .execute();
 
     const byPack = new Map(packs.map((p) => [p.packId, p]));
-    for (const line of input.lines) {
+    for (const line of itemLines) {
         const pack = byPack.get(line.itemPackId);
         if (!pack) throw notFound(`Item pack ${line.itemPackId}`);
         if (!pack.packActive || !pack.itemActive) {
@@ -82,18 +121,17 @@ export async function raisePurchaseOrder(input: RaisePoInput): Promise<{ id: str
         if (line.qtyPacks <= 0) throw badRequest(`${pack.itemName}: order at least one pack`);
     }
 
-    if (input.supplierId) {
-        const supplier = await db
-            .selectFrom('suppliers')
-            .select('id')
-            .where('id', '=', input.supplierId)
-            .where('is_active', '=', true)
-            .executeTakeFirst();
-        if (!supplier) throw notFound('That supplier');
+    const seenNames = new Set<string>();
+    for (const line of namedLines) {
+        const name = line.name.trim();
+        if (name.length < 2) throw badRequest('Give the product a name');
+        if (line.qty <= 0) throw badRequest(`${name}: order at least one`);
+        if (seenNames.has(name.toLowerCase())) throw badRequest(`${name} is on the order twice`);
+        seenNames.add(name.toLowerCase());
     }
 
     // The conversion, once. Everything downstream of this line is stock units.
-    const converted = input.lines.map((l) => {
+    const converted = itemLines.map((l) => {
         const pack = byPack.get(l.itemPackId)!;
         return {
             ...l,
@@ -109,11 +147,17 @@ export async function raisePurchaseOrder(input: RaisePoInput): Promise<{ id: str
     for (const c of converted) {
         perItem.set(c.itemId, (perItem.get(c.itemId) ?? 0) + c.qtyBase);
     }
-    const shortages = await shortagesFor(
-        input.locationId,
-        [...perItem].map(([itemId, qtyRequested]) => ({ itemId, qtyRequested }))
-    );
+    const shortages =
+        perItem.size === 0
+            ? []
+            : await shortagesFor(
+                  input.locationId,
+                  [...perItem].map(([itemId, qtyRequested]) => ({ itemId, qtyRequested }))
+              );
     const inStore = new Map(shortages.map((s) => [s.itemId, s.inStore]));
+
+    const byManagement = input.raisedByRole === 'management';
+    const status: PoStatus = byManagement ? 'approved' : 'requested';
 
     return db.transaction().execute(async (trx) => {
         const po = await trx
@@ -121,11 +165,15 @@ export async function raisePurchaseOrder(input: RaisePoInput): Promise<{ id: str
             .values({
                 location_id: input.locationId,
                 issue_id: input.issueId ?? null,
-                supplier_id: input.supplierId ?? null,
+                supplier_id: input.supplierId,
                 raised_by: input.raisedBy,
                 needed_by: input.neededBy ?? null,
                 reason: input.reason ?? null,
-                status: 'requested',
+                status,
+                // Raising it is the decision. Recorded as one, so "approved by"
+                // reads the same whichever way the order got there.
+                decided_by: byManagement ? input.raisedBy : null,
+                decided_at: byManagement ? new Date() : null,
                 is_demo: false
             })
             .returning('id')
@@ -149,6 +197,35 @@ export async function raisePurchaseOrder(input: RaisePoInput): Promise<{ id: str
                 .execute();
         }
 
+        for (const line of namedLines) {
+            await trx
+                .insertInto('purchase_order_lines')
+                .values({
+                    po_id: po.id,
+                    item_id: null,
+                    description: line.name.trim(),
+                    unit: line.unit?.trim() || null,
+                    // No pack and no stock unit to convert into: both hold the
+                    // quantity as typed. See 0010.
+                    qty_packs: line.qty,
+                    qty_base: line.qty,
+                    is_demo: false
+                })
+                .execute();
+        }
+
+        // Whatever was on this order, the supplier delivers. Anything added by
+        // hand stays on their list for next time.
+        await rememberSupplierItems(
+            trx,
+            input.supplierId,
+            [
+                ...[...perItem.keys()].map((itemId) => ({ itemId })),
+                ...namedLines.map((l) => ({ name: l.name, unit: l.unit ?? null }))
+            ],
+            input.raisedBy
+        );
+
         await audit(trx, {
             userId: input.raisedBy,
             action: 'po.raise',
@@ -157,11 +234,12 @@ export async function raisePurchaseOrder(input: RaisePoInput): Promise<{ id: str
             after: {
                 lines: input.lines.length,
                 issueId: input.issueId ?? null,
-                supplierId: input.supplierId ?? null
+                supplierId: input.supplierId,
+                status
             }
         });
 
-        return { id: String(po.id) };
+        return { id: String(po.id), status };
     });
 }
 
@@ -278,10 +356,13 @@ export async function closePurchaseOrderShort(
  * Book a delivery against an order.
  *
  * Called from inside createGrn's transaction, so the delivery and its effect
- * on the order either both happen or neither does. Matching is by item rather
- * than by line: a supplier who sends the same rice in a different sack has
- * still delivered the rice, and refusing to match it would leave the order
- * open forever over a packaging detail.
+ * on the order either both happen or neither does. Stock items are matched by
+ * item rather than by line: a supplier who sends the same rice in a different
+ * sack has still delivered the rice, and refusing to match it would leave the
+ * order open forever over a packaging detail. Products ordered by name have no
+ * item to match on, so they are ticked off by their order line.
+ *
+ * Voided lines are skipped: management has said they are not coming.
  */
 export async function applyReceiptToPo(
     trx: Tx,
@@ -289,8 +370,11 @@ export async function applyReceiptToPo(
     locationId: number,
     supplierId: number,
     receivedBy: number,
-    received: { itemId: number; qtyBase: number }[]
-): Promise<void> {
+    received: { itemId: number; qtyBase: number }[],
+    named: { poLineId: string; qty: number }[] = []
+): Promise<Map<string, number>> {
+    /** What this delivery put against each order line, so the caller can record it. */
+    const taken = new Map<string, number>();
     const po = await trx
         .selectFrom('purchase_orders')
         .select(['id', 'status', 'supplier_id'])
@@ -315,8 +399,10 @@ export async function applyReceiptToPo(
 
     const lines = await trx
         .selectFrom('purchase_order_lines')
-        .select(['id', 'item_id', 'qty_base', 'qty_received_base'])
+        .select(['id', 'item_id', 'qty_base', 'qty_received_base', 'qty_credited_base'])
         .where('po_id', '=', poId)
+        .where('item_id', 'is not', null)
+        .where('voided_at', 'is', null)
         .orderBy('id')
         .execute();
 
@@ -330,16 +416,20 @@ export async function applyReceiptToPo(
     // one, which would leave the second permanently outstanding and the order
     // permanently open.
     for (const line of lines) {
-        const arrived = wanted.get(line.item_id);
+        const itemId = line.item_id!;
+        const arrived = wanted.get(itemId);
         if (arrived === undefined || arrived <= 0) continue;
 
         const alreadyIn = Number(line.qty_received_base);
-        const outstanding = Math.max(0, Number(line.qty_base) - alreadyIn);
+        const outstanding = Math.max(
+            0,
+            Number(line.qty_base) - alreadyIn - Number(line.qty_credited_base)
+        );
 
         // The last line of an item takes any surplus: over-delivery is real,
         // and the stock has physically arrived either way.
         const isLastForItem = !lines.some(
-            (other) => other.item_id === line.item_id && Number(other.id) > Number(line.id)
+            (other) => other.item_id === itemId && Number(other.id) > Number(line.id)
         );
         const take = isLastForItem ? arrived : Math.min(arrived, outstanding);
         if (take <= 0) continue;
@@ -349,39 +439,144 @@ export async function applyReceiptToPo(
             .set({ qty_received_base: round3(alreadyIn + take) })
             .where('id', '=', line.id)
             .execute();
+        taken.set(String(line.id), round3((taken.get(String(line.id)) ?? 0) + take));
 
-        wanted.set(line.item_id, round3(arrived - take));
+        wanted.set(itemId, round3(arrived - take));
     }
 
-    const after = await trx
-        .selectFrom('purchase_order_lines')
-        .select(['qty_base', 'qty_received_base'])
-        .where('po_id', '=', poId)
-        .execute();
+    for (const n of named) {
+        const line = await trx
+            .selectFrom('purchase_order_lines')
+            .select(['id', 'qty_received_base', 'voided_at', 'description'])
+            .where('id', '=', n.poLineId)
+            .where('po_id', '=', poId)
+            .where('item_id', 'is', null)
+            .executeTakeFirst();
+        if (!line) throw badRequest('That product is not on this order');
+        if (line.voided_at) throw conflict(`${line.description} was taken off the order`);
 
-    const complete = after.every(
-        (l) => Number(l.qty_received_base) >= Number(l.qty_base)
-    );
+        await trx
+            .updateTable('purchase_order_lines')
+            .set({ qty_received_base: round3(Number(line.qty_received_base) + n.qty) })
+            .where('id', '=', line.id)
+            .execute();
+        taken.set(String(line.id), round3((taken.get(String(line.id)) ?? 0) + n.qty));
+    }
 
-    await trx
-        .updateTable('purchase_orders')
-        .set(
-            complete
-                ? { status: 'done', closed_at: new Date() }
-                : // Part-delivered orders move to "ordered" if they were still
-                  // sitting at "approved": something has physically been sent,
-                  // whether or not anyone pressed the button first.
-                  { status: 'ordered' }
-        )
-        .where('id', '=', poId)
-        .execute();
+    const complete = await refreshPoStatus(trx, poId);
 
     await audit(trx, {
         userId: receivedBy,
         action: complete ? 'po.received' : 'po.partReceived',
         entity: 'purchase_orders',
         entityId: poId,
-        after: { lines: received.length }
+        after: { lines: received.length + named.length }
+    });
+
+    return taken;
+}
+
+/**
+ * Close the order if nothing is left to wait for, else mark it on order.
+ *
+ * "Nothing left" is every line either fully received or voided. Part-delivered
+ * orders move to "ordered" if they were still sitting at "approved":
+ * something has physically been sent, whether or not anyone pressed the
+ * button first. Returns whether the order is now complete.
+ */
+async function refreshPoStatus(trx: Tx, poId: string): Promise<boolean> {
+    const lines = await trx
+        .selectFrom('purchase_order_lines')
+        .select(['qty_base', 'qty_received_base', 'qty_credited_base', 'voided_at'])
+        .where('po_id', '=', poId)
+        .execute();
+
+    // Received, or refused and settled by credit note: either way, not coming.
+    const complete = lines.every(
+        (l) =>
+            l.voided_at !== null ||
+            Number(l.qty_received_base) + Number(l.qty_credited_base) >= Number(l.qty_base) - 0.0005
+    );
+    const anyIn = lines.some((l) => Number(l.qty_received_base) > 0);
+
+    if (complete) {
+        await trx
+            .updateTable('purchase_orders')
+            .set({ status: 'done', closed_at: new Date() })
+            .where('id', '=', poId)
+            .execute();
+    } else if (anyIn) {
+        await trx
+            .updateTable('purchase_orders')
+            .set({ status: 'ordered' })
+            .where('id', '=', poId)
+            .where('status', '=', 'approved')
+            .execute();
+    }
+
+    return complete;
+}
+
+/**
+ * Take one undelivered line off an order.
+ *
+ * Nine of the ten things came and the supplier has none of the tenth. Without
+ * this the order waits forever on it, or gets closed short as a whole. The
+ * line stays on the order, marked, so it is still on the record that it was
+ * asked for; if it was part-delivered, what did arrive stays received.
+ */
+export async function voidPoLine(
+    poId: string,
+    lineId: string,
+    locationId: number,
+    voidedBy: number,
+    reason: string
+): Promise<{ orderComplete: boolean }> {
+    return db.transaction().execute(async (trx) => {
+        const po = await trx
+            .selectFrom('purchase_orders')
+            .select(['id', 'status'])
+            .where('id', '=', poId)
+            .where('location_id', '=', locationId)
+            .executeTakeFirst();
+        if (!po) throw notFound('That purchase order');
+        if (!RECEIVABLE.includes(po.status)) {
+            throw conflict(
+                po.status === 'requested'
+                    ? 'That order has not been approved yet - change it there instead'
+                    : `That purchase order is already ${po.status}`
+            );
+        }
+
+        const line = await trx
+            .selectFrom('purchase_order_lines')
+            .select(['id', 'qty_base', 'qty_received_base', 'qty_credited_base', 'voided_at'])
+            .where('id', '=', lineId)
+            .where('po_id', '=', poId)
+            .executeTakeFirst();
+        if (!line) throw notFound('That line');
+        if (line.voided_at) throw conflict('That line was already taken off');
+        if (Number(line.qty_received_base) + Number(line.qty_credited_base) >= Number(line.qty_base)) {
+            throw conflict('That line has all arrived - there is nothing to take off');
+        }
+
+        await trx
+            .updateTable('purchase_order_lines')
+            .set({ voided_at: new Date(), voided_by: voidedBy, void_reason: reason })
+            .where('id', '=', line.id)
+            .execute();
+
+        const orderComplete = await refreshPoStatus(trx, poId);
+
+        await audit(trx, {
+            userId: voidedBy,
+            action: 'po.lineVoid',
+            entity: 'purchase_orders',
+            entityId: poId,
+            after: { lineId, reason, orderComplete }
+        });
+
+        return { orderComplete };
     });
 }
 

@@ -101,7 +101,6 @@ describe('building the item master', () => {
                 stockUnit: 'g',
                 parLevel: 20000,
                 reorderPoint: 5000,
-                isCritical: false,
                 packs: [
                     { packName: '1 kg pack', qtyInStockUnit: 1000, isDefaultPurchase: false },
                     { packName: '25 kg sack', qtyInStockUnit: 25000, isDefaultPurchase: true }

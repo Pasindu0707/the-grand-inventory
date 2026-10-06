@@ -38,7 +38,7 @@ const q = (s: unknown) =>
 type Item = {
   id: number; code: string; name: string; category: string; storage: string;
   stock_unit: string; pack_name: string; pack_qty: number; par: number;
-  reorder: number; shelf: string; critical: boolean;
+  reorder: number; shelf: string;
 };
 
 // ---------------------------------------------------------------------------
@@ -52,7 +52,8 @@ const items: Item[] = rows.map((line, i) => {
   return {
     id: i + 1, code: c[0], name: c[1], category: c[2], storage: c[3],
     stock_unit: c[4], pack_name: c[5], pack_qty: +c[6], par: +c[7],
-    reorder: +c[8], shelf: c[9], critical: c[10] === "TRUE",
+    // Column 10 (critical) is no longer read: there is no daily count for it to choose.
+    reorder: +c[8], shelf: c[9],
   };
 });
 
@@ -127,6 +128,14 @@ const SUPPLIERS = [
   { id: 7, name: "Colombo Bar Supplies" },
   { id: 8, name: "CleanPro Chemicals" },
 ];
+
+/** Who delivers an item, by its category. */
+function supplierFor(it: { category: string }): number {
+  return it.category === "Dairy" ? 4 : it.category === "Meat" ? 5
+    : it.category === "Seafood" ? 2 : it.category === "Vegetables" ? 3
+    : it.category === "Fruit" ? 3 : it.category === "Beverages" ? 6
+    : it.category.startsWith("Bar") ? 7 : it.category === "Cleaning" ? 8 : 1;
+}
 
 // What the kitchen declares it made each day - the Phase 2 depletion driver.
 //
@@ -221,14 +230,19 @@ w(cats.map((c, i) =>
   `  (${i + 1},${q(c)},'${items.find((x) => x.category === c)!.storage}')`).join(",\n") +
   "\non conflict (id) do nothing;");
 
-w("insert into items (id,code,name,category_id,stock_unit,par_level,reorder_point,shelf_life_days,is_critical,is_demo) values");
+w("insert into items (id,code,name,category_id,stock_unit,par_level,reorder_point,shelf_life_days,is_demo) values");
 w(items.map((i) =>
   `  (${i.id},${q(i.code)},${q(i.name)},${cats.indexOf(i.category) + 1},${q(i.stock_unit)},` +
-  `${i.par},${i.reorder},${i.shelf || "null"},${i.critical},true)`).join(",\n") + ";");
+  `${i.par},${i.reorder},${i.shelf || "null"},true)`).join(",\n") + ";");
 
 w("insert into item_packs (id,item_id,pack_name,qty_in_stock_unit,is_default_purchase,is_demo) values");
 w(items.map((i) =>
   `  (${i.id},${i.id},${q(i.pack_name)},${i.pack_qty},true,true)`).join(",\n") + ";");
+
+// What each supplier delivers: the list a purchase order starts from. The same
+// category rule the deliveries below follow, so the two agree.
+w("insert into supplier_items (supplier_id,item_id,is_demo) values");
+w(items.map((i) => `  (${supplierFor(i)},${i.id},true)`).join(",\n") + ";");
 
 w("insert into products (id,location_id,code,name,section_id,yield_qty,is_demo) values");
 w(PRODUCTS.map((p) =>
@@ -306,10 +320,7 @@ for (let d = 0; d < DAYS; d++) {
   const low = items.filter((i) => get(1, i.id) < i.reorder);
   const bySupplier = new Map<number, Item[]>();
   for (const it of low) {
-    const s = it.category === "Dairy" ? 4 : it.category === "Meat" ? 5
-      : it.category === "Seafood" ? 2 : it.category === "Vegetables" ? 3
-      : it.category === "Fruit" ? 3 : it.category === "Beverages" ? 6
-      : it.category.startsWith("Bar") ? 7 : it.category === "Cleaning" ? 8 : 1;
+    const s = supplierFor(it);
     (bySupplier.get(s) ?? bySupplier.set(s, []).get(s)!).push(it);
   }
   for (const [sup, list] of bySupplier) {
@@ -526,18 +537,7 @@ for (let d = 0; d < DAYS; d++) {
     if (sent) move(date, 6, it, -qty, "return", supRetId, 3, r.reason);
   }
 
-  // --- counts: critical items daily, full store weekly (Sunday)
-  const daily = items.filter((i) => i.critical);
-  cntId++;
-  cnt.push(`  (${cntId},1,1,'daily_critical','${date}',3,2,'${date} 22:00+05:30',true)`);
-  for (const it of daily) {
-    const expected = get(1, it.id);
-    // small honest counting noise; shrinkage shows up as a real gap
-    const counted = Math.max(0, Math.round(expected * between(0.995, 1.002)));
-    const diff = counted - expected;
-    cntL.push(`  (${++lineId},${cntId},${it.id},${expected.toFixed(3)},${counted},true)`);
-    if (diff !== 0) move(date, 1, it, diff, "count", cntId, 3, "COUNTADJ");
-  }
+  // --- counts: weekly (Sunday). There is no daily count.
   // Sunday: the drinks shelf is counted bottle by bottle. It is a count of the
   // kitchen, because that is where the shelf is, and it covers the spirits,
   // beer and wine rather than everything the kitchen holds -- a cook does not

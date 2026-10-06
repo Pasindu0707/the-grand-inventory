@@ -85,8 +85,6 @@ import { AppPaginator, type PageChange } from '@/shared/paginator.component';
                             <td class="px-4 py-2">
                                 @if (row.belowReorder) {
                                     <p-tag severity="danger" value="Below reorder"></p-tag>
-                                } @else if (row.isCritical) {
-                                    <p-tag severity="info" value="Counted daily"></p-tag>
                                 }
                             </td>
                         </tr>

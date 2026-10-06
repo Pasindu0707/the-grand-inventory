@@ -7,3 +7,7 @@ dist/
 
 # Generated output — rebuild with: npm run db:generate
 seed.sql
+
+# Local database dumps taken before migrations. They hold real data, PIN hashes
+# included, and must never be committed.
+*.dump

@@ -19,10 +19,23 @@
  *
  * Each report still says what it is *not* telling you. A number without its
  * caveat gets acted on wrongly.
+ *
+ * Above both groups sit two plain lists, read weekly or monthly rather than
+ * over any range: what was bought, and what each section asked for and got.
+ * They pick a week or a month and step back and forward through them, because
+ * that is how anybody here asks for them.
+ *
+ * Every report prints. Print opens the same report in its own tab at
+ * /reports/print - no sidebar, no buttons, black on white, with a heading that
+ * says which branch, which period, and who printed it when - the same way the
+ * delivery note does.
  */
-import { Component, computed, inject, signal } from '@angular/core';
+import { Component, computed, inject, signal, OnDestroy, OnInit } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
+import { ActivatedRoute } from '@angular/router';
+import { AuthStore } from '@/core/auth.store';
+import { openPrint } from '@/core/print';
 import { ButtonModule } from 'primeng/button';
 import { TagModule } from 'primeng/tag';
 import { GrandService } from '@/core/grand.service';
@@ -37,6 +50,10 @@ import type {
     DateRange,
     DeadStockRow,
     OpenPoRow,
+    PurchaseListReport,
+    PurchaseListRow,
+    SectionRequestReport,
+    SectionRequestRow,
     ServiceLevelRow,
     ShrinkageRow,
     StockOnHandRow,
@@ -47,6 +64,8 @@ import type {
 } from '@/core/types';
 
 type ReportKey =
+    | 'purchaseList'
+    | 'sectionRequests'
     | 'usage'
     | 'shrinkage'
     | 'wastage'
@@ -67,6 +86,24 @@ interface ReportCard {
     blurb: string;
     icon: string;
 }
+
+/** Read by the week or the month, not over any range. */
+const LIST_REPORTS: ReportCard[] = [
+    {
+        key: 'purchaseList',
+        title: 'What we bought',
+        blurb: 'Everything received from suppliers in the week or month, supplier by supplier.',
+        icon: 'pi-shopping-cart'
+    },
+    {
+        key: 'sectionRequests',
+        title: 'What each section asked for',
+        blurb: 'What Restaurant, the kitchens and Cleaning asked the store for, and what they got.',
+        icon: 'pi-arrow-right-arrow-left'
+    }
+];
+
+const PERIODIC: ReportKey[] = ['purchaseList', 'sectionRequests'];
 
 /**
  * The catalogue.
@@ -156,8 +193,155 @@ const OPS_REPORTS: ReportCard[] = [
     selector: 'app-reports',
     standalone: true,
     imports: [CommonModule, FormsModule, ButtonModule, TagModule],
+    styles: [
+        `
+            .glance {
+                display: grid;
+                grid-template-columns: repeat(auto-fit, minmax(9.5rem, 1fr));
+                gap: 0.75rem;
+            }
+            .glance__tile {
+                border: 1px solid var(--p-content-border-color);
+                border-radius: 0.9rem;
+                padding: 0.85rem 1rem;
+                background: var(--p-content-background);
+            }
+            .glance__tile--wide {
+                min-width: 12rem;
+            }
+            .glance__tile--warn {
+                border-color: #fdba74;
+            }
+            .glance__n {
+                font-size: 1.75rem;
+                font-weight: 700;
+                line-height: 1.15;
+            }
+            .glance__l {
+                font-size: 0.8rem;
+                color: var(--p-text-muted-color);
+            }
+            .glance__flags {
+                display: flex;
+                flex-direction: column;
+                gap: 0.1rem;
+                margin-top: 0.4rem;
+                font-size: 0.8rem;
+                font-weight: 600;
+            }
+
+            /* ── Printed sheet ─────────────────────────────────────────── */
+            :host(.is-print) {
+                display: block;
+                min-height: 100vh;
+                background: #e5e5e5;
+                color: #111;
+            }
+            :host(.is-print) .report-wrap {
+                max-width: 210mm;
+                margin: 0 auto 2rem;
+                padding: 12mm 14mm;
+                background: #fff;
+                box-shadow: 0 2px 12px rgba(0, 0, 0, 0.15);
+                font-size: 10.5pt;
+            }
+            .print-toolbar {
+                display: flex;
+                gap: 0.5rem;
+                justify-content: center;
+                padding: 1rem;
+                margin: -12mm -14mm 0;
+                background: #e5e5e5;
+            }
+            .print-toolbar button {
+                padding: 0.6rem 1.2rem;
+                border-radius: 0.5rem;
+                border: 1px solid #999;
+                background: #fff;
+                color: #111;
+                font-weight: 600;
+                cursor: pointer;
+            }
+            .print-toolbar button.primary {
+                background: #111;
+                color: #fff;
+                border-color: #111;
+            }
+            .print-head {
+                display: flex;
+                justify-content: space-between;
+                gap: 1.5rem;
+                padding-bottom: 0.8rem;
+                border-bottom: 2px solid #111;
+            }
+            .print-head h1 {
+                font-size: 18pt;
+                font-weight: 700;
+                margin: 0.15rem 0;
+            }
+            .print-head p {
+                color: #444;
+                margin: 0;
+            }
+            .print-kicker {
+                font-size: 8.5pt;
+                letter-spacing: 0.12em;
+                text-transform: uppercase;
+                color: #555;
+            }
+            .print-meta {
+                text-align: right;
+                font-size: 9.5pt;
+                white-space: nowrap;
+            }
+            .print-meta span {
+                display: inline-block;
+                min-width: 4.5rem;
+                color: #666;
+            }
+            :host(.is-print) .overflow-x-auto,
+            :host(.is-print) .overflow-hidden {
+                overflow: visible !important;
+            }
+            :host(.is-print) table th,
+            :host(.is-print) table td {
+                color: #111;
+            }
+            :host(.is-print) .report-card,
+            :host(.is-print) .glance__tile,
+            :host(.is-print) .rounded-2xl {
+                background: #fff !important;
+                border-color: #bbb !important;
+            }
+            :host(.is-print) tr {
+                break-inside: avoid;
+            }
+            :host(.is-print) thead {
+                display: table-header-group;
+            }
+            :host(.is-print) h2 {
+                break-after: avoid;
+            }
+
+            @media print {
+                :host(.is-print) {
+                    background: #fff;
+                }
+                :host(.is-print) .report-wrap {
+                    max-width: none;
+                    margin: 0;
+                    padding: 0;
+                    box-shadow: none;
+                }
+                .print-toolbar {
+                    display: none;
+                }
+            }
+        `
+    ],
+    host: { '[class.is-print]': 'printMode' },
     template: `
-        <div class="space-y-6">
+        <div class="space-y-6 report-wrap">
             <!-- ── The list ─────────────────────────────────────────────── -->
             @if (!selected()) {
                 <div>
@@ -165,6 +349,28 @@ const OPS_REPORTS: ReportCard[] = [
                     <p class="text-surface-500 text-sm">
                         Pick one. Each runs on its own dates.
                     </p>
+                </div>
+
+                <div class="space-y-3">
+                    <h2 class="text-sm font-semibold uppercase tracking-wider text-surface-500">
+                        Weekly and monthly lists
+                    </h2>
+                    <div class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
+                        @for (card of listReports; track card.key) {
+                            <button
+                                type="button"
+                                class="text-left rounded-2xl border border-surface bg-surface-0 dark:bg-surface-900 p-5 hover:border-primary transition-colors"
+                                (click)="open(card.key)">
+                                <div class="flex items-start gap-3">
+                                    <i class="pi {{ card.icon }} text-xl text-primary mt-0.5"></i>
+                                    <div class="min-w-0">
+                                        <div class="font-semibold">{{ card.title }}</div>
+                                        <p class="text-sm text-surface-500 mt-1">{{ card.blurb }}</p>
+                                    </div>
+                                </div>
+                            </button>
+                        }
+                    </div>
                 </div>
 
                 <div class="space-y-3">
@@ -215,6 +421,27 @@ const OPS_REPORTS: ReportCard[] = [
             <!-- ── One report ───────────────────────────────────────────── -->
             @if (card(); as c) {
                 <div class="space-y-6">
+                    @if (printMode) {
+                        <!-- The printed sheet's own heading: what, where, when, who. -->
+                        <div class="print-toolbar">
+                            <button type="button" (click)="closeTab()">Close tab</button>
+                            <button type="button" class="primary" [disabled]="loading()" (click)="printNow()">
+                                Print
+                            </button>
+                        </div>
+                        <header class="print-head">
+                            <div>
+                                <div class="print-kicker">The Grand · {{ branchName() }}</div>
+                                <h1>{{ c.title }}</h1>
+                                <p>{{ c.blurb }}</p>
+                            </div>
+                            <div class="print-meta">
+                                <div><span>Period</span> {{ periodLabel() }}</div>
+                                <div><span>Printed</span> {{ printedAt }}</div>
+                                <div><span>By</span> {{ printedBy() }}</div>
+                            </div>
+                        </header>
+                    } @else {
                     <button
                         pButton
                         text
@@ -228,6 +455,29 @@ const OPS_REPORTS: ReportCard[] = [
                             <h1 class="text-2xl font-bold">{{ c.title }}</h1>
                             <p class="text-surface-500 text-sm">{{ c.blurb }}</p>
                         </div>
+                        @if (isPeriodic()) {
+                            <!-- A week or a month, and arrows to step through them. -->
+                            <div class="flex flex-wrap items-center gap-2">
+                                <div class="inline-flex rounded-lg border border-surface overflow-hidden" role="radiogroup" aria-label="Period">
+                                    @for (k of periodKinds; track k.value) {
+                                        <button
+                                            type="button"
+                                            role="radio"
+                                            class="px-3 py-2 text-sm font-medium"
+                                            [attr.aria-checked]="period() === k.value"
+                                            [class.bg-primary]="period() === k.value"
+                                            [class.text-primary-contrast]="period() === k.value"
+                                            (click)="setPeriod(k.value)">
+                                            {{ k.label }}
+                                        </button>
+                                    }
+                                </div>
+                                <button pButton outlined size="small" icon="pi pi-chevron-left" aria-label="Earlier" (click)="shift(-1)"></button>
+                                <span class="min-w-48 text-center font-semibold">{{ periodLabel() }}</span>
+                                <button pButton outlined size="small" icon="pi pi-chevron-right" aria-label="Later" (click)="shift(1)"></button>
+                                <button pButton icon="pi pi-print" label="Print" [disabled]="loading()" (click)="print()"></button>
+                            </div>
+                        } @else {
                         <div class="flex items-end gap-2">
                             <div>
                                 <label class="block text-xs text-surface-500 mb-1">From</label>
@@ -251,11 +501,207 @@ const OPS_REPORTS: ReportCard[] = [
                                 label="Run"
                                 [loading]="loading()"
                                 (click)="load()"></button>
+                            <button
+                                pButton
+                                outlined
+                                icon="pi pi-print"
+                                label="Print"
+                                [disabled]="loading()"
+                                (click)="print()"></button>
                         </div>
+                        }
                     </div>
+                    }
 
                     @if (error()) {
                         <div class="app-note app-note--error">{{ error() }}</div>
+                    }
+
+                    <!-- What we bought -->
+                    @if (selected() === 'purchaseList') {
+                        @if (purchases(); as pl) {
+                            <div class="glance">
+                                <div class="glance__tile">
+                                    <div class="glance__n">{{ pl.summary.deliveries }}</div>
+                                    <div class="glance__l">deliveries</div>
+                                </div>
+                                <div class="glance__tile">
+                                    <div class="glance__n">{{ pl.summary.suppliers }}</div>
+                                    <div class="glance__l">suppliers</div>
+                                </div>
+                                <div class="glance__tile">
+                                    <div class="glance__n">{{ pl.summary.lines }}</div>
+                                    <div class="glance__l">different things bought</div>
+                                </div>
+                                <div class="glance__tile" [class.glance__tile--warn]="pl.summary.deliveriesWithReturns > 0">
+                                    <div class="glance__n">{{ pl.summary.deliveriesWithReturns }}</div>
+                                    <div class="glance__l">deliveries with goods sent back</div>
+                                </div>
+                                <div class="glance__tile">
+                                    <div class="glance__n">{{ pl.summary.ordersRaised }}</div>
+                                    <div class="glance__l">orders raised</div>
+                                </div>
+                            </div>
+
+                            @if (purchaseGroups().length === 0) {
+                                <p class="p-8 text-center text-surface-500 rounded-2xl border border-surface">
+                                    {{ loading() ? 'Loading…' : 'Nothing was received in this ' + period() + '.' }}
+                                </p>
+                            }
+                            @for (g of purchaseGroups(); track g.supplierId) {
+                                <section class="report-card rounded-2xl border border-surface bg-surface-0 dark:bg-surface-900 overflow-hidden">
+                                    <div class="px-5 py-3 border-b border-surface flex flex-wrap items-baseline justify-between gap-2">
+                                        <h2 class="font-semibold text-lg">{{ g.supplierName }}</h2>
+                                        <span class="text-sm text-surface-500">
+                                            {{ g.rows.length }} item{{ g.rows.length === 1 ? '' : 's' }}
+                                            @if (g.sentBack > 0) {
+                                                · <span class="text-orange-600">{{ g.sentBack }} with goods sent back</span>
+                                            }
+                                        </span>
+                                    </div>
+                                    <div class="overflow-x-auto">
+                                        <table class="w-full text-sm">
+                                            <thead class="text-left border-b border-surface text-surface-500">
+                                                <tr>
+                                                    <th class="px-5 py-2 font-medium">Item</th>
+                                                    <th class="px-4 py-2 font-medium text-right">Received</th>
+                                                    <th class="px-4 py-2 font-medium text-right">In total</th>
+                                                    <th class="px-4 py-2 font-medium text-right">Sent back</th>
+                                                    <th class="px-5 py-2 font-medium text-right">Deliveries</th>
+                                                </tr>
+                                            </thead>
+                                            <tbody>
+                                                @for (r of g.rows; track $index) {
+                                                    <tr class="border-b border-surface last:border-b-0">
+                                                        <td class="px-5 py-2">
+                                                            <span class="font-medium">{{ r.name }}</span>
+                                                            @if (r.itemId === null) {
+                                                                <span class="text-xs text-surface-500"> · not stock</span>
+                                                            }
+                                                        </td>
+                                                        <td class="px-4 py-2 text-right whitespace-nowrap">
+                                                            {{ r.qtyPacks > 0 ? received(r) : 'None kept' }}
+                                                        </td>
+                                                        <td class="px-4 py-2 text-right whitespace-nowrap font-semibold">
+                                                            {{ r.qtyPacks > 0 && r.itemId !== null ? q(r.qtyBase, r.unit ?? '') : '' }}
+                                                        </td>
+                                                        <td class="px-4 py-2 text-right whitespace-nowrap" [class.text-orange-600]="r.qtyPacksSentBack > 0">
+                                                            {{ r.qtyPacksSentBack > 0 ? sentBack(r) : '-' }}
+                                                        </td>
+                                                        <td class="px-5 py-2 text-right">{{ r.deliveries }}</td>
+                                                    </tr>
+                                                }
+                                            </tbody>
+                                        </table>
+                                    </div>
+                                </section>
+                            }
+                            <p class="text-xs text-surface-500">
+                                What arrived and was kept, by supplier, in the pack it came in. Sent back means
+                                refused at the door and taken away by the driver - never in stock. Deliveries
+                                counts the separate drops each item came on.
+                            </p>
+                        } @else {
+                            <p class="p-8 text-center text-surface-500">Loading…</p>
+                        }
+                    }
+
+                    <!-- What each section asked for -->
+                    @if (selected() === 'sectionRequests') {
+                        @if (requestsReport(); as rr) {
+                            @if (rr.sections.length === 0) {
+                                <p class="p-8 text-center text-surface-500 rounded-2xl border border-surface">
+                                    {{ loading() ? 'Loading…' : 'No section asked the store for anything in this ' + period() + '.' }}
+                                </p>
+                            } @else {
+                                <div class="glance">
+                                    @for (sec of rr.sections; track sec.sectionId) {
+                                        <div class="glance__tile glance__tile--wide" [class.glance__tile--warn]="sec.itemsShort > 0 || sec.waiting > 0">
+                                            <div class="font-semibold">{{ sec.sectionName }}</div>
+                                            <div class="glance__n">{{ sec.requests }}</div>
+                                            <div class="glance__l">request{{ sec.requests === 1 ? '' : 's' }} · {{ sec.items }} items</div>
+                                            <div class="glance__flags">
+                                                @if (sec.itemsShort > 0) {
+                                                    <span class="text-orange-600">{{ sec.itemsShort }} given short</span>
+                                                }
+                                                @if (sec.waiting > 0) {
+                                                    <span class="text-yellow-700 dark:text-yellow-400">{{ sec.waiting }} still waiting</span>
+                                                }
+                                                @if (sec.notConfirmed > 0) {
+                                                    <span class="text-surface-500">{{ sec.notConfirmed }} not yet confirmed</span>
+                                                }
+                                                @if (sec.itemsShort === 0 && sec.waiting === 0 && sec.notConfirmed === 0) {
+                                                    <span class="text-green-700 dark:text-green-400">All given in full</span>
+                                                }
+                                            </div>
+                                        </div>
+                                    }
+                                </div>
+
+                                @for (g of requestGroups(); track g.sectionId) {
+                                    <section class="report-card rounded-2xl border border-surface bg-surface-0 dark:bg-surface-900 overflow-hidden">
+                                        <div class="px-5 py-3 border-b border-surface">
+                                            <h2 class="font-semibold text-lg">{{ g.sectionName }}</h2>
+                                        </div>
+                                        <div class="overflow-x-auto">
+                                            <table class="w-full text-sm">
+                                                <thead class="text-left border-b border-surface text-surface-500">
+                                                    <tr>
+                                                        <th class="px-5 py-2 font-medium">Item</th>
+                                                        <th class="px-4 py-2 font-medium text-right">Asked for</th>
+                                                        <th class="px-4 py-2 font-medium text-right">Store sent</th>
+                                                        <th class="px-4 py-2 font-medium text-right">Section confirmed</th>
+                                                        <th class="px-5 py-2 font-medium">Note</th>
+                                                    </tr>
+                                                </thead>
+                                                <tbody>
+                                                    @for (r of g.rows; track r.itemId) {
+                                                        <tr class="border-b border-surface last:border-b-0">
+                                                            <td class="px-5 py-2">
+                                                                <span class="font-medium">{{ r.name }}</span>
+                                                                @if (r.requests > 1) {
+                                                                    <span class="text-xs text-surface-500"> · on {{ r.requests }} requests</span>
+                                                                }
+                                                            </td>
+                                                            <td class="px-4 py-2 text-right whitespace-nowrap">{{ q(r.qtyAsked, r.stockUnit) }}</td>
+                                                            <td class="px-4 py-2 text-right whitespace-nowrap font-semibold">{{ q(r.qtySent, r.stockUnit) }}</td>
+                                                            <td class="px-4 py-2 text-right whitespace-nowrap">{{ q(r.qtyConfirmed, r.stockUnit) }}</td>
+                                                            <td class="px-5 py-2">
+                                                                @if (r.qtyShort > 0) {
+                                                                    <span class="text-orange-600">{{ q(r.qtyShort, r.stockUnit) }} short</span>
+                                                                }
+                                                                @if (r.qtyWaiting > 0) {
+                                                                    <span class="text-yellow-700 dark:text-yellow-400">
+                                                                        {{ r.qtyShort > 0 ? ' · ' : '' }}{{ q(r.qtyWaiting, r.stockUnit) }} waiting
+                                                                    </span>
+                                                                }
+                                                                @if (r.qtySent > r.qtyConfirmed) {
+                                                                    <span class="text-surface-500">
+                                                                        {{ r.qtyShort > 0 || r.qtyWaiting > 0 ? ' · ' : '' }}{{ q(r.qtySent - r.qtyConfirmed, r.stockUnit) }} not confirmed
+                                                                    </span>
+                                                                }
+                                                                @if (r.qtyShort === 0 && r.qtyWaiting === 0 && r.qtySent <= r.qtyConfirmed) {
+                                                                    <span class="text-green-700 dark:text-green-400">In full</span>
+                                                                }
+                                                            </td>
+                                                        </tr>
+                                                    }
+                                                </tbody>
+                                            </table>
+                                        </div>
+                                    </section>
+                                }
+                                <p class="text-xs text-surface-500">
+                                    Asked for is what the section requested. Store sent is what the store handed
+                                    over. Section confirmed is what the section said arrived. Short means the store
+                                    sent less than was asked; waiting means the store has not answered yet;
+                                    not confirmed means it was sent but nobody in the section has confirmed it.
+                                    Cancelled requests are left out.
+                                </p>
+                            }
+                        } @else {
+                            <p class="p-8 text-center text-surface-500">Loading…</p>
+                        }
                     }
 
                     <!-- A. Usage variance -->
@@ -421,9 +867,6 @@ const OPS_REPORTS: ReportCard[] = [
                                                 <div>
                                                     <div class="font-medium">
                                                         {{ row.name }}
-                                                        @if (row.isCritical) {
-                                                            <p-tag severity="info" value="critical" styleClass="ml-2"></p-tag>
-                                                        }
                                                     </div>
                                                     <div class="text-xs text-surface-500 font-mono">{{ row.code }}</div>
                                                 </div>
@@ -995,11 +1438,32 @@ const OPS_REPORTS: ReportCard[] = [
         </div>
     `
 })
-export class ReportsComponent {
+export class ReportsComponent implements OnInit, OnDestroy {
     private api = inject(GrandService);
+    private auth = inject(AuthStore);
+    private route = inject(ActivatedRoute);
 
+    readonly listReports = LIST_REPORTS;
     readonly stockReports = STOCK_REPORTS;
     readonly opsReports = OPS_REPORTS;
+
+    /** True on /reports/print: the same report, as a sheet of paper. */
+    readonly printMode = this.route.snapshot.data['print'] === true;
+    readonly printedAt = new Date().toLocaleString('en-LK', {
+        day: 'numeric',
+        month: 'short',
+        year: 'numeric',
+        hour: '2-digit',
+        minute: '2-digit'
+    });
+    /** The theme the tab had, put back if this component is ever left in place. */
+    private wasDark = false;
+
+    readonly periodKinds = [
+        { value: 'week' as const, label: 'Week' },
+        { value: 'month' as const, label: 'Month' }
+    ];
+    readonly period = signal<'week' | 'month'>('week');
 
     /** Null is the list. Everything else is one report. */
     readonly selected = signal<ReportKey | null>(null);
@@ -1009,7 +1473,45 @@ export class ReportsComponent {
     readonly card = computed(() => {
         const key = this.selected();
         if (!key) return null;
-        return [...STOCK_REPORTS, ...OPS_REPORTS].find((c) => c.key === key) ?? null;
+        return [...LIST_REPORTS, ...STOCK_REPORTS, ...OPS_REPORTS].find((c) => c.key === key) ?? null;
+    });
+
+    readonly isPeriodic = computed(() => {
+        const key = this.selected();
+        return key !== null && PERIODIC.includes(key);
+    });
+
+    // The two lists
+    readonly purchases = signal<PurchaseListReport | null>(null);
+    readonly requestsReport = signal<SectionRequestReport | null>(null);
+
+    /** One block per supplier, biggest list first. */
+    readonly purchaseGroups = computed(() => {
+        const rows = this.purchases()?.rows ?? [];
+        const groups = new Map<number, { supplierId: number; supplierName: string; rows: PurchaseListRow[]; sentBack: number }>();
+        for (const r of rows) {
+            const g = groups.get(r.supplierId) ?? {
+                supplierId: r.supplierId,
+                supplierName: r.supplierName,
+                rows: [],
+                sentBack: 0
+            };
+            g.rows.push(r);
+            if (r.qtyPacksSentBack > 0) g.sentBack++;
+            groups.set(r.supplierId, g);
+        }
+        return [...groups.values()].sort((a, b) => b.rows.length - a.rows.length);
+    });
+
+    /** One block per section, in the order of the tiles above. */
+    readonly requestGroups = computed(() => {
+        const report = this.requestsReport();
+        if (!report) return [];
+        return report.sections.map((sec) => ({
+            sectionId: sec.sectionId,
+            sectionName: sec.sectionName,
+            rows: report.rows.filter((r) => r.sectionId === sec.sectionId) as SectionRequestRow[]
+        })).filter((g) => g.rows.length > 0);
     });
 
     // The four
@@ -1048,11 +1550,103 @@ export class ReportsComponent {
         this.range.update((r) => ({ ...r, to }));
     }
 
+    ngOnInit(): void {
+        if (!this.printMode) return;
+        // Paper is white whatever the screen theme is.
+        this.wasDark = document.documentElement.classList.contains('app-dark');
+        document.documentElement.classList.remove('app-dark');
+
+        const q = this.route.snapshot.queryParamMap;
+        const key = q.get('key') as ReportKey | null;
+        const from = q.get('from');
+        const to = q.get('to');
+        const period = q.get('period');
+        if (period === 'week' || period === 'month') this.period.set(period);
+        if (from && to) this.range.set({ from, to });
+        if (!key) return;
+        this.selected.set(key);
+        void this.load().then(() => {
+            // After the sheet has painted, or the dialog prints a blank page.
+            if (q.get('print') === '1' && !this.error()) setTimeout(() => window.print(), 400);
+        });
+    }
+
+    ngOnDestroy(): void {
+        if (this.printMode && this.wasDark) document.documentElement.classList.add('app-dark');
+    }
+
     /** Open one report and run it. Nothing else is fetched. */
     open(key: ReportKey): void {
         this.selected.set(key);
         this.error.set(null);
+        // The lists are read a week or a month at a time; land on this one.
+        if (PERIODIC.includes(key)) this.setPeriod(this.period(), false);
         void this.load();
+    }
+
+    // ── Weeks and months ────────────────────────────────────────────────────
+
+    /** Snap the range to the week or month holding its end date (or today). */
+    setPeriod(kind: 'week' | 'month', run = true): void {
+        this.period.set(kind);
+        this.range.set(periodAround(kind, parseDay(this.range().to)));
+        if (run) void this.load();
+    }
+
+    /** One week or month earlier (-1) or later (+1). */
+    shift(step: number): void {
+        const start = parseDay(this.range().from);
+        if (this.period() === 'week') start.setDate(start.getDate() + 7 * step);
+        else start.setMonth(start.getMonth() + step, 1);
+        this.range.set(periodAround(this.period(), start));
+        void this.load();
+    }
+
+    /** "Week of 28 Sep - 4 Oct 2026", "October 2026", or the plain range. */
+    readonly periodLabel = computed(() => {
+        const { from, to } = this.range();
+        const a = parseDay(from);
+        const b = parseDay(to);
+        if (this.isPeriodic() && this.period() === 'month') {
+            return a.toLocaleDateString('en-GB', { month: 'long', year: 'numeric' });
+        }
+        const left = a.toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short' });
+        const right = b.toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short', year: 'numeric' });
+        return this.isPeriodic() ? `${left} - ${right}` : `${a.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })} - ${b.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })}`;
+    });
+
+    // ── Printing ────────────────────────────────────────────────────────────
+
+    print(): void {
+        const key = this.selected();
+        if (!key) return;
+        openPrint('/reports/print', { key, ...this.range(), period: this.period() });
+    }
+
+    printNow(): void {
+        window.print();
+    }
+
+    closeTab(): void {
+        window.close();
+    }
+
+    branchName(): string {
+        return this.auth.location()?.name ?? '';
+    }
+
+    printedBy(): string {
+        return this.auth.user()?.name ?? '';
+    }
+
+    received(r: PurchaseListRow): string {
+        return r.packName ? `${trimNum(r.qtyPacks)} × ${r.packName}` : `${trimNum(r.qtyPacks)} ${r.unit || 'each'}`;
+    }
+
+    sentBack(r: PurchaseListRow): string {
+        return r.packName
+            ? `${trimNum(r.qtyPacksSentBack)} × ${r.packName}`
+            : `${trimNum(r.qtyPacksSentBack)} ${r.unit || 'each'}`;
     }
 
     back(): void {
@@ -1076,6 +1670,12 @@ export class ReportsComponent {
 
         try {
             switch (key) {
+                case 'purchaseList':
+                    this.purchases.set(await this.api.purchaseListReport(range));
+                    break;
+                case 'sectionRequests':
+                    this.requestsReport.set(await this.api.sectionRequestsReport(range));
+                    break;
                 case 'usage':
                     this.usage.set((await this.api.usageVariance(range)).rows);
                     break;
@@ -1168,4 +1768,32 @@ export class ReportsComponent {
 
 function iso(d: Date): string {
     return d.toISOString().slice(0, 10);
+}
+
+/** Local calendar date as YYYY-MM-DD, without the UTC shift toISOString makes. */
+function localDay(d: Date): string {
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
+
+function parseDay(s: string): Date {
+    const [y, m, d] = s.split('-').map(Number);
+    return new Date(y!, (m ?? 1) - 1, d ?? 1);
+}
+
+/** The Monday-to-Sunday week, or the calendar month, that holds a date. */
+function periodAround(kind: 'week' | 'month', day: Date): DateRange {
+    if (kind === 'month') {
+        const first = new Date(day.getFullYear(), day.getMonth(), 1);
+        const last = new Date(day.getFullYear(), day.getMonth() + 1, 0);
+        return { from: localDay(first), to: localDay(last) };
+    }
+    const monday = new Date(day);
+    monday.setDate(day.getDate() - ((day.getDay() + 6) % 7));
+    const sunday = new Date(monday);
+    sunday.setDate(monday.getDate() + 6);
+    return { from: localDay(monday), to: localDay(sunday) };
+}
+
+function trimNum(n: number): string {
+    return n.toLocaleString('en-LK', { maximumFractionDigits: 2 });
 }

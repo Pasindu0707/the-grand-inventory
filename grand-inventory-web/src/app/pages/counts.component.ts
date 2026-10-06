@@ -51,7 +51,7 @@ import { InputTextModule } from 'primeng/inputtext';
             <!-- Counting.
                  One item per screen used to be the only way through: a hundred
                  items meant a hundred screens and no way to stop, which is what
-                 made a daily count something people put off. This is a sheet -
+                 made a count something people put off. This is a sheet -
                  fill in what you actually counted, leave the rest blank, finish
                  whenever. Blank means untouched, and close leaves those lines
                  exactly as they were.
@@ -246,7 +246,6 @@ import { InputTextModule } from 'primeng/inputtext';
                                 class="w-full px-3 py-2 rounded-lg border border-surface bg-surface-0 dark:bg-surface-900"
                                 [ngModel]="countType()"
                                 (ngModelChange)="countType.set($event)">
-                                <option value="daily_critical">Daily - critical items</option>
                                 <option value="weekly_full">Weekly - full</option>
                                 <option value="monthly_full">Monthly - full</option>
                             </select>
@@ -320,7 +319,7 @@ export class CountsComponent implements OnInit {
         const open = this.auth.sections().filter((s) => s.isActive);
         return allowed ? open.filter((s) => allowed.includes(s.id)) : open;
     });
-    readonly countType = signal<CountType>('daily_critical');
+    readonly countType = signal<CountType>('weekly_full');
     private countId: string | null = null;
 
     readonly current = computed(() => this.lines()[this.index()] ?? null);
@@ -404,7 +403,6 @@ export class CountsComponent implements OnInit {
     label(type: string): string {
         return (
             {
-                daily_critical: 'Daily critical',
                 weekly_full: 'Weekly full',
                 monthly_full: 'Monthly full'
             }[type] ?? type

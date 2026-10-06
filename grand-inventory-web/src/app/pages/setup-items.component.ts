@@ -138,9 +138,6 @@ const UNITS: { unit: string; label: string; hint: string }[] = [
                                             <span class="text-xs font-mono text-surface-500">{{
                                                 item.code
                                             }}</span>
-                                            @if (item.isCritical) {
-                                                <p-tag severity="warn" value="Counted daily"></p-tag>
-                                            }
                                             @if (!item.isActive) {
                                                 <p-tag severity="secondary" value="Retired"></p-tag>
                                             }
@@ -381,20 +378,6 @@ const UNITS: { unit: string; label: string; hint: string }[] = [
                             [ngModel]="shelfLifeDays()"
                             (ngModelChange)="shelfLifeDays.set($event)" />
                     </div>
-                    <label class="flex items-start gap-2 pt-7 cursor-pointer">
-                        <input
-                            type="checkbox"
-                            class="mt-1"
-                            [checked]="isCritical()"
-                            (change)="isCritical.set(!isCritical())" />
-                        <span>
-                            <span class="text-sm font-medium">Count this every day</span>
-                            <span class="block text-xs text-surface-500">
-                                For the expensive and the easily lost. Everything ticked here
-                                lands on the daily count.
-                            </span>
-                        </span>
-                    </label>
                 </div>
 
                 <!-- Existing packs are edited against the server, because a
@@ -567,7 +550,6 @@ export class SetupItemsComponent implements OnInit {
     readonly parLevel = signal<string | number>(0);
     readonly reorderPoint = signal<string | number>(0);
     readonly shelfLifeDays = signal<string | number>('');
-    readonly isCritical = signal(false);
     readonly packs = signal<PackDraft[]>([]);
 
     readonly newCategoryName = signal('');
@@ -674,7 +656,6 @@ export class SetupItemsComponent implements OnInit {
         this.parLevel.set(0);
         this.reorderPoint.set(0);
         this.shelfLifeDays.set('');
-        this.isCritical.set(false);
         this.packs.set([{ packName: '', qtyInStockUnit: null, isDefaultPurchase: true }]);
         // Deliberately no default: a category the admin did not choose is a
         // category nobody notices is wrong until a report is filed under it.
@@ -692,7 +673,6 @@ export class SetupItemsComponent implements OnInit {
         this.parLevel.set(item.parLevel);
         this.reorderPoint.set(item.reorderPoint);
         this.shelfLifeDays.set(item.shelfLifeDays ?? '');
-        this.isCritical.set(item.isCritical);
         this.packs.set([]);
         this.editing.set(true);
     }
@@ -748,8 +728,7 @@ export class SetupItemsComponent implements OnInit {
                     stockUnit: this.unitLocked() ? undefined : this.stockUnit(),
                     parLevel: Number(this.parLevel()) || 0,
                     reorderPoint: Number(this.reorderPoint()) || 0,
-                    shelfLifeDays: this.shelfLifeDays() === '' ? null : Number(this.shelfLifeDays()),
-                    isCritical: this.isCritical()
+                    shelfLifeDays: this.shelfLifeDays() === '' ? null : Number(this.shelfLifeDays())
                 });
 
                 // Any pack rows typed on an existing product are additions.
@@ -771,7 +750,6 @@ export class SetupItemsComponent implements OnInit {
                     parLevel: Number(this.parLevel()) || 0,
                     reorderPoint: Number(this.reorderPoint()) || 0,
                     shelfLifeDays: this.shelfLifeDays() === '' ? null : Number(this.shelfLifeDays()),
-                    isCritical: this.isCritical(),
                     packs: this.packs().map((p) => ({
                         packName: p.packName.trim(),
                         qtyInStockUnit: Number(p.qtyInStockUnit),

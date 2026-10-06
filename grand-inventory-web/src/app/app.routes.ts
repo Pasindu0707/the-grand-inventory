@@ -12,9 +12,44 @@ import { authGuard, roleGuard } from '@/core/guards';
  */
 export const appRoutes: Routes = [
     {
+        // Each branch signs in from its own link, /login/gb or /login/esp, so
+        // the tablet at the door never asks which branch it is standing in.
+        // Bare /login goes back to the branch this device last signed in at.
+        path: 'login/:branch',
+        loadComponent: () => import('./pages/login.component').then((m) => m.LoginComponent),
+        title: 'Sign in'
+    },
+    {
         path: 'login',
         loadComponent: () => import('./pages/login.component').then((m) => m.LoginComponent),
         title: 'Sign in'
+    },
+    {
+        // What is still to come from each supplier, to tick off by hand.
+        path: 'expected-deliveries/print',
+        canActivate: [authGuard, roleGuard],
+        data: { routeKey: 'grn', allowed: ['management', 'storekeeper'] },
+        loadComponent: () =>
+            import('./pages/expected-print.component').then((m) => m.ExpectedPrintComponent),
+        title: 'Delivery checklist'
+    },
+    {
+        // Any report as a printed sheet: ?key=…&from=…&to=…&period=week|month.
+        path: 'reports/print',
+        canActivate: [authGuard, roleGuard],
+        data: { routeKey: 'reports', allowed: ['management'], print: true },
+        loadComponent: () =>
+            import('./pages/reports.component').then((m) => m.ReportsComponent),
+        title: 'Report'
+    },
+    {
+        // Outside the console layout, so the sidebar never reaches the paper.
+        path: 'deliveries/:id/print',
+        canActivate: [authGuard, roleGuard],
+        data: { routeKey: 'deliveries', allowed: ['management', 'storekeeper'] },
+        loadComponent: () =>
+            import('./pages/delivery-print.component').then((m) => m.DeliveryPrintComponent),
+        title: 'Delivery note'
     },
     {
         path: '',
@@ -82,6 +117,16 @@ export const appRoutes: Routes = [
                 canActivate: [roleGuard],
                 loadComponent: () => import('./pages/grn.component').then((m) => m.GrnComponent),
                 title: 'Receive delivery'
+            },
+            {
+                path: 'delivery-reports',
+                data: { routeKey: 'deliveryReports', allowed: ['management'] },
+                canActivate: [roleGuard],
+                loadComponent: () =>
+                    import('./pages/delivery-reports.component').then(
+                        (m) => m.DeliveryReportsComponent
+                    ),
+                title: 'Delivery reports'
             },
             {
                 path: 'deliveries',

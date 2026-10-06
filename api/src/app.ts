@@ -18,7 +18,7 @@ import { authPlugin } from './plugins/auth.js';
 import { healthRoutes } from './routes/health.js';
 import { authRoutes } from './routes/auth.js';
 import { itemRoutes } from './routes/items.js';
-import { grnRoutes } from './routes/grn.js';
+import { deliveryReportRoutes, grnRoutes } from './routes/grn.js';
 import { stockRoutes } from './routes/stock.js';
 import { documentRoutes } from './routes/documents.js';
 import { uploadRoutes } from './routes/uploads.js';
@@ -145,6 +145,7 @@ export async function buildApp(): Promise<FastifyInstance> {
     await app.register(authRoutes, { prefix: `${v1}/auth` });
     await app.register(itemRoutes, { prefix: v1 });
     await app.register(grnRoutes, { prefix: v1 });
+    await app.register(deliveryReportRoutes, { prefix: v1 });
     await app.register(stockRoutes, { prefix: v1 });
     await app.register(documentRoutes, { prefix: v1 });
     await app.register(uploadRoutes, { prefix: v1 });

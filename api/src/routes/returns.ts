@@ -132,7 +132,7 @@ export async function returnRoutes(app: FastifyInstance) {
             // The section it comes *from* has to be one of yours. The section it
             // goes to is the branch's quarantine and is resolved by the service,
             // so a section login never names a room it cannot see.
-            await assertSectionAllowed(req.user.role, req.locationId, req.body.sectionId);
+            await assertSectionAllowed(req.user, req.locationId, req.body.sectionId);
             await assertSectionOpen(req.body.sectionId);
 
             const result = await returnToStore({
@@ -164,7 +164,7 @@ export async function returnRoutes(app: FastifyInstance) {
             }
         },
         async (req) => {
-            const mine = await sectionsForUser(req.user.role, req.locationId);
+            const mine = await sectionsForUser(req.user, req.locationId);
 
             const base = () => {
                 let q = db
@@ -282,7 +282,7 @@ export async function returnRoutes(app: FastifyInstance) {
             const result = await issueReturnableLines(req.params.id, req.locationId);
             // The same boundary every other section-scoped read honours: you
             // see requests released to a section you work with, and no others.
-            await assertSectionAllowed(req.user.role, req.locationId, result.sectionId);
+            await assertSectionAllowed(req.user, req.locationId, result.sectionId);
             return result;
         }
     );

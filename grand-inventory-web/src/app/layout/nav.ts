@@ -19,6 +19,8 @@ export interface NavItem {
     routeKey: RouteKey;
     /** Shown under the label on the Administration rows, which need a hint. */
     hint?: string;
+    /** A count of things waiting, shown beside the label. */
+    badge?: 'deliveryReports';
 }
 
 export interface NavGroup {
@@ -47,6 +49,13 @@ export const NAV: NavGroup[] = [
                 icon: 'pi pi-receipt',
                 path: '/deliveries',
                 routeKey: 'deliveries'
+            },
+            {
+                label: 'Delivery reports',
+                icon: 'pi pi-bell',
+                path: '/delivery-reports',
+                routeKey: 'deliveryReports',
+                badge: 'deliveryReports'
             },
             { label: 'Stock on hand', icon: 'pi pi-database', path: '/stock', routeKey: 'stock' },
             {

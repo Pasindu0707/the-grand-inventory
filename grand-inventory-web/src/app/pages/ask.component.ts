@@ -195,7 +195,7 @@ interface Line {
                     @if (canRaisePurchase()) {
                         <p class="text-sm">
                             You can still send the request - the store will give you what they have.
-                            Ask management to buy the rest as well?
+                            Start a purchase order for the rest as well?
                         </p>
                         <div class="flex items-center gap-2">
                             <input
@@ -205,7 +205,7 @@ interface Line {
                                 [checked]="raisePo()"
                                 (change)="raisePo.set(!raisePo())" />
                             <label for="raisePo" class="text-sm font-medium">
-                                Yes, ask management to buy the shortfall
+                                Yes, then take me to a purchase order for the shortfall
                             </label>
                         </div>
                     } @else {
@@ -385,32 +385,18 @@ export class AskComponent implements OnInit {
                 result.shortages.length > 0 && this.raisePo() && this.canRaisePurchase();
 
             if (alsoBuying) {
-                // Deliberately not fatal. The request is already in the
-                // database by this point, so a purchase that fails must not be
-                // reported as a request that failed: that is what had people
-                // pressing Send three times and the storekeeper receiving three
-                // copies of the same ask.
-                try {
-                    await this.api.raisePurchaseOrder({
-                        issueId: result.id,
-                        neededBy: this.neededBy() || null,
-                        reason: this.note() || 'Store did not have enough',
-                        // Ordered in packs. Anything with no pack set up is left
-                        // off rather than silently rounded into something else --
-                        // it cannot be bought until the admin gives it a pack.
-                        lines: result.shortages
-                            .filter((s) => s.itemPackId !== null && s.shortPacks > 0)
-                            .map((s) => ({ itemPackId: s.itemPackId!, qtyPacks: s.shortPacks }))
-                    });
-                    this.notify.success('Request sent, and management asked to buy the rest');
-                } catch (err) {
-                    this.notify.warning(
-                        `Request sent. The purchase could not be raised: ${apiErrorMessage(err)}`
-                    );
+                // A purchase is placed with a supplier, and only a person can
+                // say which one. So the request goes in now, and the purchase
+                // form opens with the shortfall waiting for that choice.
+                this.notify.success('Request sent. Now pick who to buy the rest from.');
+                if (this.embedded()) {
+                    this.resetForm();
+                    this.sent.emit();
                 }
-            } else {
-                this.notify.success('Request sent to the store');
+                await this.router.navigate(['/purchases'], { queryParams: { issue: result.id } });
+                return;
             }
+            this.notify.success('Request sent to the store');
 
             if (this.embedded()) {
                 this.resetForm();

@@ -33,6 +33,7 @@ import {
     sectionStockLines,
     uniqueViolation
 } from '../services/setup.js';
+import { replaceSupplierItems } from '../services/supplier-items.js';
 
 const STORAGE = z.enum(['dry', 'chiller', 'freezer', 'bar', 'chemical', 'packaging', 'gas']);
 
@@ -71,7 +72,6 @@ const itemRow = z.object({
     parLevel: z.number(),
     reorderPoint: z.number(),
     shelfLifeDays: z.number().nullable(),
-    isCritical: z.boolean(),
     isActive: z.boolean(),
     /** True once it has moved: the stock unit is frozen from here on. */
     hasMoved: z.boolean(),
@@ -271,7 +271,6 @@ export async function setupRoutes(app: FastifyInstance) {
                     'items.par_level as parLevel',
                     'items.reorder_point as reorderPoint',
                     'items.shelf_life_days as shelfLifeDays',
-                    'items.is_critical as isCritical',
                     'items.is_active as isActive'
                 ]);
             if (!req.query.includeRetired) q = q.where('items.is_active', '=', true);
@@ -353,7 +352,6 @@ export async function setupRoutes(app: FastifyInstance) {
                 parLevel: Number(i.parLevel),
                 reorderPoint: Number(i.reorderPoint),
                 shelfLifeDays: i.shelfLifeDays,
-                isCritical: i.isCritical,
                 isActive: i.isActive,
                 hasMoved: moved.has(i.id),
                 packs: (byItem.get(i.id) ?? []).map((p) => ({
@@ -383,7 +381,6 @@ export async function setupRoutes(app: FastifyInstance) {
                     parLevel: z.number().nonnegative().default(0),
                     reorderPoint: z.number().nonnegative().default(0),
                     shelfLifeDays: z.number().int().positive().nullish(),
-                    isCritical: z.boolean().default(false),
                     /**
                      * At least one, because an item with no pack cannot be
                      * received or ordered -- both work in packs. Something
@@ -421,7 +418,6 @@ export async function setupRoutes(app: FastifyInstance) {
                         par_level: req.body.parLevel,
                         reorder_point: req.body.reorderPoint,
                         shelf_life_days: req.body.shelfLifeDays ?? null,
-                        is_critical: req.body.isCritical,
                         is_active: true,
                         is_demo: false
                     })
@@ -477,7 +473,6 @@ export async function setupRoutes(app: FastifyInstance) {
                     parLevel: z.number().nonnegative().optional(),
                     reorderPoint: z.number().nonnegative().optional(),
                     shelfLifeDays: z.number().int().positive().nullish(),
-                    isCritical: z.boolean().optional(),
                     isActive: z.boolean().optional()
                 }),
                 response: { 200: ok }
@@ -512,7 +507,6 @@ export async function setupRoutes(app: FastifyInstance) {
                         req.body.shelfLifeDays === undefined
                             ? before.shelf_life_days
                             : req.body.shelfLifeDays,
-                    is_critical: req.body.isCritical ?? before.is_critical,
                     is_active: req.body.isActive ?? before.is_active
                 })
                 .where('id', '=', req.params.id)
@@ -687,7 +681,9 @@ export async function setupRoutes(app: FastifyInstance) {
                             vatNo: z.string().nullable(),
                             paymentTerms: z.string().nullable(),
                             isActive: z.boolean(),
-                            deliveries: z.number()
+                            deliveries: z.number(),
+                            /** How many things they are on file as delivering. */
+                            products: z.number()
                         })
                     )
                 }
@@ -730,8 +726,24 @@ export async function setupRoutes(app: FastifyInstance) {
                 .offset(offsetOf(req.query))
                 .execute();
 
+            const ids = rows.map((s) => s.id);
+            const counts =
+                ids.length === 0
+                    ? []
+                    : await db
+                          .selectFrom('supplier_items')
+                          .select(({ fn }) => ['supplier_id', fn.countAll<number>().as('n')])
+                          .where('supplier_id', 'in', ids)
+                          .groupBy('supplier_id')
+                          .execute();
+            const products = new Map(counts.map((c) => [c.supplier_id, Number(c.n)]));
+
             return toPage(
-                rows.map((s) => ({ ...s, deliveries: Number(s.deliveries) })),
+                rows.map((s) => ({
+                    ...s,
+                    deliveries: Number(s.deliveries),
+                    products: products.get(s.id) ?? 0
+                })),
                 counted?.total,
                 req.query
             );
@@ -844,6 +856,50 @@ export async function setupRoutes(app: FastifyInstance) {
                 entityId: req.params.id,
                 before,
                 after: req.body
+            });
+            return { ok: true as const };
+        }
+    );
+
+    /**
+     * What this supplier delivers, saved as a whole list.
+     *
+     * The purchase-order screen offers exactly this once the supplier is
+     * picked. Items from the item master, or products typed in by name that
+     * the item master does not have.
+     */
+    r.put(
+        '/setup/suppliers/:id/items',
+        {
+            preHandler: adminOnly(),
+            schema: {
+                params: z.object({ id: z.coerce.number().int().positive() }),
+                body: z.object({
+                    items: z
+                        .array(
+                            z.union([
+                                z.object({ itemId: z.number().int().positive() }),
+                                z.object({
+                                    name: z.string().trim().min(2).max(120),
+                                    unit: z.string().trim().max(30).nullish()
+                                })
+                            ])
+                        )
+                        .max(1000)
+                }),
+                response: { 200: ok }
+            }
+        },
+        async (req) => {
+            await db.transaction().execute(async (trx) => {
+                await replaceSupplierItems(trx, req.params.id, req.body.items, req.user.sub);
+                await audit(trx, {
+                    userId: req.user.sub,
+                    action: 'setup.supplier.items',
+                    entity: 'suppliers',
+                    entityId: req.params.id,
+                    after: { count: req.body.items.length }
+                });
             });
             return { ok: true as const };
         }

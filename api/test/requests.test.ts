@@ -453,6 +453,12 @@ describe('when the store is short', () => {
 
     it('will not let the kitchen buy its way around the store', async () => {
         const item = await wellStocked();
+        const supplier = await db
+            .selectFrom('suppliers')
+            .select('id')
+            .where('is_active', '=', true)
+            .orderBy('id')
+            .executeTakeFirstOrThrow();
 
         // The kitchen cannot see the store's shelf, so it is in no position to
         // say something must be bought. It asks; the store decides.
@@ -461,7 +467,7 @@ describe('when the store is short', () => {
                 method: 'POST',
                 url: '/api/v1/purchase-orders',
                 headers: H[role]!,
-                payload: { lines: [{ itemPackId: item.packId, qtyPacks: 2 }] }
+                payload: { supplierId: supplier.id, lines: [{ itemPackId: item.packId, qtyPacks: 2 }] }
             });
             expect(res.statusCode).toBe(403);
         }
@@ -469,6 +475,12 @@ describe('when the store is short', () => {
 
     it('turns the shortfall into a purchase order that only management can decide', async () => {
         const item = await wellStocked();
+        const supplier = await db
+            .selectFrom('suppliers')
+            .select('id')
+            .where('is_active', '=', true)
+            .orderBy('id')
+            .executeTakeFirstOrThrow();
 
         // Raised by the storekeeper: the person who just watched the shelf come
         // up short releasing the kitchen's request.
@@ -477,6 +489,7 @@ describe('when the store is short', () => {
             url: '/api/v1/purchase-orders',
             headers: H['storekeeper']!,
             payload: {
+                supplierId: supplier.id,
                 neededBy: '2026-08-25',
                 reason: 'not enough in the store for Saturday',
                 lines: [{ itemPackId: item.packId, qtyPacks: 2 }]
@@ -634,22 +647,22 @@ describe('admin', () => {
         expect(res.json().message).toMatch(/only admin/i);
     });
 
-    it('can put someone at any of the five branches', async () => {
+    it('can put someone at either trading branch', async () => {
         const branches = (
             await app.inject({ method: 'GET', url: '/api/v1/admin/branches', headers: H['admin']! })
         ).json();
         const codes = branches.map((b: { code: string }) => b.code);
-        expect(codes).toEqual(expect.arrayContaining(['GB', 'ESP', 'TCL', 'KAT', 'BANQ']));
+        expect(codes).toEqual(expect.arrayContaining(['GB', 'ESP']));
 
-        const lounge = branches.find((b: { code: string }) => b.code === 'TCL');
+        const espresso = branches.find((b: { code: string }) => b.code === 'ESP');
         const created = await app.inject({
             method: 'POST',
             url: '/api/v1/admin/users',
             headers: H['admin']!,
             payload: {
-                name: `Lounge Kitchen ${randomUUID().slice(0, 8)}`,
+                name: `Espresso Kitchen ${randomUUID().slice(0, 8)}`,
                 role: 'kitchen',
-                locationId: lounge.id,
+                locationId: espresso.id,
                 pin: '3690'
             }
         });
@@ -659,10 +672,69 @@ describe('admin', () => {
         const login = await app.inject({
             method: 'POST',
             url: '/api/v1/auth/login',
-            payload: { userId: created.json().id, locationId: lounge.id, pin: '3690' }
+            payload: { userId: created.json().id, locationId: espresso.id, pin: '3690' }
         });
         expect(login.statusCode).toBe(200);
-        expect(login.json().location.code).toBe('TCL');
+        expect(login.json().location.code).toBe('ESP');
+    });
+
+    it('places a kitchen login in one section, and that is all it sees', async () => {
+        const branches = (
+            await app.inject({ method: 'GET', url: '/api/v1/admin/branches', headers: H['admin']! })
+        ).json();
+        const gb = branches.find((b: { code: string }) => b.code === 'GB');
+        const kitchens = gb.sections.filter((s: { kind: string }) => s.kind === 'KITCHEN');
+        // Restaurant, Hot Kitchen and Pastry Kitchen.
+        expect(kitchens.length).toBeGreaterThanOrEqual(2);
+        const pastry = kitchens[kitchens.length - 1];
+
+        // A cleaning section is no place for a kitchen login.
+        const clean = gb.sections.find((s: { kind: string }) => s.kind === 'CLEAN');
+        if (clean) {
+            const wrong = await app.inject({
+                method: 'POST',
+                url: '/api/v1/admin/users',
+                headers: H['admin']!,
+                payload: {
+                    name: `Misplaced ${randomUUID().slice(0, 8)}`,
+                    role: 'kitchen',
+                    locationId: gb.id,
+                    sectionId: clean.id,
+                    pin: '3690'
+                }
+            });
+            expect(wrong.statusCode).toBe(400);
+        }
+
+        const created = await app.inject({
+            method: 'POST',
+            url: '/api/v1/admin/users',
+            headers: H['admin']!,
+            payload: {
+                name: `Pastry ${randomUUID().slice(0, 8)}`,
+                role: 'kitchen',
+                locationId: gb.id,
+                sectionId: pastry.id,
+                pin: '3690'
+            }
+        });
+        expect(created.statusCode).toBe(201);
+        expect(created.json().sectionId).toBe(pastry.id);
+
+        const login = await app.inject({
+            method: 'POST',
+            url: '/api/v1/auth/login',
+            payload: { userId: created.json().id, locationId: gb.id, pin: '3690' }
+        });
+        expect(login.statusCode).toBe(200);
+
+        const context = await app.inject({
+            method: 'GET',
+            url: '/api/v1/me/context',
+            headers: { authorization: `Bearer ${login.json().accessToken}` }
+        });
+        expect(context.json().mySectionIds).toEqual([pastry.id]);
+        expect(context.json().homeSectionId).toBe(pastry.id);
     });
 });
 

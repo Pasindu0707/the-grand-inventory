@@ -23,7 +23,8 @@ import { AuthStore } from '@/core/auth.store';
 import { NetworkStore } from '@/core/network.store';
 import { NotifyService } from '@/core/notify.service';
 import { ROLE_LABELS } from '@/core/types';
-import { NAV, type NavGroup } from './nav';
+import { BadgeStore } from '@/core/badge.store';
+import { NAV, type NavGroup, type NavItem } from './nav';
 import { ThemeStore } from './theme.store';
 
 @Component({
@@ -70,6 +71,13 @@ import { ThemeStore } from './theme.store';
                             >
                                 <i [class]="item.icon" aria-hidden="true"></i>
                                 <span>{{ item.label }}</span>
+                                @if (item.badge && badgeFor(item.badge) > 0) {
+                                    <span
+                                        class="rail__count"
+                                        [attr.aria-label]="badgeFor(item.badge) + ' new'"
+                                        >{{ badgeFor(item.badge) }}</span
+                                    >
+                                }
                             </a>
                         }
                     }
@@ -220,6 +228,7 @@ export class ConsoleLayout {
     readonly net = inject(NetworkStore);
     private notify = inject(NotifyService);
     private router = inject(Router);
+    private badges = inject(BadgeStore);
 
     readonly railOpen = signal(false);
     readonly outletOpen = signal(false);
@@ -234,6 +243,15 @@ export class ConsoleLayout {
 
     constructor() {
         this.net.startWatching();
+        // Re-read the counts beside the menu on every screen change.
+        this.router.events
+            .pipe(filter((e) => e instanceof NavigationEnd))
+            .subscribe(() => void this.badges.refresh());
+        void this.badges.refresh();
+    }
+
+    badgeFor(key: NonNullable<NavItem['badge']>): number {
+        return key === 'deliveryReports' ? this.badges.deliveryReports() : 0;
     }
 
     private readonly navigated = toSignal(

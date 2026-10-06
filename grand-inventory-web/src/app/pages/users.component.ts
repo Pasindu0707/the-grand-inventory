@@ -1,7 +1,9 @@
 /**
  * Manage logins. The admin's only screen.
  *
- * Four fields to add somebody: name, what they do, which branch, and a PIN.
+ * Four fields to add somebody: name, what they do, which branch, and a PIN -
+ * and for a kitchen or cleaning login, which section of that branch they work
+ * in, since that is the door they will tap on the branch's sign-in screen.
  * The PIN is shown once, in plain text, immediately after creating the account
  * - because the admin has to read it out to the person standing there, and a
  * system that hides it just gets a sticky note on the tablet instead.
@@ -154,6 +156,24 @@ const ROLE_HINTS: Record<Role, string> = {
                         }
                     </div>
 
+                    @if (sectionChoices().length > 0) {
+                        <div>
+                            <label class="block text-sm font-medium mb-1 app-req">Which section?</label>
+                            <select
+                                class="w-full px-3 py-2 rounded-lg border border-surface bg-surface-0 dark:bg-surface-900"
+                                [ngModel]="chosenSection()"
+                                (ngModelChange)="sectionId.set($event)">
+                                <option [ngValue]="null" disabled>Choose where they work</option>
+                                @for (sec of sectionChoices(); track sec.id) {
+                                    <option [ngValue]="sec.id">{{ sec.name }}</option>
+                                }
+                            </select>
+                            <p class="text-xs text-surface-500 mt-1">
+                                They will only see and ask for this section's stock.
+                            </p>
+                        </div>
+                    }
+
                     <div>
                         <label class="block text-sm font-medium mb-1 app-req">PIN (4 digits)</label>
                         <div class="flex items-center gap-2">
@@ -199,9 +219,24 @@ const ROLE_HINTS: Record<Role, string> = {
                                     </div>
                                     <div class="text-xs text-surface-500">
                                         {{ u.locationCode ?? 'All branches' }}
+                                        @if (u.sectionName) {
+                                            · {{ u.sectionName }}
+                                        }
                                     </div>
                                 </div>
                                 <div class="flex items-center gap-2">
+                                    @if (u.isActive && sectionsFor(u.role, u.locationId).length > 0) {
+                                        <select
+                                            class="px-2 py-1 text-sm rounded-lg border border-surface bg-surface-0 dark:bg-surface-900"
+                                            [attr.aria-label]="'Section for ' + u.name"
+                                            [ngModel]="u.sectionId"
+                                            (ngModelChange)="moveSection(u, $event)">
+                                            <option [ngValue]="null" disabled>Not placed</option>
+                                            @for (sec of sectionsFor(u.role, u.locationId); track sec.id) {
+                                                <option [ngValue]="sec.id">{{ sec.name }}</option>
+                                            }
+                                        </select>
+                                    }
                                     @if (!u.isActive) {
                                         <p-tag severity="secondary" value="Switched off"></p-tag>
                                         <button pButton size="small" outlined label="Turn back on" (click)="setActive(u, true)"></button>
@@ -253,10 +288,23 @@ export class UsersComponent implements OnInit {
     readonly name = signal('');
     readonly role = signal<Role>('kitchen');
     readonly locationId = signal<number | null>(null);
+    readonly sectionId = signal<number | null>(null);
     readonly pin = signal('');
 
+    /** The sections the person on the form could be placed in. */
+    readonly sectionChoices = computed(() => this.sectionsFor(this.role(), this.locationId()));
+
+    /** The pick, if it still fits after the role or branch changed under it. */
+    readonly chosenSection = computed(() => {
+        const id = this.sectionId();
+        return this.sectionChoices().some((s) => s.id === id) ? id : null;
+    });
+
     readonly canCreate = computed(
-        () => this.name().trim().length >= 2 && /^\d{4}$/.test(this.pin())
+        () =>
+            this.name().trim().length >= 2 &&
+            /^\d{4}$/.test(this.pin()) &&
+            (this.sectionChoices().length === 0 || this.chosenSection() !== null)
     );
 
     /**
@@ -330,6 +378,26 @@ export class UsersComponent implements OnInit {
         return ROLE_LABELS[role];
     }
 
+    /** Kitchen and cleaning logins belong to one section of their branch; nobody else does. */
+    sectionsFor(role: Role, locationId: number | null): Branch['sections'] {
+        const kind = role === 'kitchen' ? 'KITCHEN' : role === 'cleaning' ? 'CLEAN' : null;
+        if (!kind || locationId === null) return [];
+        const branch = this.branches().find((b) => b.id === locationId);
+        return branch?.sections.filter((s) => s.kind === kind) ?? [];
+    }
+
+    async moveSection(user: ManagedUser, sectionId: number): Promise<void> {
+        try {
+            await this.api.updateUser(user.id, { sectionId });
+            const name = this.sectionsFor(user.role, user.locationId).find((s) => s.id === sectionId)?.name;
+            this.notify.success(`${user.name} now signs in to ${name ?? 'that section'}`);
+            await this.load();
+        } catch (err) {
+            this.notify.error(apiErrorMessage(err));
+            await this.load();
+        }
+    }
+
     roleHint(role: Role): string {
         return ROLE_HINTS[role];
     }
@@ -337,6 +405,7 @@ export class UsersComponent implements OnInit {
     /** Opens the drawer on a clean form. The drawer closes itself (X, mask, Esc). */
     openAdd(): void {
         this.name.set('');
+        this.sectionId.set(null);
         this.pin.set('');
         this.suggestPin();
         this.adding.set(true);
@@ -364,6 +433,7 @@ export class UsersComponent implements OnInit {
                 name: this.name().trim(),
                 role: this.role(),
                 locationId: this.locationId(),
+                sectionId: this.chosenSection(),
                 pin: this.pin()
             });
             this.justCreated.set({ name: created.name, pin: this.pin() });

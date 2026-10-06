@@ -8,6 +8,11 @@ export interface AccessClaims {
     sub: number;
     name: string;
     role: UserRole;
+    /**
+     * The one section a kitchen or cleaning login works in. Null (or absent,
+     * on a token issued before this existed) means every section of its kind.
+     */
+    sectionId?: number | null;
     /** Home location. Null for group-wide roles (owner). */
     homeLocationId: number | null;
     /** Locations this user may act in. Owner gets every active location. */
@@ -172,8 +177,35 @@ function kindsVisibleTo(role: UserRole): string[] | 'all' {
     return kindsOwnedBy(role);
 }
 
-export async function sectionsOwnedBy(role: UserRole, locationId: number): Promise<number[]> {
-    const kinds = kindsOwnedBy(role);
+/** Who is asking, as far as sections go: the token claims satisfy this. */
+export interface SectionHolder {
+    role: UserRole;
+    sectionId?: number | null;
+}
+
+/**
+ * The section a login is placed in, if it is placed in one here.
+ *
+ * Null means "not placed" and the caller falls back to every section of the
+ * role's kinds. An empty list means placed somewhere else -- a section at
+ * another branch -- and so nothing here is theirs. Roles that own no kind
+ * (management, admin) are never placed, whatever the column says.
+ */
+async function placedSection(who: SectionHolder, locationId: number): Promise<number[] | null> {
+    if (!who.sectionId || kindsOwnedBy(who.role).length === 0) return null;
+    const row = await db
+        .selectFrom('sections')
+        .select('id')
+        .where('id', '=', who.sectionId)
+        .where('location_id', '=', locationId)
+        .executeTakeFirst();
+    return row ? [row.id] : [];
+}
+
+export async function sectionsOwnedBy(who: SectionHolder, locationId: number): Promise<number[]> {
+    const placed = await placedSection(who, locationId);
+    if (placed) return placed;
+    const kinds = kindsOwnedBy(who.role);
     if (kinds.length === 0) return [];
     const rows = await db
         .selectFrom('sections')
@@ -197,11 +229,11 @@ export async function sectionsOwnedBy(role: UserRole, locationId: number): Promi
  * branch. It only stops kitchen and cleaning reaching into each other.
  */
 export async function assertSectionAllowed(
-    role: UserRole,
+    who: SectionHolder,
     locationId: number,
     sectionId: number
 ): Promise<void> {
-    const mine = await sectionsForUser(role, locationId);
+    const mine = await sectionsForUser(who, locationId);
     if (!mine.includes(sectionId)) {
         throw forbidden('That section is not one of yours');
     }
@@ -247,8 +279,12 @@ export async function assertSectionOpen(...sectionIds: number[]): Promise<void> 
  * from this list would make last month's issues disappear from every screen
  * that filters by section.
  */
-export async function sectionsForUser(role: UserRole, locationId: number): Promise<number[]> {
-    const kinds = kindsVisibleTo(role);
+export async function sectionsForUser(who: SectionHolder, locationId: number): Promise<number[]> {
+    const kinds = kindsVisibleTo(who.role);
+    if (kinds !== 'all') {
+        const placed = await placedSection(who, locationId);
+        if (placed) return placed;
+    }
     let q = db.selectFrom('sections').select('id').where('location_id', '=', locationId);
     if (kinds !== 'all') q = q.where('kind', 'in', kinds);
     return (await q.execute()).map((r) => r.id);
@@ -283,13 +319,16 @@ export async function quarantineSectionFor(locationId: number): Promise<number> 
 
 /** The one section a role primarily works out of, for defaults in the UI. */
 export async function homeSectionFor(
-    role: UserRole,
+    who: SectionHolder,
     locationId: number
 ): Promise<number | null> {
+    const placed = await placedSection(who, locationId);
+    if (placed) return placed[0] ?? null;
+
     // Roles that stand at no shelf of their own default to the store, which is
     // where their work starts: it is the section a manager opening a count or
     // a stock screen means without saying so.
-    const kinds = kindsOwnedBy(role);
+    const kinds = kindsOwnedBy(who.role);
     const wanted = kinds.length > 0 ? kinds : ['STORE'];
 
     const row = await db

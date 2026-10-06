@@ -115,7 +115,13 @@ export class HomeComponent implements OnInit {
 
     readonly ctx = signal<MyContext | null>(null);
     readonly requests = signal<RequestRow[]>([]);
-    readonly counts = signal({ toRelease: 0, toConfirm: 0, posWaiting: 0, returned: 0 });
+    readonly counts = signal({
+        toRelease: 0,
+        toConfirm: 0,
+        posWaiting: 0,
+        returned: 0,
+        deliveryReports: 0
+    });
     readonly error = signal<string | null>(null);
 
     readonly greeting = computed(() => {
@@ -140,7 +146,7 @@ export class HomeComponent implements OnInit {
         const role = this.auth.role();
         if (!ctx || !role) return [];
 
-        const { toRelease, toConfirm, posWaiting, returned } = this.counts();
+        const { toRelease, toConfirm, posWaiting, returned, deliveryReports } = this.counts();
 
         // No admin branch: their home renders the logins screen itself, so the
         // tile that used to link across to it has nothing left to do.
@@ -223,6 +229,23 @@ export class HomeComponent implements OnInit {
             });
         }
 
+        /**
+         * What happened at the door: goods sent back with the driver, or an
+         * order left short. Management's to read; the count is the unread ones.
+         */
+        if (role === 'management') {
+            tiles.push({
+                label: 'Delivery reports',
+                hint:
+                    deliveryReports > 0
+                        ? 'Sent back at the door, or still to come'
+                        : 'Nothing new from the door',
+                icon: 'pi pi-bell',
+                link: '/delivery-reports',
+                count: deliveryReports
+            });
+        }
+
         if (ctx.seesAdvanced) {
             tiles.push({
                 label: 'Reports',
@@ -251,7 +274,7 @@ export class HomeComponent implements OnInit {
             // into "8 of the first 25 are to confirm", which is worse than no
             // badge at all - it looks precise and is not.
             const canSeeReturns = ctx.role === 'management' || ctx.role === 'storekeeper';
-            const [waiting, toRelease, toConfirm, posWaiting, returned] = await Promise.all([
+            const [waiting, toRelease, toConfirm, posWaiting, returned, reports] = await Promise.all([
                 // Enough rows for the "Waiting for you" list, which shows five.
                 this.api.listRequests({ needsMe: true, limit: 20 }),
                 this.api.listRequests({ status: 'requested', limit: 1 }),
@@ -261,6 +284,9 @@ export class HomeComponent implements OnInit {
                 // has no tile for this, so it is not asked for.
                 canSeeReturns
                     ? this.api.listSectionReturns({ awaitingSupplier: true, limit: 1 })
+                    : Promise.resolve({ total: 0 }),
+                ctx.role === 'management'
+                    ? this.api.listDeliveryReports({ unseen: true, limit: 1 })
                     : Promise.resolve({ total: 0 })
             ]);
 
@@ -269,7 +295,8 @@ export class HomeComponent implements OnInit {
                 toRelease: toRelease.total,
                 toConfirm: toConfirm.total,
                 posWaiting: posWaiting.total,
-                returned: returned.total
+                returned: returned.total,
+                deliveryReports: reports.total
             });
         } catch (err) {
             this.error.set(apiErrorMessage(err));

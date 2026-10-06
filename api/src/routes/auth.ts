@@ -55,7 +55,8 @@ export async function authRoutes(app: FastifyInstance) {
 
     /**
      * Everything the login screen needs before anyone has authenticated:
-     * which outlets exist and who works at each.
+     * which outlets exist, the sections people sign in to at each, and who
+     * works where.
      *
      * This deliberately lists names. The device is a shared tablet in a store
      * room -- people tap their own face rather than typing an email -- so the
@@ -72,12 +73,26 @@ export async function authRoutes(app: FastifyInstance) {
                         locations: z.array(
                             z.object({ id: z.number(), code: z.string(), name: z.string() })
                         ),
+                        /**
+                         * The sections a login can belong to -- kitchens and
+                         * cleaning -- which the screen offers as doors beside
+                         * the roles that run the whole branch.
+                         */
+                        sections: z.array(
+                            z.object({
+                                id: z.number(),
+                                locationId: z.number(),
+                                name: z.string(),
+                                kind: z.string(),
+                            })
+                        ),
                         users: z.array(
                             z.object({
                                 id: z.number(),
                                 name: z.string(),
                                 role: ROLE,
                                 locationId: z.number().nullable(),
+                                sectionId: z.number().nullable(),
                             })
                         ),
                     }),
@@ -85,7 +100,7 @@ export async function authRoutes(app: FastifyInstance) {
             },
         },
         async () => {
-            const [locations, users] = await Promise.all([
+            const [locations, sections, users] = await Promise.all([
                 db
                     .selectFrom('locations')
                     .select(['id', 'code', 'name'])
@@ -93,8 +108,17 @@ export async function authRoutes(app: FastifyInstance) {
                     .orderBy('id')
                     .execute(),
                 db
+                    .selectFrom('sections as s')
+                    .innerJoin('locations as l', 'l.id', 's.location_id')
+                    .select(['s.id', 's.location_id', 's.name', 's.kind'])
+                    .where('s.is_active', '=', true)
+                    .where('l.is_active', '=', true)
+                    .where('s.kind', 'in', ['KITCHEN', 'CLEAN'])
+                    .orderBy('s.id')
+                    .execute(),
+                db
                     .selectFrom('users')
-                    .select(['id', 'name', 'role', 'location_id'])
+                    .select(['id', 'name', 'role', 'location_id', 'section_id'])
                     .where('is_active', '=', true)
                     .orderBy('name')
                     .execute(),
@@ -102,11 +126,18 @@ export async function authRoutes(app: FastifyInstance) {
 
             return {
                 locations,
+                sections: sections.map((s) => ({
+                    id: s.id,
+                    locationId: s.location_id,
+                    name: s.name,
+                    kind: s.kind,
+                })),
                 users: users.map((u) => ({
                     id: u.id,
                     name: u.name,
                     role: u.role,
                     locationId: u.location_id,
+                    sectionId: u.section_id,
                 })),
             };
         }
@@ -204,6 +235,7 @@ export async function authRoutes(app: FastifyInstance) {
                 sub: user.id,
                 name: user.name,
                 role: user.role,
+                sectionId: user.section_id,
                 homeLocationId: user.location_id,
                 locations,
             };
@@ -276,7 +308,13 @@ async function recordFailure(userId: number, userExists: boolean) {
 
 async function buildSession(
     app: FastifyInstance,
-    user: { id: number; name: string; role: AccessClaims['role']; location_id: number | null },
+    user: {
+        id: number;
+        name: string;
+        role: AccessClaims['role'];
+        location_id: number | null;
+        section_id: number | null;
+    },
     locationId: number,
     allowed: number[]
 ) {
@@ -304,6 +342,7 @@ async function buildSession(
         sub: user.id,
         name: user.name,
         role: user.role,
+        sectionId: user.section_id,
         homeLocationId: user.location_id,
         locations: allowed,
     };

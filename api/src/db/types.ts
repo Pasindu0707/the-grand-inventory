@@ -90,6 +90,8 @@ export interface SectionsTable {
 export interface UsersTable {
     id: Generated<number>;
     location_id: number | null;
+    /** The one section a kitchen or cleaning login works in. Null for everyone else. */
+    section_id: Generated<number | null>;
     name: string;
     phone: string | null;
     role: UserRole;
@@ -105,6 +107,22 @@ export interface SuppliersTable {
     vat_no: string | null;
     payment_terms: string | null;
     is_active: Generated<boolean>;
+    is_demo: Generated<boolean>;
+}
+
+/**
+ * What a supplier delivers. Either an item from the item master, or a product
+ * typed in by name that the item master does not have -- never both.
+ */
+export interface SupplierItemsTable {
+    id: Generated<number>;
+    supplier_id: number;
+    item_id: number | null;
+    name: string | null;
+    /** What a named product is counted in. Null for items, which have packs. */
+    unit: string | null;
+    added_by: number | null;
+    added_at: Generated<Ts>;
     is_demo: Generated<boolean>;
 }
 
@@ -125,7 +143,6 @@ export interface ItemsTable {
     par_level: Generated<number>;
     reorder_point: Generated<number>;
     shelf_life_days: number | null;
-    is_critical: Generated<boolean>;
     is_active: Generated<boolean>;
     is_demo: Generated<boolean>;
 }
@@ -176,6 +193,46 @@ export interface GrnTable {
     photo_url: string | null;
     /** Set when this delivery was entered against a purchase order. */
     po_id: string | null;
+    /** Came with refusals, or left something outstanding. See 0012. */
+    needs_review: Generated<boolean>;
+    reviewed_by: number | null;
+    reviewed_at: ColumnType<Date | null, Date | null | undefined, Date | null>;
+    is_demo: Generated<boolean>;
+}
+
+/** Goods refused at the door and sent back on the same lorry. Not stock. */
+/**
+ * What one delivery found owing on one order line, as it was that day (0015).
+ * Written once when the delivery is taken, never updated.
+ */
+export interface GrnOrderLinesTable {
+    grn_id: string | number;
+    po_line_id: string | number;
+    qty_ordered_base: number;
+    qty_owed_before_base: number;
+    qty_received_base: Generated<number>;
+    qty_refused_base: Generated<number>;
+    qty_credited_base: Generated<number>;
+    qty_over_base: Generated<number>;
+    is_demo: Generated<boolean>;
+}
+
+export interface GrnRejectionsTable {
+    id: Generated<string>;
+    grn_id: string | number;
+    po_line_id: string | number;
+    item_id: number | null;
+    item_pack_id: number | null;
+    description: string | null;
+    unit: string | null;
+    qty_packs: number;
+    qty_base: number;
+    reason_code: string;
+    note: string | null;
+    outcome: 'replacement' | 'credit';
+    credit_note_no: string | null;
+    credit_recorded_by: number | null;
+    credit_recorded_at: ColumnType<Date | null, Date | null | undefined, Date | null>;
     is_demo: Generated<boolean>;
 }
 
@@ -231,7 +288,8 @@ export interface PurchaseOrdersTable {
 export interface PurchaseOrderLinesTable {
     id: Generated<string>;
     po_id: string | number;
-    item_id: number;
+    /** Null for a product the item master does not have; see `description`. */
+    item_id: number | null;
     qty_base: number;
     qty_in_store: Generated<number>;
     /**
@@ -242,6 +300,26 @@ export interface PurchaseOrderLinesTable {
     qty_packs: number | null;
     /** Accumulated across deliveries, in stock units. */
     qty_received_base: Generated<number>;
+    /** A product ordered by name rather than from the item master. */
+    description: string | null;
+    unit: string | null;
+    /** Management took the undelivered balance off the order. See 0011. */
+    voided_at: ColumnType<Date | null, Date | null | undefined, Date | null>;
+    voided_by: number | null;
+    void_reason: string | null;
+    /** Refused at the door and settled by credit note. See 0012. */
+    qty_credited_base: Generated<number>;
+    is_demo: Generated<boolean>;
+}
+
+/** A product ordered by name that arrived on a delivery. Not stock. */
+export interface GrnOtherLinesTable {
+    id: Generated<string>;
+    grn_id: string | number;
+    po_line_id: string | number | null;
+    description: string;
+    unit: string | null;
+    qty: number;
     is_demo: Generated<boolean>;
 }
 
@@ -477,6 +555,7 @@ export interface Database {
     sections: SectionsTable;
     users: UsersTable;
     suppliers: SuppliersTable;
+    supplier_items: SupplierItemsTable;
     item_categories: ItemCategoriesTable;
     items: ItemsTable;
     item_packs: ItemPacksTable;
@@ -484,6 +563,9 @@ export interface Database {
     stock_ledger: StockLedgerTable;
     grn: GrnTable;
     grn_lines: GrnLinesTable;
+    grn_other_lines: GrnOtherLinesTable;
+    grn_rejections: GrnRejectionsTable;
+    grn_order_lines: GrnOrderLinesTable;
     issues: IssuesTable;
     issue_lines: IssueLinesTable;
     wastage: WastageTable;

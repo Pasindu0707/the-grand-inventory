@@ -16,7 +16,8 @@ import { db } from '../db/index.js';
 import { badRequest, conflict, notFound } from '../errors.js';
 import { audit, businessDateFor, postDocument, type LedgerLine } from './ledger.js';
 
-export type CountType = 'daily_critical' | 'weekly_full' | 'monthly_full';
+/** Weekly and monthly, both in full. There is no daily count. */
+export type CountType = 'weekly_full' | 'monthly_full';
 
 export interface OpenCountInput {
     locationId: number;
@@ -75,13 +76,13 @@ export async function openCount(input: OpenCountInput): Promise<{ id: string; li
             .returning('id')
             .executeTakeFirstOrThrow();
 
-        // Scope: the daily count covers only the critical items, because a
-        // storekeeper asked to count 100 lines every morning will start
-        // guessing by Thursday. A full count covers everything the section
-        // currently holds.
-        let itemsQuery = db
+        // Scope: everything the section holds. Weekly and monthly cover the
+        // same lines -- the type records which routine the count belonged to,
+        // not a different list. "Holds" is anything with a ledger history on
+        // this shelf, so an item that ran out is still counted at zero.
+        const itemsQuery = db
             .selectFrom('items')
-            .leftJoin('current_stock as cs', (join) =>
+            .innerJoin('current_stock as cs', (join) =>
                 join.onRef('cs.item_id', '=', 'items.id').on('cs.section_id', '=', input.sectionId)
             )
             .select([
@@ -92,38 +93,6 @@ export async function openCount(input: OpenCountInput): Promise<{ id: string; li
                 'cs.qty_base as qtyBase'
             ])
             .where('items.is_active', '=', true);
-
-        if (input.countType === 'daily_critical') {
-            // Critical *and* actually on this section's shelves. Filtering on
-            // the flag alone asked the bar - which holds nine items - for all
-            // thirty-two critical items in the group, most of which it has
-            // never stocked. Counting things that are not there is how a daily
-            // count turns into a form-filling exercise.
-            //
-            // Some sections hold nothing anybody flagged critical - cleaning is
-            // one. Rather than refuse them a daily count, they get what they
-            // actually hold, which is a short list anyway.
-            const criticalHere = await db
-                .selectFrom('items')
-                .innerJoin('current_stock as cs', (join) =>
-                    join
-                        .onRef('cs.item_id', '=', 'items.id')
-                        .on('cs.section_id', '=', input.sectionId)
-                )
-                .select(({ fn }) => fn.countAll().as('n'))
-                .where('items.is_active', '=', true)
-                .where('items.is_critical', '=', true)
-                .executeTakeFirst();
-
-            itemsQuery = itemsQuery.where('cs.qty_base', 'is not', null);
-            if (Number(criticalHere?.n ?? 0) > 0) {
-                itemsQuery = itemsQuery.where('items.is_critical', '=', true);
-            }
-        } else {
-            itemsQuery = itemsQuery.where((eb) =>
-                eb.or([eb('cs.qty_base', 'is not', null), eb('items.is_critical', '=', true)])
-            );
-        }
 
         const items = await itemsQuery.orderBy('items.name').execute();
         if (items.length === 0) {
